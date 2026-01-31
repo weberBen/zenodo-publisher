@@ -252,7 +252,7 @@ def upload_file(
     access_token: str,
     deposition_id: str,
     file_path: Path,
-    zenodo_api_url: str
+    zenodo_api_url: str,
 ) -> None:
     """
     Upload a file to a Zenodo deposition.
@@ -367,8 +367,7 @@ def publish_deposition(
 
 
 def publish_new_version(
-    project_root: Path,
-    pdf_path: Path,
+    archived_files: list[tuple[Path, str]],
     tag_name: str,
     access_token: str,
     concept_doi: str,
@@ -378,8 +377,7 @@ def publish_new_version(
     Publish a new version on Zenodo.
 
     Args:
-        project_root: Path to project root
-        pdf_path: Path to PDF file to upload
+        archived_files: List of tuples (file_path, md5_checksum) to upload
         tag_name: Tag name (used as version)
         access_token: Zenodo access token
         concept_doi: Concept DOI of existing record
@@ -405,10 +403,17 @@ def publish_new_version(
     delete_existing_files(access_token, deposition_id, zenodo_api_url)
     print("  ✓ Old files removed")
 
-    # Upload new files
-    print(f"  Uploading {pdf_path.name}...")
-    upload_file(access_token, deposition_id, pdf_path, zenodo_api_url)
-    print("  ✓ File uploaded")
+    # Upload all files (PDF first for default preview on the old API)
+    sorted_files = sorted(
+        archived_files,
+        key=lambda x: x[0].suffix.lower() != '.pdf'  # False (0) pour PDF, True (1) pour autres
+    )
+
+    for file_path, _ in sorted_files:
+        print(f"  Uploading {file_path.name}...")
+        upload_file(access_token, deposition_id, file_path, zenodo_api_url)
+        print(f"  ✓ {file_path.name} uploaded")
+
 
     # Update metadata with version
     print(f"  Updating metadata (version: {tag_name})...")

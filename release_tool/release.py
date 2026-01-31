@@ -145,18 +145,17 @@ def run_release() -> int:
     
     try:
         zenodo_doi = publish_new_version(
-            config.project_root,
-            archived_pdf,
+            archived_files,
             tag_name,
             config.zenodo_token,
             config.zenodo_concept_doi,
             config.zenodo_api_url
         )
-        
+
         print(f"  Zenodo DOI: {zenodo_doi}")
         print(f"\n✅ Publication {tag_name} completed successfully!")
-        
+
     except ZenodoError as e:
         print(f"\n⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)
-        print(f"  You can manually upload {archived_pdf.name} to Zenodo")
+        print(f"  You can manually upload files to Zenodo")
         return
