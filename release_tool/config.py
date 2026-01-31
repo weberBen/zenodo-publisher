@@ -79,8 +79,17 @@ class Config:
                 f"Check LATEX_DIR in .env file"
             )
         
-        # PDF configuration
-        self.archive_dir = self.env_vars.get("ARCHIVE_DIR", "")
+        # Archive configuration
+        # ARCHIVE_TYPES: comma-separated list of what to archive (pdf, project)
+        archive_types_str = self.env_vars.get("ARCHIVE_TYPES", "pdf")
+        self.archive_types = [t.strip() for t in archive_types_str.split(",") if t.strip()]
+
+        # PERSIST_TYPES: comma-separated list of what to persist to archive_dir (pdf, project)
+        # Items not in this list will be created as temp files
+        persist_types_str = self.env_vars.get("PERSIST_TYPES", "pdf")
+        self.persist_types = [t.strip() for t in persist_types_str.split(",") if t.strip()]
+
+        self.archive_dir = Path(self.env_vars.get("ARCHIVE_DIR", "")) if self.env_vars.get("ARCHIVE_DIR") else None
         self.pdf_base_name = self.env_vars.get("PDF_BASE_NAME", "main.pdf").replace(".pdf", "")
         self.base_name = self.env_vars.get("BASE_NAME", "")
         if not self.base_name:

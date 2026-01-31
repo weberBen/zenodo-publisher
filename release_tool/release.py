@@ -14,7 +14,7 @@ from .git_operations import (
     GitHubError,
 )
 from .zenodo_operations import publish_new_version, ZenodoError
-from .archive_operation import archive_pdf
+from .archive_operation import archive
 
 
 def prompt_user(prompt: str) -> str:
@@ -124,8 +124,11 @@ def run_release() -> int:
         tag_name = new_tag
 
     # Rename PDF
-    archived_pdf = archive_pdf(config, tag_name)   
-    print(f"\n✅ PDF {archived_pdf.name} available at {archived_pdf}")
+    archived_files = archive(config, tag_name)   
+    print(f"\n✅ Archived files:")
+    for file_path, md5 in archived_files:
+        print(f"   • {file_path.name}")
+        print(f"     MD5: {md5}")
     
     
     release_title = prompt_user(

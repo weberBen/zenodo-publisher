@@ -4,7 +4,7 @@ import subprocess
 import json
 from pathlib import Path
 from typing import Optional
-
+import tempfile
 
 class GitError(Exception):
     """Git operation error."""
@@ -336,3 +336,42 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
         )
 
     print(f"✓ Release '{tag_name}' points to the latest commit")
+
+def archive_project(
+    project_root: Path,
+    tag_name: str,
+    base_name: str,
+    archive_dir: Optional[Path] = None,
+    persist: bool = False
+) -> Path:
+    """
+    Create a zip archive of the project at the given tag.
+
+    Args:
+        project_root: Path to project root
+        tag_name: Git tag to archive
+        base_name: Base name for the archive
+        archive_dir: Directory to save the archive (required if persist=True)
+        persist: If True, save to archive_dir; if False, create temp file
+
+    Returns:
+        Path to the zip file
+
+    Raises:
+        GitError: If archive creation fails
+    """
+    archive_name = f"{base_name}-{tag_name}"
+
+    if persist and archive_dir:
+        output_file = archive_dir / f"{archive_name}.zip"
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".zip", prefix=f"{archive_name}_", delete=False) as f:
+            output_file = Path(f.name)
+
+    run_git_command(
+        ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), tag_name],
+        project_root
+    )
+
+    print(f"✓ Created archive: {output_file}")
+    return output_file
