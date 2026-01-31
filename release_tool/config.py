@@ -78,10 +78,32 @@ class Config:
                 f"LaTeX directory not found: {self.latex_dir}\n"
                 f"Check LATEX_DIR in .env file"
             )
+        
+        # PDF configuration
+        self.base_name = self.env_vars.get("BASE_NAME", "")
+        if not self.base_name:
+            raise ValueError(
+                "BASE_NAME not set in .env file\n"
+                "This is used for naming the PDF file"
+            )
+        
+        self.publisher_type = self.env_vars.get("PUBLISHER_TYPE", None)
+        # Zenodo configuration (optional - only needed if publishing to Zenodo)
+        self.zenodo_token = self.env_vars.get("ZENODO_TOKEN", "")
+        self.zenodo_concept_doi = self.env_vars.get("ZENODO_CONCEPT_DOI", "")
+        self.zenodo_api_url = self.env_vars.get(
+            "ZENODO_API_URL",
+            "https://zenodo.org/api"
+        )
+
+    def has_zenodo_config(self) -> bool:
+        """Check if Zenodo configuration is complete."""
+        return (self.publisher_type is not None)
 
     def __repr__(self) -> str:
         return (
             f"Config(project_root={self.project_root}, "
             f"main_branch={self.main_branch}, "
-            f"latex_dir={self.latex_dir})"
+            f"latex_dir={self.latex_dir}, "
+            f"base_name={self.base_name})"
         )

@@ -80,6 +80,18 @@ def is_up_to_date_with_remote(project_root: Path, main_branch: str) -> bool:
     remote = run_git_command(["rev-parse", f"origin/{main_branch}"], project_root)
     return local == remote
 
+def has_local_modifs(project_root: Path, main_branch: str) -> bool:
+    """
+    Check if working directory is clean (no local modifications).
+    
+    Uses 'git status --porcelain' which returns empty output if clean.
+    
+    Returns:
+        True if no modifications, False if there are changes
+    """
+    output = run_git_command(["status", "--porcelain"], project_root)
+    return output.strip() != ""
+    
 
 def check_up_to_date(project_root: Path, main_branch: str) -> None:
     """
@@ -93,9 +105,14 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
     if not is_up_to_date_with_remote(project_root, main_branch):
         raise GitError(
             f"Local branch is not up to date with origin/{main_branch}\n"
-            f"Please pull the latest changes first"
+            f"Please pull/push the latest changes first"
         )
-
+    if has_local_modifs(project_root, main_branch):
+        raise GitError(
+            f"Local branch has local modififs/commit\n"
+            f"Please pull/push the latest changes first"
+        )
+        
     print(f"✓ Repository is up to date with origin/{main_branch}")
 
 

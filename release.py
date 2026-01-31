@@ -21,4 +21,4 @@ from release_tool.release import run_release
 
 
 if __name__ == "__main__":
-    sys.exit(run_release())
+    run_release()

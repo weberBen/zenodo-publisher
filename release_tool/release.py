@@ -1,6 +1,8 @@
 """Main release logic."""
 
 import sys
+import shutil
+from pathlib import Path
 from .config import Config
 from .latex_build import build_latex
 from .git_operations import (
@@ -13,6 +15,7 @@ from .git_operations import (
     GitError,
     GitHubError,
 )
+from .zenodo_operations import publish_new_version, ZenodoError
 
 
 def prompt_user(prompt: str) -> str:
@@ -28,6 +31,38 @@ def prompt_user(prompt: str) -> str:
     return input(f"{prompt}: ").strip()
 
 
+def rename_pdf(latex_dir: Path, base_name: str, tag_name: str) -> Path:
+    """
+    Rename main.pdf to {base_name}-{tag_name}.pdf.
+
+    Args:
+        latex_dir: Path to LaTeX directory
+        base_name: Base name for the PDF
+        tag_name: Tag name (version)
+
+    Returns:
+        Path to renamed PDF file
+
+    Raises:
+        FileNotFoundError: If main.pdf doesn't exist
+    """
+    main_pdf = latex_dir / "main.pdf"
+    if not main_pdf.exists():
+        raise FileNotFoundError(
+            f"main.pdf not found at {main_pdf}\n"
+            f"Make sure LaTeX build completed successfully"
+        )
+
+    new_name = f"{base_name}-{tag_name}.pdf"
+    new_pdf = latex_dir / new_name
+
+    print(f"\n📝 Renaming PDF: main.pdf → {new_name}")
+    shutil.copy2(main_pdf, new_pdf)
+    print(f"✓ PDF renamed to {new_name}")
+
+    return new_pdf
+
+
 def run_release() -> int:
     """
     Main release process.
@@ -35,33 +70,34 @@ def run_release() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    try:
-        # Load configuration
-        print("⚙️  Loading configuration...")
-        config = Config()
-        print(f"✓ Project root: {config.project_root}")
-        print(f"✓ Main branch: {config.main_branch}")
 
-        # Build LaTeX
-        build_latex(config.latex_dir)
+    # Load configuration
+    print("⚙️  Loading configuration...")
+    config = Config()
+    print(f"✓ Project root: {config.project_root}")
+    print(f"✓ Main branch: {config.main_branch}")
 
-        # Check git status
-        print("\n🔍 Checking git repository status...")
-        check_on_main_branch(config.project_root, config.main_branch)
-        print(f"✓ On {config.main_branch} branch")
+    # Build LaTeX
+    build_latex(config.latex_dir)
 
-        check_up_to_date(config.project_root, config.main_branch)
+    # Check git status
+    print("\n🔍 Checking git repository status...")
+    check_on_main_branch(config.project_root, config.main_branch)
+    print(f"✓ On {config.main_branch} branch")
 
-        # Check if latest commit already has a release
-        is_released, latest_release = is_latest_commit_released(config.project_root)
+    check_up_to_date(config.project_root, config.main_branch)
 
-        if is_released:
-            print(
-                f"\n✓ Latest commit already has a release: "
-                f"{latest_release['tagName']}"
-            )
-            print("Nothing to do. Exiting.")
-            return 0
+    # Check if latest commit already has a release
+    is_released, latest_release = is_latest_commit_released(config.project_root)
+
+    tag_name = latest_release['tagName']
+    if is_released:
+        print(
+            f"\n✓ Latest commit already has a release: "
+            f"{tag_name}"
+        )
+        print("✅ Nothing to do for release.")
+    else:
 
         # Display latest release info
         print("\n📋 Current release status:")
@@ -115,16 +151,53 @@ def run_release() -> int:
         print("\n🔍 Final verification...")
         check_up_to_date(config.project_root, config.main_branch)
         verify_release_on_latest_commit(config.project_root, new_tag)
+        
+        print(f"\n✅ Release {tag_name} completed successfully!")
+        
+        tag_name = new_tag
 
-        print(f"\n✅ Release {new_tag} completed successfully!")
-        return 0
+    # Rename PDF
+    renamed_pdf = rename_pdf(config.latex_dir, config.base_name, tag_name)   
+    print(f"\n✅ PDF {renamed_pdf.name} available at {renamed_pdf}")
+    
+    
+    release_title = prompt_user(
+        f"Publish version (enter publish) ? [publish/no]"
+    )
+    if release_title != "publish":
+        print(f"No publication made")
+        return
+        
+    # Publish to Zenodo if configured
+    if not config.has_zenodo_config():
+        print("\n\n⚠️  No publisher set")
+        return
+    
+    try:
+        zenodo_doi = publish_new_version(
+            config.project_root,
+            renamed_pdf,
+            tag_name,
+            config.zenodo_token,
+            config.zenodo_concept_doi,
+            config.zenodo_api_url
+        )
+        
+        print(f"  Zenodo DOI: {zenodo_doi}")
+        print(f"\n✅ Publication {tag_name} completed successfully!")
+        
+    except ZenodoError as e:
+        print(f"\n⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)
+        print(f"  You can manually upload {renamed_pdf.name} to Zenodo")
+        return
+        
 
-    except (GitError, GitHubError, RuntimeError, FileNotFoundError) as e:
-        print(f"\n❌ Error: {e}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Release cancelled by user")
-        return 1
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}", file=sys.stderr)
-        return 1
+    # except (GitError, GitHubError, RuntimeError, FileNotFoundError, ValueError) as e:
+    #     print(f"\n❌ Error: {e}", file=sys.stderr)
+    #     return 1
+    # except KeyboardInterrupt:
+    #     print("\n\n⚠️  Release cancelled by user")
+    #     return 1
+    # except Exception as e:
+    #     print(f"\n❌ Unexpected error: {e}", file=sys.stderr)
+    #     return 1
