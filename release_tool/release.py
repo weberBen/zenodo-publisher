@@ -162,7 +162,7 @@ def run_release() -> int:
     )
 
     try:
-        record_id = publisher.check_update_needed(tag_name, archived_files)
+        publisher.check_update_needed(tag_name, archived_files)
     except ZenodoNoUpdateNeeded as e:
         print(f"\n{PROJECT_HOSTNAME} ✅ {e}")
         return
@@ -175,7 +175,7 @@ def run_release() -> int:
         return
 
     try:
-        zenodo_doi = publisher.publish_new_version(archived_files, tag_name, record_id)
+        zenodo_doi = publisher.publish_new_version(archived_files, tag_name)
         print(f"  Zenodo DOI: {zenodo_doi}")
         print(f"\n{PROJECT_HOSTNAME} ✅ Publication {tag_name} completed successfully!")
 

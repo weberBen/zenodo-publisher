@@ -116,7 +116,7 @@ class ZenodoPublisher:
         
     @auto_cached_property("deposit")
     def _get_deposit(self):
-        return self.client.deposit.depositions(self.last_recor.data["id"])
+        return self.client.deposit.depositions(self.last_record.data["id"])
     
     def _has_draft_version(self, draft_version_record):
         created = draft_version_record.get("created", datetime.now())
@@ -300,3 +300,5 @@ class ZenodoPublisher:
 
         except Exception as e:
             raise ZenodoError(f"Failed to publish new version: {e}")
+        finally:
+            self._reset()
