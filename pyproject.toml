@@ -9,6 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
+zenodo-publisher = "release_tool.release:run_release"
 zp = "release_tool.release:run_release"
 
 [build-system]
