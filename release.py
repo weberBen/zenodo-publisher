@@ -18,10 +18,10 @@ if __name__ == "__main__":
         help='Working directory (default: current directory)'
     )
     parser.add_argument(
-        '--safeguard-prompt-response',
-        type=bool,
-        default=True,
-        help='Working directory (default: current directory)'
+        '--safeguard-validation-level',
+        type=str,
+        default="strict",
+        help='Select the level of safeguard validation for prompt (strict, light, danger)'
     )
     args = parser.parse_args()
     
@@ -30,5 +30,5 @@ if __name__ == "__main__":
         os.chdir(args.work_dir)
     
     run_release(
-        safeguard_prompt_response=args.safeguard_prompt_response
+        safeguard_validation_level=args.safeguard_validation_level.lower()
     )

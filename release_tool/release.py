@@ -33,7 +33,7 @@ def prompt_user(prompt: str) -> str:
 
 
 def run_release(
-    safeguard_prompt_response: bool
+    safeguard_validation_level: bool
     ) -> int:
     """
     Main release process.
@@ -41,6 +41,19 @@ def run_release(
     Returns:
         Exit code (0 for success, 1 for error)
     """
+    
+    if safeguard_validation_level == "light":
+        prompt_validation = "y/n"
+        def validated_response(response, project_name):
+            if not response or (response.lower in ["Y", "y"]):
+                return True
+            return False
+    else:
+        prompt_validation = "enter project name"
+        def validated_response(response, project_name):
+            if response and response.lower == project_name:
+                return True
+            return False
 
     # Load configuration
     print("⚙️  Loading configuration...")
@@ -56,16 +69,14 @@ def run_release(
     project_name = config.project_root.name
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
     
-    prompt_validation = "enter project name" if safeguard_prompt_response else "y/n"
-    start_process = prompt_user(
+    
+    response = prompt_user(
         f"{PROJECT_HOSTNAME} Start process ? {prompt_validation}"
     )
-    if not safeguard_prompt_response and start_process and (start_process.lower in ["n", "no"]):
+    if not validated_response(response, project_name=project_name):
         print("{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
         return
-    elif (not start_process) or (start_process.lower() != project_name):
-        print("❌ Exit process.\nNothing done.")
-        return 
+
 
     # Build LaTeX
     print(f"{PROJECT_HOSTNAME} 📋 Starting latex build process...")
@@ -172,14 +183,10 @@ def run_release(
     if up_to_date:
         return
 
-    prompt_validation = "enter project name" if safeguard_prompt_response else "y/n"
-    release_title = prompt_user(
+    response = prompt_user(
         f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [{prompt_validation}]"
     )
-    if not safeguard_prompt_response and start_process and (start_process.lower in ["n", "no"]):
-        print(f"{PROJECT_HOSTNAME} ❌ Exit process.\n⚠️ No publication made")
-        return
-    if (not release_title) or (release_title.lower() != project_name):
+    if not validated_response(response, project_name=project_name):
         print(f"{PROJECT_HOSTNAME} ❌ Exit process.\n⚠️ No publication made")
         return
 
