@@ -28,9 +28,14 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
     raise RuntimeError("Cannot find project root (no .git directory found)")
 
 
+class NotInitializedError(Exception):
+    """Project not initialized for Zenodo publisher."""
+    pass
+
+
 def load_env(project_root: Path) -> dict[str, str]:
     """
-    Load environment variables from .env file.
+    Load environment variables from .zenodo.env file.
 
     Args:
         project_root: Path to project root
@@ -39,14 +44,14 @@ def load_env(project_root: Path) -> dict[str, str]:
         Dictionary of environment variables
 
     Raises:
-        FileNotFoundError: If .env file doesn't exist
+        NotInitializedError: If .zenodo.env file doesn't exist
     """
-    env_file = project_root / ".env"
+    env_file = project_root / ".zenodo.env"
 
     if not env_file.exists():
-        raise FileNotFoundError(
-            f".env file not found at {env_file}\n"
-            f"Create one from .env.example"
+        raise NotInitializedError(
+            f"Project not initialized for Zenodo publisher.\n"
+            f"Missing: {env_file}\n"
         )
 
     env_vars = {}

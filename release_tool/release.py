@@ -1,7 +1,7 @@
 """Main release logic."""
 
 import sys
-from .config import Config
+from .config import Config, NotInitializedError
 from .latex_build import build_latex
 from .git_operations import (
     check_on_main_branch,
@@ -40,7 +40,12 @@ def run_release() -> int:
 
     # Load configuration
     print("⚙️  Loading configuration...")
-    config = Config()
+    try:
+        config = Config()
+    except NotInitializedError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        return
+    
     print(f"✓ Project root: {config.project_root}")
     print(f"✓ Main branch: {config.main_branch}")
 
