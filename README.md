@@ -27,13 +27,36 @@ This tool is **not recommended** for highly collaborative projects where multipl
 # Clone or copy this tool somewhere
 git clone <repo-url> zenodo-publisher
 cd zenodo-publisher
+```
 
-# Install with uv
-uv sync
+Install the tool globally
 
+```bash
 # Or install globally
 uv tool install .
 ```
+
+Or locally by running the `bash` launcher
+```bash
+uv sync
+```
+
+Then
+```bash
+chmod +x zp.bash
+```
+
+## Usage
+
+```bash
+# From your project directory (where .zenodo.env is located)
+zp
+# or zp.bash or any symlink to the bash launcher if the tool is not installed globally
+```
+
+Then use the script at the root of your project.
+
+You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). See the associated readme for instruction.
 
 
 ## Project Setup
@@ -99,20 +122,6 @@ This is highly recommanded, not mandatory, but without theses the only reference
 | `ARCHIVE_TYPES` | No | `pdf` | What to archive: `pdf`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | `pdf` | What to save to `ARCHIVE_DIR` (rest goes to temp) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
-
-## Usage
-
-```bash
-# From your project directory (where .zenodo.env is located)
-zenodo-publisher
-
-# Or run directly
-uv run python /path/to/zenodo-publisher/release.py
-```
-
-Then use the script at the root of your project.
-
-You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). See the associated readme for instruction.
 
 ## How It Works
 
