@@ -13,7 +13,7 @@ from .git_operations import (
     GitError,
     GitHubError,
 )
-from .zenodo_operations import publish_new_version, ZenodoError, ZenodoNoUpdateNeeded, check_zenodo_up_to_date
+from .zenodo_operations import ZenodoPublisher, ZenodoError, ZenodoNoUpdateNeeded
 from .archive_operation import archive
 
 RED_UNDERLINE = "\033[91;4m"
@@ -149,42 +149,33 @@ def run_release() -> int:
         print(f"   • {file_path.name}")
         print(f"     MD5: {md5}")
     
-     # Publish to Zenodo if configured
+    # Publish to Zenodo if configured
     if not config.has_zenodo_config():
         print(f"\n\n{PROJECT_HOSTNAME} ⚠️  No publisher set")
         return
-    
-    try :
-        # Check if update is needed
-        record_id, concept_id = check_zenodo_up_to_date(
-            config.zenodo_token,
-            config.zenodo_concept_doi,
-            tag_name, archived_files,
-            config.zenodo_api_url
-        )
+
+    publisher = ZenodoPublisher(
+        config.zenodo_token,
+        config.zenodo_api_url,
+        config.zenodo_concept_doi,
+        config.publication_date
+    )
+
+    try:
+        record_id = publisher.check_update_needed(tag_name, archived_files)
     except ZenodoNoUpdateNeeded as e:
         print(f"\n{PROJECT_HOSTNAME} ✅ {e}")
         return
-    
-    
+
     release_title = prompt_user(
         f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [enter project name]"
     )
     if (not release_title) or (release_title.lower() != project_name):
         print(f"{PROJECT_HOSTNAME} ⚠️ No publication made")
         return
-    
-    try:
-        zenodo_doi = publish_new_version(
-            archived_files,
-            tag_name,
-            config.zenodo_token,
-            record_id,
-            concept_id,
-            config.zenodo_concept_doi,
-            config.zenodo_api_url
-        )
 
+    try:
+        zenodo_doi = publisher.publish_new_version(archived_files, tag_name, record_id)
         print(f"  Zenodo DOI: {zenodo_doi}")
         print(f"\n{PROJECT_HOSTNAME} ✅ Publication {tag_name} completed successfully!")
 

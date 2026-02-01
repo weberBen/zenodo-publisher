@@ -111,6 +111,8 @@ class Config:
             "ZENODO_API_URL",
             "https://zenodo.org/api"
         )
+        # Publication date (optional, defaults to current UTC date if not set)
+        self.publication_date = self.env_vars.get("PUBLICATION_DATE", None)
 
     def has_zenodo_config(self) -> bool:
         """Check if Zenodo configuration is complete."""
