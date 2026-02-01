@@ -124,6 +124,8 @@ Runs `make deploy` in `LATEX_DIR`. The script **stops on any error**.
 - Checks branch is up-to-date with remote (no unpushed/unpulled commits)
 - Checks no local modifications exist
 
+This tool use `git fetch` (not in dry run mode). Thus if it's a problem to fetch regularly in your project, do not use the tool.
+
 ### 3. Tag Validation
 - If tag doesn't exist: proceeds
 - If tag exists: verifies it points to the latest commit on the remote branch
