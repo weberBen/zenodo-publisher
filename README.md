@@ -111,6 +111,8 @@ uv run python /path/to/zenodo-publisher/release.py
 
 Then use the script at the root of your project.
 
+You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). Clone the repo, make modifications, create new release, excute the publisher tool on it.
+
 ## How It Works
 
 ### 1. Build LaTeX
