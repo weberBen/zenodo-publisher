@@ -58,6 +58,7 @@ ARCHIVE_TYPES=pdf,project
 PERSIST_TYPES=pdf
 ARCHIVE_DIR=./releases
 ```
+Create a Zenodo token on `account/settings/applications/tokens/new/` (token created on Zenodo sandbox are dissociated from production) and allow `deposit:actions`and `deposit:write`.
 
 ### 2. Create a Makefile in your LaTeX directory
 
@@ -111,7 +112,7 @@ uv run python /path/to/zenodo-publisher/release.py
 
 Then use the script at the root of your project.
 
-You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). Clone the repo, make modifications, create new release, excute the publisher tool on it.
+You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). See the associated readme for instruction.
 
 ## How It Works
 
