@@ -1,16 +1,6 @@
-#!/usr/bin/env python3
-"""
-Release tool for Zenodo project.
-
-This script automates the release process:
-1. Builds LaTeX document
-2. Checks git repository status
-3. Creates and pushes release tags
-
-Can be executed from anywhere in the project.
-"""
-
 import sys
+import os
+import argparse
 from pathlib import Path
 
 # Add scripts directory to Python path
@@ -19,6 +9,18 @@ sys.path.insert(0, str(scripts_dir))
 
 from release_tool.release import run_release
 
-
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Release tool for Zenodo project")
+    parser.add_argument(
+        '--work-dir',
+        type=str,
+        default=None,
+        help='Working directory (default: current directory)'
+    )
+    args = parser.parse_args()
+    
+    # Change to working directory if specified
+    if args.work_dir:
+        os.chdir(args.work_dir)
+    
     run_release()
