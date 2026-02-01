@@ -55,10 +55,10 @@ def run_release() -> int:
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
     
     start_process = prompt_user(
-        f"{PROJECT_HOSTNAME} Start process ? [yes/n]"
+        f"{PROJECT_HOSTNAME} Start process ? [enter project name]"
     )
     print("start_process", start_process)
-    if (not start_process) or (start_process.lower() != "yes"):
+    if (not start_process) or (start_process.lower() != project_name):
         print("❌ Exit process.\nNothing done.")
         return 
 
@@ -168,9 +168,9 @@ def run_release() -> int:
     
     
     release_title = prompt_user(
-        f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [publish/no]"
+        f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [enter project name]"
     )
-    if (not release_title) or (release_title.lower() != "publish"):
+    if (not release_title) or (release_title.lower() != project_name):
         print(f"{PROJECT_HOSTNAME} ⚠️ No publication made")
         return
     
