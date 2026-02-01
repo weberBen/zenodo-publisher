@@ -17,10 +17,18 @@ if __name__ == "__main__":
         default=None,
         help='Working directory (default: current directory)'
     )
+    parser.add_argument(
+        '--safeguard-prompt-response',
+        type=bool,
+        default=True,
+        help='Working directory (default: current directory)'
+    )
     args = parser.parse_args()
     
     # Change to working directory if specified
     if args.work_dir:
         os.chdir(args.work_dir)
     
-    run_release()
+    run_release(
+        safeguard_prompt_response=args.safeguard_prompt_response
+    )

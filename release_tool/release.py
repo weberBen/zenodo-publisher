@@ -32,7 +32,9 @@ def prompt_user(prompt: str) -> str:
     return input(f"{prompt}: ").strip()
 
 
-def run_release() -> int:
+def run_release(
+    safeguard_prompt_response: bool
+    ) -> int:
     """
     Main release process.
 
@@ -54,11 +56,14 @@ def run_release() -> int:
     project_name = config.project_root.name
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
     
+    prompt_validation = "enter project name" if safeguard_prompt_response else "y/n"
     start_process = prompt_user(
-        f"{PROJECT_HOSTNAME} Start process ? [enter project name]"
+        f"{PROJECT_HOSTNAME} Start process ? {prompt_validation}"
     )
-    print("start_process", start_process)
-    if (not start_process) or (start_process.lower() != project_name):
+    if not safeguard_prompt_response and start_process and (start_process.lower in ["n", "no"]):
+        print("{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
+        return
+    elif (not start_process) or (start_process.lower() != project_name):
         print("❌ Exit process.\nNothing done.")
         return 
 
@@ -167,11 +172,15 @@ def run_release() -> int:
     if up_to_date:
         return
 
+    prompt_validation = "enter project name" if safeguard_prompt_response else "y/n"
     release_title = prompt_user(
-        f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [enter project name]"
+        f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [{prompt_validation}]"
     )
+    if not safeguard_prompt_response and start_process and (start_process.lower in ["n", "no"]):
+        print(f"{PROJECT_HOSTNAME} ❌ Exit process.\n⚠️ No publication made")
+        return
     if (not release_title) or (release_title.lower() != project_name):
-        print(f"{PROJECT_HOSTNAME} ⚠️ No publication made")
+        print(f"{PROJECT_HOSTNAME} ❌ Exit process.\n⚠️ No publication made")
         return
 
     try:

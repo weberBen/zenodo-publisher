@@ -99,15 +99,15 @@ class ZenodoPublisher:
         """
         print("  Checking if update is needed...")
 
-        record_data = last_record.data._data
-        current_version = record_data.get("metadata", {}).get("version", None)
+        current_version = last_record.data["metadata"].get("version", None)
 
         # Check version
         if current_version == tag_name:
             return (True, f"Version '{tag_name}' already exists on Zenodo")
 
-        # Compare MD5 checksums
-        previous_version_files = record_data.get("files", {}).get("entries", [])
+        # Compare MD5 checksums - use the proper API to get files
+        files_metadata = last_record.files.get()
+        previous_version_files = files_metadata.data["entries"]
         previous_version_md5s = {
             f["checksum"].replace("md5:", "")
             for f in previous_version_files
