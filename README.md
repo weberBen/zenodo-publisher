@@ -22,7 +22,7 @@ graph TD
     Z[⚙️ Manual git sync] -.->|start tool| A
     A[📄 Compile Doc] -->|PDF/other generated| B{🔄 Git sync check}
     B -->|Local ≠ Remote| C[⚠️ Pull/Push required <br/> Manual]
-    B -->|Local = Remote| D{🏷️ Release exists?}
+    B -->|Local = Remote| D{🏷️ Release exists? <br/> GitHub CLI}
     C --> D
     D -->|No| E[✨ Create release + tag]
     D -->|Yes| F[📦 Create archive]
@@ -41,7 +41,7 @@ graph TD
     O -->|No| Q[✅ Skip publication]
     M --> P
     N --> P
-    P --> R[🎉 Publish on Zenodo]
+    P --> R[🎉 Publish on Zenodo <br\> InvenioRDM API]
     
     style Z fill:#f0f0f0,stroke-dasharray: 5 5
     style A fill:#e1f5ff
@@ -184,17 +184,20 @@ This tool use `git fetch` (not in dry run mode). Thus if it's a problem to fetch
 - If tag exists: verifies it points to the latest commit on the remote branch
 
 ### 4. GitHub Release
-Creates a GitHub release using `gh release create`. This automatically creates and pushes the tag.
+Creates a GitHub release using `gh release create` (GitHub CLI). This automatically creates and pushes the tag.
 
+### 5. Archive & Upload
+- Creates file archive (and optionally project ZIP)
+- The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
+  
 ### 5. Zenodo Checks
 - Verifies the version doesn't already exist on Zenodo
 - Compares file checksums (MD5) and version names to detect changes
 
-### 6. Archive & Upload
-- Creates file archive (and optionally project ZIP)
-- The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
+### 6. Zenodo Publishing
 - Uploads files to Zenodo
-- File is set as the default preview
+- Update metadata
+- Publish (invenioRDM API)
 
 ## Limitations
 
