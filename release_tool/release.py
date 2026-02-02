@@ -132,7 +132,7 @@ def _run_release(
         # Prompt for new release
         print(f"\n{PROJECT_HOSTNAME} 📝 Creating new release...")
         while True:
-            new_tag = prompt_user("{PROJECT_HOSTNAME} Enter new tag name")
+            new_tag = prompt_user(f"{PROJECT_HOSTNAME} Enter new tag name")
             if new_tag:
                 break
             print("Tag name cannot be empty")
