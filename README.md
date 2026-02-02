@@ -20,7 +20,7 @@ This tool is **not recommended** for highly collaborative projects where multipl
 ```mermaid
 graph TD
     Z[⚙️ Manual git sync] -.->|start tool| A
-    A[📄 Compile Doc] -->|FILE (e.g. PDF) generated| B{🔄 Git sync check}
+    A[📄 Compile Doc] -->|PDF/other generated| B{🔄 Git sync check}
     B -->|Local ≠ Remote| C[⚠️ Pull/Push required <br/> Manual]
     B -->|Local = Remote| D{🏷️ Release exists?}
     C --> D
