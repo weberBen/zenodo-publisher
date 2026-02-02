@@ -20,14 +20,14 @@ This tool is **not recommended** for highly collaborative projects where multipl
 ```mermaid
 graph TD
     Z[⚙️ Manual git sync] -.->|start tool| A
-    A[📄 Compile LaTeX] -->|PDF generated| B{🔄 Git sync check}
+    A[📄 Compile Doc] -->|PDF generated| B{🔄 Git sync check}
     B -->|Local ≠ Remote| C[⚠️ Pull/Push required <br/> Manual]
     B -->|Local = Remote| D{🏷️ Release exists?}
     C --> D
     D -->|No| E[✨ Create release + tag]
     D -->|Yes| F[📦 Create archive]
     E --> F
-    F -->|PDF + optional ZIP| G{📚 Check Zenodo}
+    F -->|PDF and/or optional ZIP| G{📚 Check Zenodo}
     G --> H{🔐 Files equal?}
     H -->|Yes| I{🏷️ Versions equal?}
     H -->|No| J{🏷️ Versions equal?}
@@ -59,13 +59,14 @@ graph TD
     style O fill:#ffe4cc
 ```
 
+You project can 
 
 ## Prerequisites
 
 - **Python 3.10+**
 - **uv** (Python package manager): https://docs.astral.sh/uv/
 - **GitHub CLI** (`gh`): https://cli.github.com/ - used for creating GitHub releases
-- **LaTeX distribution** (preferred with `latexmk` to handle citation/reference error, but we can use what env you want)
+- (Optional) **LaTeX distribution `latexmk`** (preferred to handle citation/reference error, but we can use what env you want)
 - **Existing Zenodo deposit**: The script creates new versions, not new deposits. You must manually create the first version on Zenodo.
 
 ## Installation
@@ -118,7 +119,7 @@ You have a functionning example of such a project repo [here](https://github.com
 |----------|----------|---------|-------------|
 | `MAIN_BRANCH` | No | `main` | Branch to check for releases |
 | `BASE_NAME` | Yes | - | Base name for output files (e.g., `MyProject-v1.0.0.pdf`) |
-| `LATEX_DIR` | Yes | - | Path to LaTeX directory (relative to project root) |
+| `COMPILE_DIR` | Yes | - | Path to LaTeX directory (relative to project root) |
 | `PDF_BASE_NAME` | No | `main` | Name of the main PDF file (without `.pdf`) |
 | `PUBLISHER_TYPE` | Yes | - | Set to `zenodo` to enable publishing |
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
@@ -128,14 +129,19 @@ You have a functionning example of such a project repo [here](https://github.com
 | `PERSIST_TYPES` | No | `pdf` | What to save to `ARCHIVE_DIR` (rest goes to temp) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current utc date | Publication paper's date (format iso YYYY-MM-DD) |
+| `COMPILE` | No | True | Let the script compile latex project. The compiler only use the defined Makefile, so could be anything than only latex |
 
 See example file [here](./zenodo.env.example).
 
 And create a Zenodo token on `account/settings/applications/tokens/new/` (token created on Zenodo sandbox are dissociated from production) and allow `deposit:actions`and `deposit:write`.
 
-### 2. Create a Makefile in your LaTeX directory
+Latex project is optional. If your project include no latex at all, and you're not interested in pdf archive and/or dynamic compilation, you can set `COMPILE=False`, `COMPILE_DIR=`, `ARCHIVE_TYPES=project`.
+If you want to include a simple pdf (non latex based), set the `COMPILE_DIR` and the `PDF_BASE_NAME`. The script will look for your pdf at `<compile_dir>/<pdf_base_name>.pdf`.
+Also, `COMPILE=False`, `ARCHIVE_TYPES=pdf,project`.
 
-The script calls `make deploy` in the directory specified by `LATEX_DIR`. Your Makefile must have a `deploy` target:
+### 2. Create a Makefile in your compile directory
+
+The script calls `make deploy` in the directory specified by `COMPILE_DIR`. Your Makefile must have a `deploy` target:
 
 ```makefile
 .PHONY: deploy
@@ -160,7 +166,7 @@ This is highly recommanded, not mandatory, but without theses the only reference
 ## How It Works
 
 ### 1. Build LaTeX
-Runs `make deploy` in `LATEX_DIR`. The script **stops on any error**.
+Runs `make deploy` in `COMPILE_DIR`. The script **stops on any error**.
 
 ### 2. Git Checks
 - Verifies you're on `MAIN_BRANCH`
@@ -215,8 +221,9 @@ This tool assumes you **don't store PDFs in git**. PDFs are generated on-the-fly
 ### "Project not initialized for Zenodo publisher"
 Create a `.zenodo.env` file in your project root.
 
-### "LaTeX directory not found"
-Check that `LATEX_DIR` points to a valid directory containing your Makefile.
+### "Compile directory not found"
+Check that `COMPILE_DIR` points to a valid directory containing your Makefile.
+And check that `COMPILE=True` or `COMPILE=`.
 
 ### "Files are identical/different to version X on Zenodo"
 Your PDF hasn't changed. This usually means:

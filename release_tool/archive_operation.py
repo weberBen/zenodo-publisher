@@ -21,13 +21,13 @@ def archive_pdf(config, tag_name: str, persist: bool = True) -> Path:
     Raises:
         FileNotFoundError: If main.pdf doesn't exist
     """
-    latex_dir = Path(config.latex_dir)
-    main_pdf = latex_dir / f"{config.pdf_base_name}.pdf"
+    compile_dir = Path(config.compile_dir)
+    main_pdf = compile_dir / f"{config.pdf_base_name}.pdf"
 
     if not main_pdf.exists():
         raise FileNotFoundError(
             f"main.pdf not found at {main_pdf}\n"
-            f"Make sure LaTeX build completed successfully"
+            f"Make sure compilation completed successfully"
         )
 
     new_name = f"{config.base_name}-{tag_name}.pdf"

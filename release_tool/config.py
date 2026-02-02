@@ -73,15 +73,16 @@ class Config:
         self.env_vars = load_env(self.project_root)
         self.main_branch = self.env_vars.get("MAIN_BRANCH", "main")
 
-        # Get LaTeX directory from env or use default
-        latex_dir_str = self.env_vars.get("LATEX_DIR", "")
-        self.latex_dir = self.project_root / latex_dir_str
+        # Get compile directory from env or use default
+        self.compile = (self.env_vars.get("COMPILE", "True").lower() == "true")
+        compile_dir_str = self.env_vars.get("COMPILE_DIR", "")
+        self.compile_dir = self.project_root / compile_dir_str
 
-        # Validate LaTeX directory exists
-        if not self.latex_dir.exists():
+        # Validate compile directory exists
+        if not self.compile_dir.exists():
             raise FileNotFoundError(
-                f"LaTeX directory not found: {self.latex_dir}\n"
-                f"Check LATEX_DIR in .env file"
+                f"Compile directory not found: {self.compile_dir}\n"
+                f"Check COMPILE_DIR in .env file"
             )
         
         # Archive configuration
@@ -117,11 +118,3 @@ class Config:
     def has_zenodo_config(self) -> bool:
         """Check if Zenodo configuration is complete."""
         return (self.publisher_type is not None)
-
-    def __repr__(self) -> str:
-        return (
-            f"Config(project_root={self.project_root}, "
-            f"main_branch={self.main_branch}, "
-            f"latex_dir={self.latex_dir}, "
-            f"base_name={self.base_name})"
-        )

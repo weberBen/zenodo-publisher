@@ -2,7 +2,7 @@
 
 import sys
 from .config import Config, NotInitializedError
-from .latex_build import build_latex
+from .latex_build import compile
 from .git_operations import (
     check_on_main_branch,
     check_up_to_date,
@@ -83,17 +83,20 @@ def _run_release(
     project_name = config.project_root.name
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
 
-    # Build LaTeX
-    response = prompt_user(
-        f"{PROJECT_HOSTNAME} Start building latex ? [{prompt_validation}]"
-    )
-    if not validated_response(response, project_name=project_name):
-        print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
-        return
-    
-    print(f"{PROJECT_HOSTNAME} 📋 Starting latex build process...")
-    
-    build_latex(config.latex_dir)
+    if config.compile:
+        # Build LaTeX
+        response = prompt_user(
+            f"{PROJECT_HOSTNAME} Start building latex ? [{prompt_validation}]"
+        )
+        if not validated_response(response, project_name=project_name):
+            print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
+            return
+        
+        print(f"{PROJECT_HOSTNAME} 📋 Starting latex build process...")
+        
+        compile(config.compile_dir)
+    else:
+        print(f"{PROJECT_HOSTNAME} ⚠️ Skipping latex compilation (see config file)")
 
     # Check git status
     print(f"\n{PROJECT_HOSTNAME} 🔍 Checking git repository status...")
