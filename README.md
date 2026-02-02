@@ -184,7 +184,7 @@ This tool use `git fetch` (not in dry run mode). Thus if it's a problem to fetch
 - If tag exists: verifies it points to the latest commit on the remote branch
 
 ### 4. GitHub Release
-Creates a GitHub release using `gh release create` (GitHub CLI). This automatically creates and pushes the tag.
+Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.github.com/). This automatically creates and pushes the tag.
 
 ### 5. Archive & Upload
 - Creates file archive (and optionally project ZIP)
@@ -197,7 +197,7 @@ Creates a GitHub release using `gh release create` (GitHub CLI). This automatica
 ### 6. Zenodo Publishing
 - Uploads files to Zenodo
 - Update metadata
-- Publish (invenioRDM API)
+- Publish ([InvenioRDM API](https://inveniordm.docs.cern.ch/))
 
 ## Limitations
 
