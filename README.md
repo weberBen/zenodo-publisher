@@ -203,7 +203,7 @@ Creates a GitHub release using `gh release create` (GitHub CLI). This automatica
 
 ### Edge cases
 
-Application mostly vibe coded, not optimized, not really clean, but working and tested multiple times at each steps on different cases in sandbox, nonetheless be sure to test it on your specific usage before using it in production (test it with test git repo, and test sandbox zenodo repo)
+Application mostly vibe coded (though verified, especially the Zenodo operations and archive operations), not optimized, not really clean, but working and tested multiple times at each steps on different cases in sandbox, nonetheless be sure to test it on your specific usage before using it in production (test it with test git repo, and test sandbox zenodo repo)
 
 ### Test on Sandbox First
 Always test with `ZENODO_API_URL=https://sandbox.zenodo.org/api` before using production. The script doesn't handle all edge cases.
