@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from inveniordm_py import InvenioAPI
-from inveniordm_py.files.metadata import OutgoingStream
+from inveniordm_py.files.metadata import FilesListMetadata, OutgoingStream
 from requests.exceptions import HTTPError
 
 
@@ -68,7 +68,9 @@ class ZenodoPublisher:
     def _create_new_draft_version(self, last_record):
         # API only allow one draft new version per repo, return the same draft
         # at each call before draft is published or discarded
-        return last_record.new_version()
+        record = last_record.new_version()
+        new_draft = self.client.records(record.data["id"]).draft.get()
+        return new_draft
 
 
     def is_up_to_date(
@@ -145,7 +147,7 @@ class ZenodoPublisher:
 
         # Register all files
         file_entries = [{"key": file_path.name} for file_path, _ in archived_files]
-        draft_record.files.create(file_entries)
+        draft_record.files.create(FilesListMetadata(file_entries))
 
         # Upload content and commit each file
         for file_path, _ in archived_files:
