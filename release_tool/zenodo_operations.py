@@ -1,6 +1,6 @@
 """Zenodo operations for publishing releases using inveniordm-py."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from inveniordm_py import InvenioAPI
@@ -61,6 +61,30 @@ class ZenodoPublisher:
             if e.response.status_code == 404:
                 return False
             raise
+    
+    def _get_exsiting_draft_id(self):
+        """
+            Check if a draft already existed (not just created).
+        """
+        response = self.client.session.get(
+            f"{self.client._base_url}/user/records",
+            params={
+                "q": 'conceptrecid:"432538"' 
+            }
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        
+        hits = response_data["hits"]["hits"]
+        if len(hits) == 0:
+            raise ZenodoError(f"Cannot found deposit associated to record {self.concept_id}")
+        
+        record_data = hits[0]
+        
+        if record_data["status"] == "draft":
+            return record_data["id"]
+        
+        return None
 
     def _discard_draft_version(self, record_id):
         self.client.records(record_id).draft.delete()
@@ -71,7 +95,6 @@ class ZenodoPublisher:
         record = last_record.new_version()
         new_draft = self.client.records(record.data["id"]).draft.get()
         return new_draft
-
 
     def is_up_to_date(
         self,
@@ -167,7 +190,7 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _update_metadata(self, draft_record, version: str) -> None:
+    def _update_metadata(self, draft_record, publication_date, version: str) -> None:
         """
         Update the metadata of the cached draft.
 
@@ -175,7 +198,7 @@ class ZenodoPublisher:
             version: Version string
         """
         draft_record.data["metadata"]["version"] = version
-        draft_record.data["metadata"]["publication_date"] = self.get_publication_date()
+        draft_record.data["metadata"]["publication_date"] = publication_date
         draft_record.update()
 
     def publish_new_version(
@@ -201,19 +224,30 @@ class ZenodoPublisher:
         print(f"  Concept DOI: {self.concept_doi}")
         print(f"  Version: {tag_name}")
         
+        publication_date = self.get_publication_date()
         last_record = self._get_last_record()
+        
+        print(f"  Publication date: {publication_date}")
+        print(f"")
 
         try:
             
             print("  Creating new draft version...")
-            draft_record = self._create_new_draft_version(last_record)
-            if self._is_draft(draft_record.data["id"]):
-                print(f"  ⚠️  Detecting existing draft version {draft_record.data['id']}, discarding...")
-                self._discard_draft_version(draft_record.data["id"])
-                draft_record = self._create_new_draft_version(last_record)
+            existing_draft_id = self._get_exsiting_draft_id()
+            if existing_draft_id is not None:
+                print(f"  ⚠️  Detecting existing draft version {existing_draft_id}, discarding...")
+                self._discard_draft_version(existing_draft_id)
+            else:
+                print("  ✓ No existing draft detected")
             
-            # final verif
-            if not self._is_draft(draft_record.data["id"]) or (draft_record.data["id"] == last_record.data["id"]):
+            draft_record = self._create_new_draft_version(last_record)
+
+            # verification
+            if (
+                (not self._is_draft(draft_record.data["id"]))
+                or 
+                (draft_record.data["id"] == last_record.data["id"])
+            ):
                 raise ZenodoError("Cannot create draft new version...")
             
             # Find PDF file for default preview
@@ -224,17 +258,21 @@ class ZenodoPublisher:
             
             # Upload files
             print("  Uploading files...")
-            self._upload_files(draft_record, archived_files, default_preview_file=pdf_filename)
+            self._upload_files(
+                draft_record,
+                archived_files,
+                default_preview_file=pdf_filename
+            )
 
             # Update metadata
             print(f"  Updating metadata (version: {tag_name})...")
-            self._update_metadata(draft_record, tag_name)
+            self._update_metadata(draft_record, publication_date, tag_name)
             print("  ✓ Metadata updated")
 
             # Publish
             print("  Publishing...")
             published_record = draft_record.publish()
-            doi = published_record.data["pids"]["doi"]["identifier"]
+            doi = published_record.data["doi"]
             record_html = published_record.data["links"]["self_html"]
 
             print(f"✓ Published to Zenodo!")
@@ -244,5 +282,4 @@ class ZenodoPublisher:
             return doi
 
         except Exception as e:
-            raise e
             raise ZenodoError(f"Failed to publish new version: {e}")

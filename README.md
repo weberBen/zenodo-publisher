@@ -52,6 +52,7 @@ chmod +x zp.bash
 # From your project directory (where .zenodo.env is located)
 zp
 # or zp.bash or any symlink to the bash launcher if the tool is not installed globally
+zp --help
 ```
 
 Then use the script at the root of your project.
@@ -122,6 +123,7 @@ This is highly recommanded, not mandatory, but without theses the only reference
 | `ARCHIVE_TYPES` | No | `pdf` | What to archive: `pdf`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | `pdf` | What to save to `ARCHIVE_DIR` (rest goes to temp) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
+| `PUBLICATION_DATE` | No | Current utc date | Publication paper's date (format iso YYYY-MM-DD) |
 
 ## How It Works
 

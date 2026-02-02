@@ -32,7 +32,7 @@ def prompt_user(prompt: str) -> str:
     return input(f"{prompt}: ").strip()
 
 
-def run_release(
+def _run_release(
     safeguard_validation_level: bool
     ) -> int:
     """
@@ -45,13 +45,13 @@ def run_release(
     if safeguard_validation_level == "light":
         prompt_validation = "y/n"
         def validated_response(response, project_name):
-            if not response or (response.lower in ["Y", "y"]):
+            if not response or (response.lower() in ["Y", "y"]):
                 return True
             return False
     else:
-        prompt_validation = "enter project name"
+        prompt_validation = "Enter project name"
         def validated_response(response, project_name):
-            if response and response.lower == project_name:
+            if response and response.lower() == project_name:
                 return True
             return False
 
@@ -71,10 +71,10 @@ def run_release(
     
     
     response = prompt_user(
-        f"{PROJECT_HOSTNAME} Start process ? {prompt_validation}"
+        f"{PROJECT_HOSTNAME} Start process ? [{prompt_validation}]"
     )
     if not validated_response(response, project_name=project_name):
-        print("{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
+        print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
         return
 
 
@@ -178,13 +178,14 @@ def run_release(
     )
 
     up_to_date, msg = publisher.is_up_to_date(tag_name, archived_files)
+    up_to_date=False # to remove
     if msg:
         print(f"\n{PROJECT_HOSTNAME} ✅ {msg}")
     if up_to_date:
         return
 
     response = prompt_user(
-        f"{PROJECT_HOSTNAME} Publish version (enter publish) ? [{prompt_validation}]"
+        f"{PROJECT_HOSTNAME} Publish version ? [{prompt_validation}]"
     )
     if not validated_response(response, project_name=project_name):
         print(f"{PROJECT_HOSTNAME} ❌ Exit process.\n⚠️ No publication made")
@@ -199,3 +200,13 @@ def run_release(
         print(f"\n{PROJECT_HOSTNAME} ⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)
         print(f"  You can manually upload files to Zenodo")
         return
+
+def run_release(
+    safeguard_validation_level: bool
+    ) -> int:
+    try:
+        _run_release(safeguard_validation_level)
+    except Exception as e:
+        print(f"\n❌❌❌ {RED_UNDERLINE}Error during process execution:{RESET} ❌❌❌\n{e}\n")
+    except KeyboardInterrupt:
+        print("\nExited.")

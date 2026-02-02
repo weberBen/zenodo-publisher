@@ -21,7 +21,7 @@ if __name__ == "__main__":
         '--safeguard-validation-level',
         type=str,
         default="strict",
-        help='Select the level of safeguard validation for prompt (strict, light, danger)'
+        help='Select the level of safeguard validation for prompt (strict, light)'
     )
     args = parser.parse_args()
     
