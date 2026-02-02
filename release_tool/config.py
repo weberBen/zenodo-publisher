@@ -73,6 +73,7 @@ class Config:
         self.env_vars = load_env(self.project_root)
         self.main_branch = self.env_vars.get("MAIN_BRANCH", "main")
 
+        self.debug = self.env_vars.get("DEBUG", "False").lower() == "true"
         # Get compile directory from env or use default
         self.compile = (self.env_vars.get("COMPILE", "True").lower() == "true")
         compile_dir_str = self.env_vars.get("COMPILE_DIR", "")
@@ -92,16 +93,19 @@ class Config:
 
         # PERSIST_TYPES: comma-separated list of what to persist to archive_dir (pdf, project)
         # Items not in this list will be created as temp files
-        persist_types_str = self.env_vars.get("PERSIST_TYPES", "pdf")
+        persist_types_str = self.env_vars.get("PERSIST_TYPES", "")
         self.persist_types = [t.strip() for t in persist_types_str.split(",") if t.strip()]
 
         self.archive_dir = Path(self.env_vars.get("ARCHIVE_DIR", "")) if self.env_vars.get("ARCHIVE_DIR") else None
-        self.pdf_base_name = self.env_vars.get("PDF_BASE_NAME", "main.pdf").replace(".pdf", "")
+        main_file_name = self.env_vars.get("FILE_BASE_NAME", "main.pdf").split(".")
+        self.file_base_name = main_file_name[0]
+        self.file_base_extension = ".".join(main_file_name[1:])
+        
         self.base_name = self.env_vars.get("BASE_NAME", "")
         if not self.base_name:
             raise ValueError(
                 "BASE_NAME not set in .env file\n"
-                "This is used for naming the PDF file"
+                "This is used for naming the main file"
             )
         
         self.publisher_type = self.env_vars.get("PUBLISHER_TYPE", None)

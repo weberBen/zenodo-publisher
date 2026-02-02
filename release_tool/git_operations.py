@@ -373,4 +373,4 @@ def archive_project(
     )
 
     print(f"✓ Created archive: {output_file}")
-    return output_file
+    return output_file, archive_name, "zip"

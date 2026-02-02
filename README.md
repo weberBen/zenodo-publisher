@@ -20,7 +20,7 @@ This tool is **not recommended** for highly collaborative projects where multipl
 ```mermaid
 graph TD
     Z[⚙️ Manual git sync] -.->|start tool| A
-    A[📄 Compile Doc] -->|PDF generated| B{🔄 Git sync check}
+    A[📄 Compile Doc] -->|FILE (e.g. PDF) generated| B{🔄 Git sync check}
     B -->|Local ≠ Remote| C[⚠️ Pull/Push required <br/> Manual]
     B -->|Local = Remote| D{🏷️ Release exists?}
     C --> D
@@ -118,15 +118,15 @@ You have a functionning example of such a project repo [here](https://github.com
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `MAIN_BRANCH` | No | `main` | Branch to check for releases |
-| `BASE_NAME` | Yes | - | Base name for output files (e.g., `MyProject-v1.0.0.pdf`) |
+| `BASE_NAME` | Yes | - | Base name for uploaded preview files (e.g., `MyProject-`) |
 | `COMPILE_DIR` | Yes | - | Path to LaTeX directory (relative to project root) |
-| `PDF_BASE_NAME` | No | `main` | Name of the main PDF file (without `.pdf`) |
+| `FILE_BASE_NAME` | No | `main` | Name of the main file (with extension) used as default preview by Zenodo |
 | `PUBLISHER_TYPE` | Yes | - | Set to `zenodo` to enable publishing |
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
 | `ZENODO_API_URL` | No | `https://zenodo.org/api` | Use `https://sandbox.zenodo.org/api` for testing |
-| `ARCHIVE_TYPES` | No | `pdf` | What to archive: `pdf`, `project`, or `pdf,project` |
-| `PERSIST_TYPES` | No | `pdf` | What to save to `ARCHIVE_DIR` (rest goes to temp) |
+| `ARCHIVE_TYPES` | No | `pdf` | What to archive: `<extension>`, `project`, or `pdf,project` |
+| `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current utc date | Publication paper's date (format iso YYYY-MM-DD) |
 | `COMPILE` | No | True | Let the script compile latex project. The compiler only use the defined Makefile, so could be anything than only latex |
@@ -136,7 +136,7 @@ See example file [here](./zenodo.env.example).
 And create a Zenodo token on `account/settings/applications/tokens/new/` (token created on Zenodo sandbox are dissociated from production) and allow `deposit:actions`and `deposit:write`.
 
 Latex project is optional. If your project include no latex at all, and you're not interested in pdf archive and/or dynamic compilation, you can set `COMPILE=False`, `COMPILE_DIR=`, `ARCHIVE_TYPES=project`.
-If you want to include a simple pdf (non latex based), set the `COMPILE_DIR` and the `PDF_BASE_NAME`. The script will look for your pdf at `<compile_dir>/<pdf_base_name>.pdf`.
+If you want to include a simple pdf (non latex based), set the `COMPILE_DIR` and the `PREVIEW_FILE_NAME`. The script will look for your pdf at `<compile_dir>/<file_base_name>`.
 Also, `COMPILE=False`, `ARCHIVE_TYPES=pdf,project`.
 
 ### 2. Create a Makefile in your compile directory

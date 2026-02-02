@@ -35,17 +35,30 @@ def run_release(
     prompt_validation_level: bool,
     force_zenodo_update : bool
     ) -> int:
+    
+    # Load configuration
+    print("⚙️  Loading configuration...")
+    try:
+        config = Config()
+    except NotInitializedError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        return
+    
     try:
         _run_release(
+            config,
             prompt_validation_level,
             force_zenodo_update
         )
     except Exception as e:
+        if config.debug:
+            raise e
         print(f"\n💀❌💀 {RED_UNDERLINE}Error during process execution:{RESET} 💀❌💀\n{e}\n")
     except KeyboardInterrupt:
         print("\nExited.")
 
 def _run_release(
+    config,
     prompt_validation_level: bool,
     force_zenodo_update: bool,
     ) -> int:
@@ -68,14 +81,6 @@ def _run_release(
             if response and response.lower() == project_name:
                 return True
             return False
-
-    # Load configuration
-    print("⚙️  Loading configuration...")
-    try:
-        config = Config()
-    except NotInitializedError as e:
-        print(f"\n❌ {e}", file=sys.stderr)
-        return
     
     print(f"✓ Project root: {config.project_root}")
     print(f"✓ Main branch: {config.main_branch}")
@@ -86,17 +91,17 @@ def _run_release(
     if config.compile:
         # Build LaTeX
         response = prompt_user(
-            f"{PROJECT_HOSTNAME} Start building latex ? [{prompt_validation}]"
+            f"{PROJECT_HOSTNAME} Start building project ? [{prompt_validation}]"
         )
         if not validated_response(response, project_name=project_name):
             print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
             return
         
-        print(f"{PROJECT_HOSTNAME} 📋 Starting latex build process...")
+        print(f"{PROJECT_HOSTNAME} 📋 Starting build process...")
         
         compile(config.compile_dir)
     else:
-        print(f"{PROJECT_HOSTNAME} ⚠️ Skipping latex compilation (see config file)")
+        print(f"{PROJECT_HOSTNAME} ⚠️ Skipping project compilation (see config file)")
 
     # Check git status
     print(f"\n{PROJECT_HOSTNAME} 🔍 Checking git repository status...")
@@ -174,24 +179,21 @@ def _run_release(
         
         tag_name = new_tag
 
-    # Rename PDF
+    # Rename files
     archived_files = archive(config, tag_name)   
     print(f"\n{PROJECT_HOSTNAME} ✅ Archived files:")
-    for file_path, md5 in archived_files:
+    
+    for file_path, md5, is_preview, filename, persist_file in archived_files:
         print(f"   • {file_path.name}")
         print(f"     MD5: {md5}")
+        print(f"     (persist: {persist_file})")
     
     # Publish to Zenodo if configured
     if not config.has_zenodo_config():
         print(f"\n\n{PROJECT_HOSTNAME} ⚠️  No publisher set")
         return
 
-    publisher = ZenodoPublisher(
-        config.zenodo_token,
-        config.zenodo_api_url,
-        config.zenodo_concept_doi,
-        config.publication_date
-    )
+    publisher = ZenodoPublisher(config)
 
     up_to_date, msg = publisher.is_up_to_date(tag_name, archived_files)
     if msg:

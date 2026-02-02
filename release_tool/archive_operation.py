@@ -6,9 +6,9 @@ from pathlib import Path
 from .git_operations import archive_project
 
 
-def archive_pdf(config, tag_name: str, persist: bool = True) -> Path:
+def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
     """
-    Copy main.pdf to {base_name}-{tag_name}.pdf.
+    Copy main.pdf to {base_name}-{tag_name}.{extension}.
 
     Args:
         config: Configuration object
@@ -16,32 +16,34 @@ def archive_pdf(config, tag_name: str, persist: bool = True) -> Path:
         persist: If True, save to archive_dir; if False, create temp file
 
     Returns:
-        Path to the PDF file
+        Path to the preview file
 
     Raises:
-        FileNotFoundError: If main.pdf doesn't exist
+        FileNotFoundError: If file doesn't exist
     """
     compile_dir = Path(config.compile_dir)
-    main_pdf = compile_dir / f"{config.pdf_base_name}.pdf"
+    main_file = compile_dir / f"{config.file_base_name}.{config.file_base_extension}"
 
-    if not main_pdf.exists():
+    if not main_file.exists():
         raise FileNotFoundError(
-            f"main.pdf not found at {main_pdf}\n"
+            f"main file not found at {main_file}\n"
             f"Make sure compilation completed successfully"
         )
 
-    new_name = f"{config.base_name}-{tag_name}.pdf"
+    filename = f"{config.base_name}-{tag_name}"
+    extension = config.file_base_extension
+    new_name = f"{filename}.{extension}"
 
     if persist and config.archive_dir:
-        new_pdf = config.archive_dir / new_name
+        new_file = config.archive_dir / new_name
     else:
-        new_pdf = Path(tempfile.gettempdir()) / new_name
+        new_file = Path(tempfile.gettempdir()) / new_name
 
-    print(f"\n📝 Copying PDF: {config.pdf_base_name}.pdf → {new_pdf}")
-    shutil.copy(main_pdf, new_pdf)
-    print(f"✓ PDF copied to {new_pdf}")
+    print(f"\n📝 Copying Preview file: {main_file.name} → {new_file}")
+    shutil.copy(main_file, new_file)
+    print(f"✓ File copied to {new_file}")
 
-    return new_pdf
+    return new_file, filename, extension
 
 
 
@@ -70,20 +72,22 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
     """
     results = []
 
-    if "pdf" in config.archive_types:
-        persist_pdf = "pdf" in config.persist_types
-        pdf_path = archive_pdf(config, tag_name, persist=persist_pdf)
-        results.append((pdf_path, compute_md5(pdf_path)))
+    if config.file_base_extension in config.archive_types:
+        persist_file = config.file_base_extension in config.persist_types
+        file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
+        is_preview = (config.file_base_extension == extension)
+        results.append((file_path, compute_md5(file_path), is_preview, filename, persist_file))
 
     if "project" in config.archive_types:
-        persist_project = "project" in config.persist_types
-        zip_path = archive_project(
+        persist_file = "project" in config.persist_types
+        file_path, filename, extension = archive_project(
             config.project_root,
             tag_name,
             config.base_name,
             archive_dir=config.archive_dir,
-            persist=persist_project
+            persist=persist_file
         )
-        results.append((zip_path, compute_md5(zip_path)))
+        is_preview = (config.file_base_extension == extension)
+        results.append((file_path, compute_md5(file_path), is_preview, filename, persist_file))
 
     return results

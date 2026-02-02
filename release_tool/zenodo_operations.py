@@ -23,10 +23,7 @@ class ZenodoPublisher:
 
     def __init__(
         self,
-        access_token: str,
-        zenodo_api_url: str,
-        concept_doi: str,
-        publication_date: str | None = None
+        config,
     ):
         """
         Initialize the Zenodo publisher.
@@ -37,12 +34,12 @@ class ZenodoPublisher:
             concept_doi: Concept DOI of the record
             publication_date: Optional publication date (YYYY-MM-DD), defaults to today UTC
         """
-        self.client = InvenioAPI(zenodo_api_url, access_token)
-        self.concept_doi = concept_doi
-        self.concept_id = get_zenodo_id_from_doi(concept_doi)
-        self._publication_date = publication_date
-    
-    
+        self.client = InvenioAPI(config.zenodo_api_url, config.zenodo_token)
+        self.concept_doi = config.zenodo_concept_doi
+        self.concept_id = get_zenodo_id_from_doi(config.zenodo_concept_doi)
+        self._publication_date = config.publication_date
+        self.config = config
+        
     def get_publication_date(self):
         return self._publication_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
@@ -99,7 +96,7 @@ class ZenodoPublisher:
     def is_up_to_date(
         self,
         tag_name: str,
-        archived_files: list[tuple[Path, str]]
+        archived_files: list
     ) -> str:
         last_record = self._get_last_record()
         return self._is_up_to_date(tag_name, last_record, archived_files)
@@ -108,14 +105,14 @@ class ZenodoPublisher:
         self,
         tag_name: str,
         last_record,
-        archived_files: list[tuple[Path, str]]
+        archived_files: list
     ) -> str:
         """
         Check if an update is needed by comparing version names and file checksums.
 
         Args:
             tag_name: New version name to publish
-            archived_files: List of tuples (file_path, md5_checksum) to upload
+            archived_files: List of tuples to upload
 
         Returns:
             Record ID of the latest version if update is needed
@@ -139,15 +136,15 @@ class ZenodoPublisher:
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {md5 for _, md5 in archived_files}
+        new_md5s = {md5 for _, md5, *_ in archived_files}
         
         files_equal = (previous_version_md5s == new_md5s)
-        new_files = new_md5s - previous_version_md5s
-        removed_files = previous_version_md5s - new_md5s
+        files_changes = new_md5s - previous_version_md5s
+        files_to_upload = len(new_md5s)
         
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        files_msg = f"+{len(new_files)} | -{len(removed_files)}"        
-        
+        files_msg = f"Changes : +/- {len(files_changes)} | To upload: {files_to_upload}"
+                
         if files_equal and versions_equal:
             return (True, f"Files and version are identical to previous version '{current_version}' on Zenodo")
         if files_equal and not versions_equal:
@@ -160,23 +157,26 @@ class ZenodoPublisher:
     def _upload_files(
         self,
         draft_record,
-        archived_files: list[tuple[Path, str]],
-        default_preview_file: str | None = None,
+        archived_files: list,
     ) -> None:
         """
         Upload files to the cached draft.
 
         Args:
-            archived_files: List of tuples (file_path, md5_checksum)
+            archived_files: List of tuples
             default_preview_file: Filename to set as default preview (usually PDF)
         """
 
         # Register all files
-        file_entries = [{"key": file_path.name} for file_path, _ in archived_files]
+        file_entries = [{"key": file_path.name} for file_path, *_ in archived_files]
         draft_record.files.create(FilesListMetadata(file_entries))
 
+        default_preview_file = None
         # Upload content and commit each file
-        for file_path, _ in archived_files:
+        for file_path, md5, is_preview, *_ in archived_files:
+            if is_preview:
+                default_preview_file = file_path.name
+            
             print(f"  Uploading {file_path.name}...")
             with open(file_path, "rb") as f:
                 file_content = f.read()
@@ -206,7 +206,7 @@ class ZenodoPublisher:
 
     def publish_new_version(
         self,
-        archived_files: list[tuple[Path, str]],
+        archived_files: list,
         tag_name: str,
     ) -> str:
         """
@@ -253,18 +253,11 @@ class ZenodoPublisher:
             ):
                 raise ZenodoError("Cannot create draft new version...")
             
-            # Find PDF file for default preview
-            pdf_filename = next(
-                (fp.name for fp, _ in archived_files if fp.suffix.lower() == '.pdf'),
-                None
-            )
-            
             # Upload files
             print("  Uploading files...")
             self._upload_files(
                 draft_record,
-                archived_files,
-                default_preview_file=pdf_filename
+                archived_files
             )
 
             # Update metadata
@@ -285,4 +278,6 @@ class ZenodoPublisher:
             return doi
 
         except Exception as e:
+            if self.config.debug:
+                raise e
             raise ZenodoError(f"Failed to publish new version: {e}")
