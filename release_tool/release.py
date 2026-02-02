@@ -32,12 +32,12 @@ def prompt_user(prompt: str) -> str:
     return input(f"{prompt}: ").strip()
 
 def run_release(
-    safeguard_validation_level: bool,
+    prompt_validation_level: bool,
     force_zenodo_update : bool
     ) -> int:
     try:
         _run_release(
-            safeguard_validation_level,
+            prompt_validation_level,
             force_zenodo_update
         )
     except Exception as e:
@@ -46,7 +46,7 @@ def run_release(
         print("\nExited.")
 
 def _run_release(
-    safeguard_validation_level: bool,
+    prompt_validation_level: bool,
     force_zenodo_update: bool,
     ) -> int:
     """
@@ -56,7 +56,7 @@ def _run_release(
         Exit code (0 for success, 1 for error)
     """
     
-    if safeguard_validation_level == "light":
+    if prompt_validation_level == "light":
         prompt_validation = "y/n"
         def validated_response(response, project_name):
             if not response or (response.lower() in ["Y", "y"]):
@@ -82,18 +82,17 @@ def _run_release(
     
     project_name = config.project_root.name
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
-    
-    
+
+    # Build LaTeX
     response = prompt_user(
-        f"{PROJECT_HOSTNAME} Start process ? [{prompt_validation}]"
+        f"{PROJECT_HOSTNAME} Start building latex ? [{prompt_validation}]"
     )
     if not validated_response(response, project_name=project_name):
         print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
         return
-
-
-    # Build LaTeX
+    
     print(f"{PROJECT_HOSTNAME} 📋 Starting latex build process...")
+    
     build_latex(config.latex_dir)
 
     # Check git status

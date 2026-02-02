@@ -18,7 +18,7 @@ if __name__ == "__main__":
         help='Working directory (default: current directory)'
     )
     parser.add_argument(
-        '--safeguard-validation-level',
+        '--prompt-validation-level',
         type=str,
         default="strict",
         help='Select the level of safeguard validation for prompt (strict, light)'
@@ -35,6 +35,6 @@ if __name__ == "__main__":
         os.chdir(args.work_dir)
     
     run_release(
-        safeguard_validation_level=args.safeguard_validation_level.lower(),
+        prompt_validation_level=args.prompt_validation_level.lower(),
         force_zenodo_update=args.force_zenodo_update
     )
