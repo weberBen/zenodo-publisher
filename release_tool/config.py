@@ -88,7 +88,7 @@ class Config:
         
         # Archive configuration
         # ARCHIVE_TYPES: comma-separated list of what to archive (pdf, project)
-        archive_types_str = self.env_vars.get("ARCHIVE_TYPES", "pdf")
+        archive_types_str = self.env_vars.get("ARCHIVE_TYPES", "project")
         self.archive_types = [t.strip() for t in archive_types_str.split(",") if t.strip()]
 
         # PERSIST_TYPES: comma-separated list of what to persist to archive_dir (pdf, project)

@@ -1,7 +1,7 @@
 [project]
 name = "zenodo-publisher"
 version = "0.1.0"
-description = "Local CLI tool for publishing LaTeX projects to Zenodo from git repo"
+description = "Local CLI tool for publishing LaTeX and compiled projects to Zenodo from git repo"
 requires-python = ">=3.10"
 dependencies = [
     "inveniordm-py>=0.1.1",

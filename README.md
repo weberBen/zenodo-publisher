@@ -1,6 +1,6 @@
 # Zenodo Publisher
 
-A lightweight local CLI tool for publishing LaTeX projects to [Zenodo](https://zenodo.org/) from git repo. Designed for frequent, rapid releases by a singlish maintainer.
+A lightweight local CLI tool for publishing LaTeX and compiled projects to [Zenodo](https://zenodo.org/) from git repo. Designed for frequent, rapid releases by a singlish maintainer.
 
 ![demo.gif](https://raw.githubusercontent.com/weberBen/zenodo-publisher/refs/heads/assets/assets/demo.gif)
 
@@ -9,7 +9,7 @@ A lightweight local CLI tool for publishing LaTeX projects to [Zenodo](https://z
 GitHub Actions like [rseng/zenodo-release](https://github.com/rseng/zenodo-release) or [megasanjay/upload-to-zenodo](https://github.com/megasanjay/upload-to-zenodo) work well for collaborative projects, but we wanted:
 
 - **Local control**: No isolated CI environment - everything runs locally where your LaTeX setup already works
-- **Predictable timing**: No cache invalidation delays that sometimes slow down GitHub Actions unpredictably
+- **Predictable timing**: No cache invalidation delays that sometimes slow down GitHub Actions unpredictably. Even if, timing depends on the API itself, but no more middleman
 - **Step-by-step feedback**: Console output shows exactly what's happening at each stage
 - **Singlish maintainer workflow**: Optimized for "one" person handling releases while others contribute code
 
@@ -28,7 +28,7 @@ graph TD
     D -->|Yes| F[📦 Create archive]
     E --> F
     F -->|PDF and/or optional ZIP| G{📚 Check Zenodo}
-    G --> H{🔐 Files equal?}
+    G --> H{🔐 Files equal? <br/> md5 sum}
     H -->|Yes| I{🏷️ Versions equal?}
     H -->|No| J{🏷️ Versions equal?}
     I -->|Yes| K[✅ Skip publication <br/> identical]
@@ -59,15 +59,15 @@ graph TD
     style O fill:#ffe4cc
 ```
 
-You project can 
+You can publish only the zip of the project or add a dynamic compilation (through makefile) to include another file on the zenodo repo (but not included in the git repo). Typically, project having both source paper and source code inside a single git repo but does not want to have the compiled pdf file in the git tree.
 
 ## Prerequisites
 
 - **Python 3.10+**
 - **uv** (Python package manager): https://docs.astral.sh/uv/
 - **GitHub CLI** (`gh`): https://cli.github.com/ - used for creating GitHub releases
-- (Optional) **LaTeX distribution `latexmk`** (preferred to handle citation/reference error, but we can use what env you want)
 - **Existing Zenodo deposit**: The script creates new versions, not new deposits. You must manually create the first version on Zenodo.
+- If using **LaTeX distribution**, prefer using `latexmk` as it handles citation/reference as error. But we can use whatever you want.
 
 ## Installation
 
@@ -119,25 +119,27 @@ You have a functionning example of such a project repo [here](https://github.com
 |----------|----------|---------|-------------|
 | `MAIN_BRANCH` | No | `main` | Branch to check for releases |
 | `BASE_NAME` | Yes | - | Base name for uploaded preview files (e.g., `MyProject-`) |
-| `COMPILE_DIR` | Yes | - | Path to LaTeX directory (relative to project root) |
-| `FILE_BASE_NAME` | No | `main` | Name of the main file (with extension) used as default preview by Zenodo |
+| `COMPILE_DIR` | Yes | - | Path to compilation directory (relative to project root) |
+| `FILE_BASE_NAME` | No | `main.pdf` | Name of the complied file (with extension) that will be renamed as `<BASE_NAME>-<version_tag_name>.<extension>`and used as the default preview by Zenodo |
 | `PUBLISHER_TYPE` | Yes | - | Set to `zenodo` to enable publishing |
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
 | `ZENODO_API_URL` | No | `https://zenodo.org/api` | Use `https://sandbox.zenodo.org/api` for testing |
-| `ARCHIVE_TYPES` | No | `pdf` | What to archive: `<extension>`, `project`, or `pdf,project` |
+| `ARCHIVE_TYPES` | No | `project` (zip file) | What to archive: `<extension>`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
-| `PUBLICATION_DATE` | No | Current utc date | Publication paper's date (format iso YYYY-MM-DD) |
-| `COMPILE` | No | True | Let the script compile latex project. The compiler only use the defined Makefile, so could be anything than only latex |
+| `PUBLICATION_DATE` | No | Current UCT date | Publication paper's date (format iso YYYY-MM-DD) |
+| `COMPILE` | No | True | Let the script compile project through `Makefile`|
 
 See example file [here](./zenodo.env.example).
 
 And create a Zenodo token on `account/settings/applications/tokens/new/` (token created on Zenodo sandbox are dissociated from production) and allow `deposit:actions`and `deposit:write`.
 
-Latex project is optional. If your project include no latex at all, and you're not interested in pdf archive and/or dynamic compilation, you can set `COMPILE=False`, `COMPILE_DIR=`, `ARCHIVE_TYPES=project`.
-If you want to include a simple pdf (non latex based), set the `COMPILE_DIR` and the `PREVIEW_FILE_NAME`. The script will look for your pdf at `<compile_dir>/<file_base_name>`.
-Also, `COMPILE=False`, `ARCHIVE_TYPES=pdf,project`.
+##### Notes
+
+- Latex is optional.
+- If your project include no latex at all, and you're not interested in pdf archive and/or dynamic compilation, you can set `COMPILE=False`, `COMPILE_DIR=`, `ARCHIVE_TYPES=project`.
+- If you want to include a simple file (non latex based), set the `COMPILE_DIR` and the `FILE_BASE_NAME`. The script will look for your file at `<compile_dir>/<file_base_name>`. And also set `COMPILE=False`, `ARCHIVE_TYPES=<my_file_extension>,project`.
 
 ### 2. Create a Makefile in your compile directory
 
@@ -149,7 +151,9 @@ deploy: cleanall all
 ```
 
 See `Makefile.example` for a complete template.
-We recommand doing a clean (even the pdf) on the deploy action to handle possible outdated version artifact. But if your compile time is long enough, once done on your project, you can skip the clean, which will use the already compiled version.
+For latex project , we recommand doing a deep clean (including the pdf) on the deploy action to handle possible outdated version artifact.
+But if your base compile time is too long, you can skip the clean, which will use your already compiled file.
+You can also disable the compile `COMPILE=False` but be aware that in case of missing compiled file, the script will raise exception.
 
 ### 3. Configure LaTeX for reproducible PDFs
 
@@ -184,14 +188,13 @@ Creates a GitHub release using `gh release create`. This automatically creates a
 
 ### 5. Zenodo Checks
 - Verifies the version doesn't already exist on Zenodo
-- Compares file checksums (MD5) to detect changes
-- If version exists with identical files: skips upload
+- Compares file checksums (MD5) and version names to detect changes
 
 ### 6. Archive & Upload
-- Creates PDF archive (and optionally project ZIP)
+- Creates file archive (and optionally project ZIP)
 - The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
 - Uploads files to Zenodo
-- PDF is set as the default preview
+- File is set as the default preview
 
 ## Limitations
 
@@ -205,7 +208,7 @@ Always test with `ZENODO_API_URL=https://sandbox.zenodo.org/api` before using pr
 ### Draft Handling
 The script **discards existing drafts** on the Zenodo identified deposit by the concept DOI. If you're collaborating on Zenodo through the web interface while using this script, drafts may be lost.
 
-### API Limitations
+### Zenodo metadata
 - Metadata is copied from the previous version. Only `version` and `publication_date` are modified.
 - Each version gets a new DOI (no custom DOI per release)
 
@@ -213,8 +216,7 @@ The script **discards existing drafts** on the Zenodo identified deposit by the 
 You must manually create the first version on Zenodo before using this script. It only creates new versions of existing deposits.
 
 ### PDF Storage Philosophy
-This tool assumes you **don't store PDFs in git**. PDFs are generated on-the-fly before upload. If your PDFs are already in the repository, consider using Zenodo's native GitHub integration instead.
-
+This tool assumes you **don't store PDFs/compiled files in git**. PDFs are generated on-the-fly before upload. If your PDFs are already in the repository, consider using Zenodo's native GitHub integration instead.
 
 ## Troubleshooting
 
