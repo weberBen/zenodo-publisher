@@ -10,6 +10,7 @@ from .git_operations import (
     check_tag_validity,
     create_github_release,
     verify_release_on_latest_commit,
+    add_zenodo_asset_to_release,
     GitError,
     GitHubError,
 )
@@ -216,9 +217,19 @@ def _run_release(
         return
 
     try:
-        zenodo_doi = publisher.publish_new_version(archived_files, tag_name)
+        zenodo_doi, zenodo_url = publisher.publish_new_version(archived_files, tag_name)
         print(f"  Zenodo DOI: {zenodo_doi}")
         print(f"\n{PROJECT_HOSTNAME} ✅ Publication {tag_name} completed successfully!")
+
+        if config.zenodo_info_to_release:
+            add_zenodo_asset_to_release(
+                config.project_root,
+                tag_name,
+                zenodo_doi,
+                zenodo_url,
+                archived_files,
+                debug=config.debug
+            )
 
     except ZenodoError as e:
         print(f"\n{PROJECT_HOSTNAME} ⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)

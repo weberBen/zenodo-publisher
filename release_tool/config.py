@@ -119,6 +119,9 @@ class Config:
         # Publication date (optional, defaults to current UTC date if not set)
         self.publication_date = self.env_vars.get("PUBLICATION_DATE", None)
 
+        # Add zenodo_publication_info.txt asset to GitHub release after Zenodo publication
+        self.zenodo_info_to_release = self.env_vars.get("ZENODO_INFO_TO_RELEASE", "False").lower() == "true"
+
     def has_zenodo_config(self) -> bool:
         """Check if Zenodo configuration is complete."""
         return (self.publisher_type is not None)

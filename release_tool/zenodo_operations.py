@@ -275,7 +275,7 @@ class ZenodoPublisher:
             print(f"  DOI: https://doi.org/{doi}")
             print(f"  URL: {record_html}")
 
-            return doi
+            return doi, record_html
 
         except Exception as e:
             if self.config.debug:
