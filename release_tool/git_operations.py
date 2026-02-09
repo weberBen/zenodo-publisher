@@ -405,22 +405,23 @@ def add_zenodo_asset_to_release(
             doi_url = f"https://doi.org/{doi_parts[0]}.{rand_id}"
         record_url = f"https://zenodo.org/records/{rand_id}"
 
-    lines = [
-        f"doi: {doi_url}",
-        f"record_url: {record_url}",
-        "",
-        "files:",
-    ]
-    for file_path, md5, *_ in archived_files:
-        lines.append(f"  - key: {file_path.name}  md5: {md5}")
+    info = {
+        "doi": doi_url,
+        "record_url": record_url,
+        "files": [
+            {"key": file_path.name, "md5": md5}
+            for file_path, md5, *_ in archived_files
+        ],
+    }
 
-    info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.txt"
+    info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
     with open(info_path, "w") as f:
-        f.write("\n".join(lines) + "\n")
+        json.dump(info, f, indent=2)
+        f.write("\n")
 
-    print(f"  Adding zenodo_publication_info.txt to release '{tag_name}'...")
+    print(f"  Adding zenodo publication info to release '{tag_name}'...")
     run_gh_command(
         ["release", "upload", tag_name, str(info_path), "--clobber"],
         project_root
     )
-    print(f"  ✓ zenodo_publication_info.txt added to release")
+    print(f"  ✓ Zenodo publication info addeded to release")
