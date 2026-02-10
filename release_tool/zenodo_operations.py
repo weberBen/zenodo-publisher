@@ -66,7 +66,7 @@ class ZenodoPublisher:
         response = self.client.session.get(
             f"{self.client._base_url}/user/records",
             params={
-                "q": 'conceptrecid:"432538"' 
+                "q": f'conceptrecid:"{self.concept_id}"' 
             }
         )
         response.raise_for_status()
