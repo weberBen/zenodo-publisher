@@ -384,9 +384,9 @@ def add_zenodo_asset_to_release(
     record_url: str,
     archived_files: list,
     debug: bool = False
-) -> None:
+) -> Path:
     """
-    Create a zenodo_publication_info.txt and attach it as asset to a GitHub release.
+    Create a zenodo_publication_info.json and attach it as asset to a GitHub release.
 
     Args:
         project_root: Path to project root
@@ -424,4 +424,5 @@ def add_zenodo_asset_to_release(
         ["release", "upload", tag_name, str(info_path), "--clobber"],
         project_root
     )
-    print(f"  ✓ Zenodo publication info addeded to release")
+    print(f"  ✓ Zenodo publication info added to release")
+    return info_path

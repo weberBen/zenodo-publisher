@@ -222,7 +222,7 @@ def _run_release(
         print(f"\n{PROJECT_HOSTNAME} ✅ Publication {tag_name} completed successfully!")
 
         if config.zenodo_info_to_release:
-            add_zenodo_asset_to_release(
+            info_path = add_zenodo_asset_to_release(
                 config.project_root,
                 tag_name,
                 zenodo_doi,
@@ -230,6 +230,7 @@ def _run_release(
                 archived_files,
                 debug=config.debug
             )
+            print(f"  Zenodo publication info file: {info_path}")
 
     except ZenodoError as e:
         print(f"\n{PROJECT_HOSTNAME} ⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)
