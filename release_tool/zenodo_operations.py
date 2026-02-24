@@ -131,22 +131,36 @@ class ZenodoPublisher:
         # Compare MD5 checksums - use the proper API to get files
         files_metadata = last_record.files.get()
         previous_version_files = files_metadata.data["entries"]
+        
+        # Build sets of (md5, is_signature) tuples for both sides
+        sig_extensions = {".asc", ".sig"}
         previous_version_md5s = {
-            f["checksum"].replace("md5:", "")
+            (f["checksum"].replace("md5:", ""),
+             any(f.get("key", "").endswith(ext) for ext in sig_extensions))
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        # Exclude signature files (.asc/.sig) from comparison:
-        # GPG signatures contain a timestamp, so their MD5 changes on every
-        # run even when the signed content is identical.
-        new_md5s = {e["md5"] for e in archived_files if not e["is_signature"]}
-        
+        new_md5s = {(e["md5"], e["is_signature"]) for e in archived_files}
+
+        if self.config.gpg_sign:
+            # Exclude signature files from comparison: GPG signatures contain
+            # a timestamp, so their MD5 changes on every run even when the
+            # signed content is identical.
+            previous_version_md5s = {md5 for md5, is_sig in previous_version_md5s if not is_sig}
+            new_md5s = {md5 for md5, is_sig in new_md5s if not is_sig}
+
+
         files_equal = (previous_version_md5s == new_md5s)
         files_changes = new_md5s - previous_version_md5s
-        files_to_upload = len(new_md5s)
         
+        print("previous_version_md5s")
+        print(previous_version_md5s)
+        print("new_md5s")
+        print(new_md5s)
+
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        files_msg = f"Changes : +/- {len(files_changes)} | To upload: {files_to_upload}"
+        sig_note = " *sig files ignored" if self.config.gpg_sign else ""
+        files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
                 
         if files_equal and versions_equal:
             return (True, f"Files and version are identical to previous version '{current_version}' on Zenodo")
