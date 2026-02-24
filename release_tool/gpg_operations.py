@@ -119,10 +119,18 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
             output=str(sig_path),
         )
 
-    if not sig or not sig.data:
+    # Verify the detached signature against the original file
+    with open(sig_path, "rb") as f:
+        verified = gpg.verify_file(f, data_filename=str(file_path))
+    if not verified.valid:
         raise RuntimeError(f"GPG signing failed for {file_path.name}:\n{sig.stderr}")
+    if gpg_uid and gpg_uid.lower() not in verified.fingerprint.lower():
+        raise RuntimeError(
+            f"Signature key mismatch for {file_path.name}: "
+            f"expected '{gpg_uid}', got fingerprint '{verified.fingerprint}'"
+        )
 
-    print(f"  ✓ {sig_path.name} created")
+    print(f"  ✓ {sig_path.name} created (verified: {verified.fingerprint[-16:]})")
     return sig_path
 
 
