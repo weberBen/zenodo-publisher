@@ -191,10 +191,10 @@ def _run_release(
 
     print(f"\n{PROJECT_HOSTNAME} ✅ Archived files:")
 
-    for file_path, md5, is_preview, filename, persist_file in archived_files:
-        print(f"   • {file_path.name}")
-        print(f"     MD5: {md5}")
-        print(f"     (persist: {persist_file})")
+    for entry in archived_files:
+        print(f"   • {entry['file_path'].name}")
+        print(f"     MD5: {entry['md5']}")
+        print(f"     (persist: {entry['persist']})")
     
     # Publish to Zenodo if configured
     if not config.has_zenodo_config():

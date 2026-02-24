@@ -409,8 +409,8 @@ def add_zenodo_asset_to_release(
         "doi": doi_url,
         "record_url": record_url,
         "files": [
-            {"key": file_path.name, "md5": md5}
-            for file_path, md5, *_ in archived_files
+            {"key": e["file_path"].name, "md5": e["md5"]}
+            for e in archived_files
         ],
     }
 

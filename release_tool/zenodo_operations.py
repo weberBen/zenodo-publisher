@@ -136,7 +136,10 @@ class ZenodoPublisher:
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {md5 for _, md5, *_ in archived_files}
+        # Exclude signature files (.asc/.sig) from comparison:
+        # GPG signatures contain a timestamp, so their MD5 changes on every
+        # run even when the signed content is identical.
+        new_md5s = {e["md5"] for e in archived_files if not e["is_signature"]}
         
         files_equal = (previous_version_md5s == new_md5s)
         files_changes = new_md5s - previous_version_md5s
@@ -168,25 +171,25 @@ class ZenodoPublisher:
         """
 
         # Register all files
-        file_entries = [{"key": file_path.name} for file_path, *_ in archived_files]
+        file_entries = [{"key": e["file_path"].name} for e in archived_files]
         draft_record.files.create(FilesListMetadata(file_entries))
 
         default_preview_file = None
         # Upload content and commit each file
-        for file_path, md5, is_preview, *_ in archived_files:
-            if is_preview:
-                default_preview_file = file_path.name
-            
-            print(f"  Uploading {file_path.name}...")
-            with open(file_path, "rb") as f:
+        for entry in archived_files:
+            if entry["is_preview"]:
+                default_preview_file = entry["file_path"].name
+
+            print(f"  Uploading {entry['file_path'].name}...")
+            with open(entry["file_path"], "rb") as f:
                 file_content = f.read()
 
-            draft_file = draft_record.files(file_path.name)
+            draft_file = draft_record.files(entry["file_path"].name)
             stream = OutgoingStream()
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            print(f"  ✓ {file_path.name} uploaded")
+            print(f"  ✓ {entry['file_path'].name} uploaded")
 
         # Set default preview
         if default_preview_file:

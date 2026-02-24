@@ -165,14 +165,18 @@ def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor:
         raise RuntimeError("GPG signing aborted by user.")
     sig_ext = "asc" if armor else "sig"
     signatures = []
-    for file_path, _md5, _is_preview, filename, persist_file in archived_files:
+    for entry in archived_files:
         # Signature is created next to the signed file (same parent dir),
         # so it inherits the same temp/persist location implicitly,
         # since each file are either in archived directory or
         # tmp directory to preserve filename structure of files.
-        sig_path = gpg_sign_file(file_path, gpg_uid, armor=armor, overwrite=overwrite)
+        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, armor=armor, overwrite=overwrite)
         sig_md5 = compute_md5_fn(sig_path)
-        sig_filename = f"{filename}.{file_path.suffix.lstrip('.')}.{sig_ext}"
+        sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
         # Carry over the persist flag from the signed file
-        signatures.append((sig_path, sig_md5, False, sig_filename, persist_file))
+        signatures.append({
+            "file_path": sig_path, "md5": sig_md5,
+            "is_preview": False, "filename": sig_filename,
+            "persist": entry["persist"], "is_signature": True,
+        })
     return signatures
