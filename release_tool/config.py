@@ -122,6 +122,17 @@ class Config:
         # Add zenodo_publication_info.txt asset to GitHub release after Zenodo publication
         self.zenodo_info_to_release = self.env_vars.get("ZENODO_INFO_TO_RELEASE", "False").lower() == "true"
 
+        # GPG signing configuration
+        # GPG_SIGN: enable/disable GPG signing of archived files before upload
+        self.gpg_sign = self.env_vars.get("GPG_SIGN", "False").lower() == "true"
+        # GPG_UID: optional uid of the GPG key to use; if empty, the system default key is used
+        gpg_uid = self.env_vars.get("GPG_UID", "").strip()
+        self.gpg_uid = gpg_uid if gpg_uid else None
+        # GPG_ARMOR: if true, produce ASCII-armored .asc files; if false, binary .sig files
+        self.gpg_armor = self.env_vars.get("GPG_ARMOR", "True").lower() == "true"
+        # GPG_OVERWRITE: if true, overwrite existing signature files without prompting
+        self.gpg_overwrite = self.env_vars.get("GPG_OVERWRITE", "False").lower() == "true"
+
     def has_zenodo_config(self) -> bool:
         """Check if Zenodo configuration is complete."""
         return (self.publisher_type is not None)

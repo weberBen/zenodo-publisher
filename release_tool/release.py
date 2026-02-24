@@ -15,7 +15,8 @@ from .git_operations import (
     GitHubError,
 )
 from .zenodo_operations import ZenodoPublisher, ZenodoError
-from .archive_operation import archive
+from .archive_operation import archive, compute_md5
+from .gpg_operations import sign_files
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
@@ -181,9 +182,15 @@ def _run_release(
         tag_name = new_tag
 
     # Rename files
-    archived_files = archive(config, tag_name)   
+    archived_files = archive(config, tag_name)
+
+    # GPG signing
+    if config.gpg_sign:
+        signatures = sign_files(archived_files, compute_md5, gpg_uid=config.gpg_uid, armor=config.gpg_armor, overwrite=config.gpg_overwrite)
+        archived_files.extend(signatures)
+
     print(f"\n{PROJECT_HOSTNAME} ✅ Archived files:")
-    
+
     for file_path, md5, is_preview, filename, persist_file in archived_files:
         print(f"   • {file_path.name}")
         print(f"     MD5: {md5}")
