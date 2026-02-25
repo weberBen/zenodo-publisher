@@ -27,7 +27,10 @@ graph TD
     D -->|No| E[✨ Create release + tag]
     D -->|Yes| F[📦 Create archive]
     E --> F
-    F -->|PDF and/or optional ZIP| G{📚 Check Zenodo}
+    F -->|PDF and/or optional ZIP| F2{🔏 GPG Sign?}
+    F2 -->|Yes| F3[🔏 Sign files]
+    F2 -->|No| G{📚 Check Zenodo}
+    F3 --> G{📚 Check Zenodo}
     G --> H{🔐 Files equal? <br/> md5 sum}
     H -->|Yes| I{🏷️ Versions equal?}
     H -->|No| J{🏷️ Versions equal?}
@@ -67,6 +70,7 @@ You can publish only the zip of the project or add a dynamic compilation (throug
 - **uv** (Python package manager): https://docs.astral.sh/uv/
 - **GitHub CLI** (`gh`): https://cli.github.com/ - used for creating GitHub releases
 - **Existing Zenodo deposit**: The script creates new versions, not new deposits. You must manually create the first version on Zenodo.
+- **GnuPG** (optional): Required only if `GPG_SIGN=True`. Must have at least one secret key in your keyring.
 - If using **LaTeX distribution**, prefer using `latexmk` as it handles citation/reference as error. But we can use whatever you want.
 
 ## Installation
@@ -130,6 +134,12 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current UCT date | Publication paper's date (format iso YYYY-MM-DD) |
 | `COMPILE` | No | True | Let the script compile project through `Makefile`|
+| `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
+| `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
+| `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
+| `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
+| `GPG_ARMOR` | No | `True` | `True` for ASCII-armored `.asc`, `False` for binary `.sig` |
+| `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |
 
 See example file [here](./zenodo.env.example).
 
@@ -189,12 +199,18 @@ Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.git
 ### 5. Archive & Upload
 - Creates file archive (and optionally project ZIP)
 - The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
-  
-### 5. Zenodo Checks
+
+### 5b. GPG Signing (optional)
+- If `GPG_SIGN=True`, signs each archived file with a detached GPG signature
+- Verifies each signature after creation
+- Signature files (`.asc`/`.sig`) follow the same persist/temp rules as the signed files
+- Signature files are excluded from Zenodo MD5 comparison (timestamps make them non-reproducible)
+
+### 7. Zenodo Checks
 - Verifies the version doesn't already exist on Zenodo
 - Compares file checksums (MD5) and version names to detect changes
 
-### 6. Zenodo Publishing
+### 8. Zenodo Publishing
 - Uploads files to Zenodo
 - Update metadata
 - Publish ([InvenioRDM API](https://inveniordm.docs.cern.ch/))

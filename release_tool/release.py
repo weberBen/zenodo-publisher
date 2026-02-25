@@ -10,11 +10,13 @@ from .git_operations import (
     check_tag_validity,
     create_github_release,
     verify_release_on_latest_commit,
+    add_zenodo_asset_to_release,
     GitError,
     GitHubError,
 )
 from .zenodo_operations import ZenodoPublisher, ZenodoError
-from .archive_operation import archive
+from .archive_operation import archive, compute_md5
+from .gpg_operations import sign_files
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
@@ -180,13 +182,19 @@ def _run_release(
         tag_name = new_tag
 
     # Rename files
-    archived_files = archive(config, tag_name)   
+    archived_files = archive(config, tag_name)
+
+    # GPG signing
+    if config.gpg_sign:
+        signatures = sign_files(archived_files, compute_md5, gpg_uid=config.gpg_uid, armor=config.gpg_armor, overwrite=config.gpg_overwrite)
+        archived_files.extend(signatures)
+
     print(f"\n{PROJECT_HOSTNAME} ✅ Archived files:")
-    
-    for file_path, md5, is_preview, filename, persist_file in archived_files:
-        print(f"   • {file_path.name}")
-        print(f"     MD5: {md5}")
-        print(f"     (persist: {persist_file})")
+
+    for entry in archived_files:
+        print(f"   • {entry['file_path'].name}")
+        print(f"     MD5: {entry['md5']}")
+        print(f"     (persist: {entry['persist']})")
     
     # Publish to Zenodo if configured
     if not config.has_zenodo_config():
@@ -216,9 +224,20 @@ def _run_release(
         return
 
     try:
-        zenodo_doi = publisher.publish_new_version(archived_files, tag_name)
+        zenodo_doi, zenodo_url = publisher.publish_new_version(archived_files, tag_name)
         print(f"  Zenodo DOI: {zenodo_doi}")
         print(f"\n{PROJECT_HOSTNAME} ✅ Publication {tag_name} completed successfully!")
+
+        if config.zenodo_info_to_release:
+            info_path = add_zenodo_asset_to_release(
+                config.project_root,
+                tag_name,
+                zenodo_doi,
+                zenodo_url,
+                archived_files,
+                debug=config.debug
+            )
+            print(f"  Zenodo publication info file: {info_path}")
 
     except ZenodoError as e:
         print(f"\n{PROJECT_HOSTNAME} ⚠️  GitHub release created but Zenodo publication failed: {e}", file=sys.stderr)

@@ -76,7 +76,11 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
         persist_file = config.file_base_extension in config.persist_types
         file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
         is_preview = (config.file_base_extension == extension)
-        results.append((file_path, compute_md5(file_path), is_preview, filename, persist_file))
+        results.append({
+            "file_path": file_path, "md5": compute_md5(file_path),
+            "is_preview": is_preview, "filename": filename,
+            "persist": persist_file, "is_signature": False,
+        })
 
     if "project" in config.archive_types:
         persist_file = "project" in config.persist_types
@@ -88,6 +92,10 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
             persist=persist_file
         )
         is_preview = (config.file_base_extension == extension)
-        results.append((file_path, compute_md5(file_path), is_preview, filename, persist_file))
+        results.append({
+            "file_path": file_path, "md5": compute_md5(file_path),
+            "is_preview": is_preview, "filename": filename,
+            "persist": persist_file, "is_signature": False,
+        })
 
     return results

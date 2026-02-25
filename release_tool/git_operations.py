@@ -2,6 +2,7 @@
 
 import subprocess
 import json
+import random
 from pathlib import Path
 from typing import Optional
 import tempfile
@@ -374,3 +375,54 @@ def archive_project(
 
     print(f"✓ Created archive: {output_file}")
     return output_file, archive_name, "zip"
+
+
+def add_zenodo_asset_to_release(
+    project_root: Path,
+    tag_name: str,
+    doi: str,
+    record_url: str,
+    archived_files: list,
+    debug: bool = False
+) -> Path:
+    """
+    Create a zenodo_publication_info.json and attach it as asset to a GitHub release.
+
+    Args:
+        project_root: Path to project root
+        tag_name: Tag name of the release
+        doi: Zenodo DOI
+        record_url: Zenodo record URL
+        archived_files: List of tuples (file_path, md5, is_preview, filename, persist_file)
+        debug: If True, anonymize the DOI number with a random value
+    """
+    doi_url = f"https://doi.org/{doi}"
+
+    if debug:
+        rand_id = random.randint(100000, 999999)
+        doi_parts = doi.rsplit(".", 1)
+        if len(doi_parts) == 2:
+            doi_url = f"https://doi.org/{doi_parts[0]}.{rand_id}"
+        record_url = f"https://zenodo.org/records/{rand_id}"
+
+    info = {
+        "doi": doi_url,
+        "record_url": record_url,
+        "files": [
+            {"key": e["file_path"].name, "md5": e["md5"]}
+            for e in archived_files
+        ],
+    }
+
+    info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
+    with open(info_path, "w") as f:
+        json.dump(info, f, indent=2)
+        f.write("\n")
+
+    print(f"  Adding zenodo publication info to release '{tag_name}'...")
+    run_gh_command(
+        ["release", "upload", tag_name, str(info_path), "--clobber"],
+        project_root
+    )
+    print(f"  ✓ Zenodo publication info added to release")
+    return info_path

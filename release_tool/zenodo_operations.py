@@ -66,7 +66,7 @@ class ZenodoPublisher:
         response = self.client.session.get(
             f"{self.client._base_url}/user/records",
             params={
-                "q": 'conceptrecid:"432538"' 
+                "q": f'conceptrecid:"{self.concept_id}"' 
             }
         )
         response.raise_for_status()
@@ -131,19 +131,31 @@ class ZenodoPublisher:
         # Compare MD5 checksums - use the proper API to get files
         files_metadata = last_record.files.get()
         previous_version_files = files_metadata.data["entries"]
+        
+        # Build sets of (md5, is_signature) tuples for both sides
+        sig_extensions = {".asc", ".sig"}
         previous_version_md5s = {
-            f["checksum"].replace("md5:", "")
+            (f["checksum"].replace("md5:", ""),
+             any(f.get("key", "").endswith(ext) for ext in sig_extensions))
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {md5 for _, md5, *_ in archived_files}
-        
+        new_md5s = {(e["md5"], e["is_signature"]) for e in archived_files}
+
+        if self.config.gpg_sign:
+            # Exclude signature files from comparison: GPG signatures contain
+            # a timestamp, so their MD5 changes on every run even when the
+            # signed content is identical.
+            previous_version_md5s = {md5 for md5, is_sig in previous_version_md5s if not is_sig}
+            new_md5s = {md5 for md5, is_sig in new_md5s if not is_sig}
+
+
         files_equal = (previous_version_md5s == new_md5s)
         files_changes = new_md5s - previous_version_md5s
-        files_to_upload = len(new_md5s)
-        
+
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        files_msg = f"Changes : +/- {len(files_changes)} | To upload: {files_to_upload}"
+        sig_note = " *sig files ignored" if self.config.gpg_sign else ""
+        files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
                 
         if files_equal and versions_equal:
             return (True, f"Files and version are identical to previous version '{current_version}' on Zenodo")
@@ -168,25 +180,25 @@ class ZenodoPublisher:
         """
 
         # Register all files
-        file_entries = [{"key": file_path.name} for file_path, *_ in archived_files]
+        file_entries = [{"key": e["file_path"].name} for e in archived_files]
         draft_record.files.create(FilesListMetadata(file_entries))
 
         default_preview_file = None
         # Upload content and commit each file
-        for file_path, md5, is_preview, *_ in archived_files:
-            if is_preview:
-                default_preview_file = file_path.name
-            
-            print(f"  Uploading {file_path.name}...")
-            with open(file_path, "rb") as f:
+        for entry in archived_files:
+            if entry["is_preview"]:
+                default_preview_file = entry["file_path"].name
+
+            print(f"  Uploading {entry['file_path'].name}...")
+            with open(entry["file_path"], "rb") as f:
                 file_content = f.read()
 
-            draft_file = draft_record.files(file_path.name)
+            draft_file = draft_record.files(entry["file_path"].name)
             stream = OutgoingStream()
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            print(f"  ✓ {file_path.name} uploaded")
+            print(f"  ✓ {entry['file_path'].name} uploaded")
 
         # Set default preview
         if default_preview_file:
@@ -275,7 +287,7 @@ class ZenodoPublisher:
             print(f"  DOI: https://doi.org/{doi}")
             print(f"  URL: {record_html}")
 
-            return doi
+            return doi, record_html
 
         except Exception as e:
             if self.config.debug:
