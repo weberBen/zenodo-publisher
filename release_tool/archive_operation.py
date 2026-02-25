@@ -22,7 +22,7 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
         FileNotFoundError: If file doesn't exist
     """
     compile_dir = Path(config.compile_dir)
-    main_file = compile_dir / f"{config.file_base_name}.{config.file_base_extension}"
+    main_file = compile_dir / f"{config.main_file}.{config.main_file_extension}"
 
     if not main_file.exists():
         raise FileNotFoundError(
@@ -30,8 +30,8 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
             f"Make sure compilation completed successfully"
         )
 
-    filename = f"{config.base_name}-{tag_name}"
-    extension = config.file_base_extension
+    filename = f"{config.project_name}-{tag_name}"
+    extension = config.main_file_extension
     new_name = f"{filename}.{extension}"
 
     if persist and config.archive_dir:
@@ -72,10 +72,10 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
     """
     results = []
 
-    if config.file_base_extension in config.archive_types:
-        persist_file = config.file_base_extension in config.persist_types
+    if config.main_file_extension in config.archive_types:
+        persist_file = config.main_file_extension in config.persist_types
         file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
-        is_preview = (config.file_base_extension == extension)
+        is_preview = (config.main_file_extension == extension)
         results.append({
             "file_path": file_path, "md5": compute_md5(file_path),
             "is_preview": is_preview, "filename": filename,
@@ -87,11 +87,11 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
         file_path, filename, extension = archive_project(
             config.project_root,
             tag_name,
-            config.base_name,
+            config.project_name,
             archive_dir=config.archive_dir,
             persist=persist_file
         )
-        is_preview = (config.file_base_extension == extension)
+        is_preview = (config.main_file_extension == extension)
         results.append({
             "file_path": file_path, "md5": compute_md5(file_path),
             "is_preview": is_preview, "filename": filename,

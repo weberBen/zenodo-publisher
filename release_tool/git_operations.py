@@ -341,7 +341,7 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
 def archive_project(
     project_root: Path,
     tag_name: str,
-    base_name: str,
+    project_name: str,
     archive_dir: Optional[Path] = None,
     persist: bool = False
 ) -> Path:
@@ -351,7 +351,7 @@ def archive_project(
     Args:
         project_root: Path to project root
         tag_name: Git tag to archive
-        base_name: Base name for the archive
+        project_name: Project name for the archive
         archive_dir: Directory to save the archive (required if persist=True)
         persist: If True, save to archive_dir; if False, create temp file
 
@@ -361,7 +361,7 @@ def archive_project(
     Raises:
         GitError: If archive creation fails
     """
-    archive_name = f"{base_name}-{tag_name}"
+    archive_name = f"{project_name}-{tag_name}"
 
     if persist and archive_dir:
         output_file = archive_dir / f"{archive_name}.zip"

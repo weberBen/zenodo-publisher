@@ -64,10 +64,11 @@ def _run_release(config) -> int:
                 return True
             return False
 
-    print(f"✓ Project root: {config.project_root}")
-    print(f"✓ Main branch: {config.main_branch}")
+    project_name = config.project_name
 
-    project_name = config.project_root.name
+    print(f"✓ Project root: {config.project_root}")
+    print(f"✓ Project name: {project_name}")
+    print(f"✓ Main branch: {config.main_branch}")
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
 
     if config.compile:

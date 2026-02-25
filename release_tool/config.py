@@ -98,11 +98,6 @@ class Config:
                 setattr(self, opt.name, value)
 
         # Validations
-        if not self.base_name:
-            raise ValueError(
-                "BASE_NAME not set in .zenodo.env file\n"
-                "This is used for naming the main file"
-            )
         if not self.compile_dir.exists():
             raise FileNotFoundError(
                 f"Compile directory not found: {self.compile_dir}\n"

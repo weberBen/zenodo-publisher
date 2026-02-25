@@ -121,10 +121,11 @@ You have a functionning example of such a project repo [here](https://github.com
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
+| `PROJECT_NAME` | No | Root dir name | Project name for display and file naming (e.g., `MyProject-v1.0.0.pdf`) |
 | `MAIN_BRANCH` | No | `main` | Branch to check for releases |
-| `BASE_NAME` | Yes | - | Base name for uploaded preview files (e.g., `MyProject-`) |
 | `COMPILE_DIR` | Yes | - | Path to compilation directory (relative to project root) |
-| `FILE_BASE_NAME` | No | `main.pdf` | Name of the complied file (with extension) that will be renamed as `<BASE_NAME>-<version_tag_name>.<extension>`and used as the default preview by Zenodo |
+| `MAIN_FILE` | No | `main.pdf` | Main source file (with extension) renamed as `<PROJECT_NAME>-<version_tag_name>.<extension>` and used as the default preview by Zenodo |
+| `COMPILE` | No | `True` | Let the script compile project through `Makefile` |
 | `PUBLISHER_TYPE` | Yes | - | Set to `zenodo` to enable publishing |
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
@@ -132,10 +133,11 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ARCHIVE_TYPES` | No | `project` (zip file) | What to archive: `<extension>`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
-| `PUBLICATION_DATE` | No | Current UCT date | Publication paper's date (format iso YYYY-MM-DD) |
-| `COMPILE` | No | True | Let the script compile project through `Makefile`|
+| `PUBLICATION_DATE` | No | Current UTC date | Publication date (format ISO YYYY-MM-DD) |
 | `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
+| `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
+| `FORCE_ZENODO_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
 | `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_ARMOR` | No | `True` | `True` for ASCII-armored `.asc`, `False` for binary `.sig` |
@@ -149,7 +151,7 @@ And create a Zenodo token on `account/settings/applications/tokens/new/` (token 
 
 - Latex is optional.
 - If your project include no latex at all, and you're not interested in pdf archive and/or dynamic compilation, you can set `COMPILE=False`, `COMPILE_DIR=`, `ARCHIVE_TYPES=project`.
-- If you want to include a simple file (non latex based), set the `COMPILE_DIR` and the `FILE_BASE_NAME`. The script will look for your file at `<compile_dir>/<file_base_name>`. And also set `COMPILE=False`, `ARCHIVE_TYPES=<my_file_extension>,project`.
+- If you want to include a simple file (non latex based), set the `COMPILE_DIR` and the `MAIN_FILE`. The script will look for your file at `<COMPILE_DIR>/<MAIN_FILE>`. And also set `COMPILE=False`, `ARCHIVE_TYPES=<my_file_extension>,project`.
 
 ### 2. Create a Makefile in your compile directory
 

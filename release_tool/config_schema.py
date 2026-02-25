@@ -25,7 +25,7 @@ class ConfigOption:
 
 # --- Transform functions ---
 
-def _parse_file_base_name(value, project_root):
+def _parse_main_file(value, project_root):
     """Split 'main.pdf' into ('main', 'pdf')."""
     parts = value.split(".")
     return parts[0], ".".join(parts[1:])
@@ -47,20 +47,27 @@ def _strip_or_none(value, project_root):
     return v if v else None
 
 
+def _resolve_project_name(value, project_root):
+    """Return value if non-empty, otherwise project root directory name."""
+    v = value.strip() if value else ""
+    return v if v else project_root.name
+
+
 # --- Options registry ---
 
 OPTIONS: list[ConfigOption] = [
     # Required settings
+    ConfigOption("project_name", "PROJECT_NAME", default="",
+                 transform=_resolve_project_name,
+                 help="Project name for display and file naming (defaults to root dir name)"),
     ConfigOption("main_branch", "MAIN_BRANCH", default="main",
                  help="Git main branch name"),
-    ConfigOption("base_name", "BASE_NAME", required=True,
-                 help="Base name for output files"),
     ConfigOption("compile_dir", "COMPILE_DIR", default="",
                  transform=_resolve_compile_dir,
                  help="Compile directory (relative to project root)"),
-    ConfigOption("file_base_name", "FILE_BASE_NAME", default="main.pdf",
-                 transform=_parse_file_base_name,
-                 extra_attrs=["file_base_extension"],
+    ConfigOption("main_file", "MAIN_FILE", default="main.pdf",
+                 transform=_parse_main_file,
+                 extra_attrs=["main_file_extension"],
                  help="Main file name with extension (e.g. main.pdf)"),
     ConfigOption("compile", "COMPILE", type="bool", default=True,
                  help="Enable project compilation"),
