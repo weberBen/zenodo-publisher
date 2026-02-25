@@ -1,7 +1,6 @@
 """Main release logic."""
 
 import sys
-from .config import Config, NotInitializedError
 from .latex_build import compile
 from .git_operations import (
     check_on_main_branch,
@@ -33,25 +32,10 @@ def prompt_user(prompt: str) -> str:
     """
     return input(f"{prompt}: ").strip()
 
-def run_release(
-    prompt_validation_level: bool,
-    force_zenodo_update : bool
-    ) -> int:
-    
-    # Load configuration
-    print("⚙️  Loading configuration...")
+def run_release(config) -> int:
+    """Run the release process with the given config."""
     try:
-        config = Config()
-    except NotInitializedError as e:
-        print(f"\n❌ {e}", file=sys.stderr)
-        return
-    
-    try:
-        _run_release(
-            config,
-            prompt_validation_level,
-            force_zenodo_update
-        )
+        _run_release(config)
     except Exception as e:
         if config.debug:
             raise e
@@ -59,19 +43,15 @@ def run_release(
     except KeyboardInterrupt:
         print("\nExited.")
 
-def _run_release(
-    config,
-    prompt_validation_level: bool,
-    force_zenodo_update: bool,
-    ) -> int:
+def _run_release(config) -> int:
     """
     Main release process.
 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    
-    if prompt_validation_level == "light":
+
+    if config.prompt_validation_level == "light":
         prompt_validation = "y/n"
         def validated_response(response, project_name):
             if not response or (response.lower() in ["Y", "y"]):
@@ -83,10 +63,10 @@ def _run_release(
             if response and response.lower() == project_name:
                 return True
             return False
-    
+
     print(f"✓ Project root: {config.project_root}")
     print(f"✓ Main branch: {config.main_branch}")
-    
+
     project_name = config.project_root.name
     PROJECT_HOSTNAME = f"({RED_UNDERLINE}{project_name}{RESET})"
 
@@ -98,9 +78,9 @@ def _run_release(
         if not validated_response(response, project_name=project_name):
             print(f"{PROJECT_HOSTNAME}  ❌ Exit process.\nNothing done.")
             return
-        
+
         print(f"{PROJECT_HOSTNAME} 📋 Starting build process...")
-        
+
         compile(config.compile_dir)
     else:
         print(f"{PROJECT_HOSTNAME} ⚠️ Skipping project compilation (see config file)")
@@ -176,9 +156,9 @@ def _run_release(
         print("\n🔍 Final verification...")
         check_up_to_date(config.project_root, config.main_branch)
         verify_release_on_latest_commit(config.project_root, new_tag)
-        
+
         print(f"\n{PROJECT_HOSTNAME} ✅ Release {tag_name} completed successfully!")
-        
+
         tag_name = new_tag
 
     # Rename files
@@ -195,7 +175,7 @@ def _run_release(
         print(f"   • {entry['file_path'].name}")
         print(f"     MD5: {entry['md5']}")
         print(f"     (persist: {entry['persist']})")
-    
+
     # Publish to Zenodo if configured
     if not config.has_zenodo_config():
         print(f"\n\n{PROJECT_HOSTNAME} ⚠️  No publisher set")
@@ -208,14 +188,14 @@ def _run_release(
         print(f"\n{PROJECT_HOSTNAME} ✅ {msg}")
     if not up_to_date:
         pass
-    elif up_to_date and not force_zenodo_update:
+    elif up_to_date and not config.force_zenodo_update:
         print("\nNo publication made.")
         return
     else:
         print(f"\n\n{PROJECT_HOSTNAME} ⚠️ Forcing zenodo update")
         pass
-    
-    
+
+
     response = prompt_user(
         f"{PROJECT_HOSTNAME} Publish version ? [{prompt_validation}]"
     )

@@ -1,8 +1,9 @@
 """Configuration management for the release tool."""
 
-import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+from .config_schema import OPTIONS, ConfigOption
 
 
 def find_project_root(start_path: Optional[Path] = None) -> Path:
@@ -66,73 +67,72 @@ def load_env(project_root: Path) -> dict[str, str]:
 
 
 class Config:
-    """Configuration for release tool."""
+    """Configuration for release tool.
 
-    def __init__(self):
-        self.project_root = find_project_root()
-        self.env_vars = load_env(self.project_root)
-        self.main_branch = self.env_vars.get("MAIN_BRANCH", "main")
+    Options are defined in config_schema.OPTIONS (single source of truth).
+    Priority: CLI overrides > .zenodo.env > defaults.
+    """
 
-        self.debug = self.env_vars.get("DEBUG", "False").lower() == "true"
-        # Get compile directory from env or use default
-        self.compile = (self.env_vars.get("COMPILE", "True").lower() == "true")
-        compile_dir_str = self.env_vars.get("COMPILE_DIR", "")
-        self.compile_dir = self.project_root / compile_dir_str
+    def __init__(
+        self,
+        project_root: Path,
+        env_vars: dict[str, str],
+        cli_overrides: dict[str, Any] | None = None,
+    ):
+        self.project_root = project_root
+        cli_overrides = cli_overrides or {}
 
-        # Validate compile directory exists
+        for opt in OPTIONS:
+            value = self._resolve_value(opt, env_vars, cli_overrides)
+            value = self._coerce(opt, value)
+
+            if opt.transform:
+                result = opt.transform(value, project_root)
+                if opt.extra_attrs:
+                    setattr(self, opt.name, result[0])
+                    for i, attr_name in enumerate(opt.extra_attrs):
+                        setattr(self, attr_name, result[i + 1])
+                else:
+                    setattr(self, opt.name, result)
+            else:
+                setattr(self, opt.name, value)
+
+        # Validations
+        if not self.base_name:
+            raise ValueError(
+                "BASE_NAME not set in .zenodo.env file\n"
+                "This is used for naming the main file"
+            )
         if not self.compile_dir.exists():
             raise FileNotFoundError(
                 f"Compile directory not found: {self.compile_dir}\n"
-                f"Check COMPILE_DIR in .env file"
+                f"Check COMPILE_DIR in .zenodo.env file"
             )
-        
-        # Archive configuration
-        # ARCHIVE_TYPES: comma-separated list of what to archive (pdf, project)
-        archive_types_str = self.env_vars.get("ARCHIVE_TYPES", "project")
-        self.archive_types = [t.strip() for t in archive_types_str.split(",") if t.strip()]
 
-        # PERSIST_TYPES: comma-separated list of what to persist to archive_dir (pdf, project)
-        # Items not in this list will be created as temp files
-        persist_types_str = self.env_vars.get("PERSIST_TYPES", "")
-        self.persist_types = [t.strip() for t in persist_types_str.split(",") if t.strip()]
+    def _resolve_value(
+        self, opt: ConfigOption, env_vars: dict, cli_overrides: dict
+    ) -> Any:
+        """Priority: CLI override > env file > default."""
+        if opt.name in cli_overrides and cli_overrides[opt.name] is not None:
+            return cli_overrides[opt.name]
+        if opt.env_key and opt.env_key in env_vars:
+            return env_vars[opt.env_key]
+        if opt.required and opt.default is None:
+            raise ValueError(f"Required config '{opt.env_key}' not set")
+        return opt.default
 
-        self.archive_dir = Path(self.env_vars.get("ARCHIVE_DIR", "")) if self.env_vars.get("ARCHIVE_DIR") else None
-        main_file_name = self.env_vars.get("FILE_BASE_NAME", "main.pdf").split(".")
-        self.file_base_name = main_file_name[0]
-        self.file_base_extension = ".".join(main_file_name[1:])
-        
-        self.base_name = self.env_vars.get("BASE_NAME", "")
-        if not self.base_name:
-            raise ValueError(
-                "BASE_NAME not set in .env file\n"
-                "This is used for naming the main file"
-            )
-        
-        self.publisher_type = self.env_vars.get("PUBLISHER_TYPE", None)
-        # Zenodo configuration (optional - only needed if publishing to Zenodo)
-        self.zenodo_token = self.env_vars.get("ZENODO_TOKEN", "")
-        self.zenodo_concept_doi = self.env_vars.get("ZENODO_CONCEPT_DOI", "")
-        self.zenodo_api_url = self.env_vars.get(
-            "ZENODO_API_URL",
-            "https://zenodo.org/api"
-        )
-        # Publication date (optional, defaults to current UTC date if not set)
-        self.publication_date = self.env_vars.get("PUBLICATION_DATE", None)
-
-        # Add zenodo_publication_info.txt asset to GitHub release after Zenodo publication
-        self.zenodo_info_to_release = self.env_vars.get("ZENODO_INFO_TO_RELEASE", "False").lower() == "true"
-
-        # GPG signing configuration
-        # GPG_SIGN: enable/disable GPG signing of archived files before upload
-        self.gpg_sign = self.env_vars.get("GPG_SIGN", "False").lower() == "true"
-        # GPG_UID: optional uid of the GPG key to use; if empty, the system default key is used
-        gpg_uid = self.env_vars.get("GPG_UID", "").strip()
-        self.gpg_uid = gpg_uid if gpg_uid else None
-        # GPG_ARMOR: if true, produce ASCII-armored .asc files; if false, binary .sig files
-        self.gpg_armor = self.env_vars.get("GPG_ARMOR", "True").lower() == "true"
-        # GPG_OVERWRITE: if true, overwrite existing signature files without prompting
-        self.gpg_overwrite = self.env_vars.get("GPG_OVERWRITE", "False").lower() == "true"
+    def _coerce(self, opt: ConfigOption, value: Any) -> Any:
+        """Coerce string values from env file to proper Python types."""
+        if value is None:
+            return None
+        if opt.type == "bool" and isinstance(value, str):
+            return value.lower() == "true"
+        if opt.type == "list" and isinstance(value, str):
+            return [t.strip() for t in value.split(",") if t.strip()]
+        if opt.type == "optional_str" and isinstance(value, str):
+            return value if value.strip() else None
+        return value
 
     def has_zenodo_config(self) -> bool:
         """Check if Zenodo configuration is complete."""
-        return (self.publisher_type is not None)
+        return self.publisher_type is not None

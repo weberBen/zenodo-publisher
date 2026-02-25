@@ -10,8 +10,8 @@ dependencies = [
 ]
 
 [project.scripts]
-zenodo-publisher = "release_tool.release:run_release"
-zp = "release_tool.release:run_release"
+zenodo-publisher = "release_tool.cli:main"
+zp = "release_tool.cli:main"
 
 [build-system]
 requires = ["hatchling"]
