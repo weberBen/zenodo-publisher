@@ -126,6 +126,7 @@ You have a functionning example of such a project repo [here](https://github.com
 | `COMPILE_DIR` | Yes | - | Path to compilation directory (relative to project root) |
 | `MAIN_FILE` | No | `main.pdf` | Main source file (with extension) renamed as `<PROJECT_NAME>-<version_tag_name>.<extension>` and used as the default preview by Zenodo |
 | `COMPILE` | No | `True` | Let the script compile project through `Makefile` |
+| `MAKE_ARGS` | No | - | Extra args passed to make (comma-separated, e.g. `-j4,VERBOSE=1`) |
 | `PUBLISHER_TYPE` | Yes | - | Set to `zenodo` to enable publishing |
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
@@ -142,6 +143,7 @@ You have a functionning example of such a project repo [here](https://github.com
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_ARMOR` | No | `True` | `True` for ASCII-armored `.asc`, `False` for binary `.sig` |
 | `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |
+| `GPG_EXTRA_ARGS` | No | - | Extra args passed to gpg (comma-separated, e.g. `--pinentry-mode=loopback`) |
 
 See example file [here](./zenodo.env.example).
 

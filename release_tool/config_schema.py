@@ -71,6 +71,8 @@ OPTIONS: list[ConfigOption] = [
                  help="Main file name with extension (e.g. main.pdf)"),
     ConfigOption("compile", "COMPILE", type="bool", default=True,
                  help="Enable project compilation"),
+    ConfigOption("make_args", "MAKE_ARGS", type="list", default="",
+                 help="Extra args passed to make (e.g. -j4,VERBOSE=1)"),
 
     # Zenodo configuration
     ConfigOption("publisher_type", "PUBLISHER_TYPE", type="optional_str",
@@ -109,6 +111,8 @@ OPTIONS: list[ConfigOption] = [
                  help="ASCII-armored GPG signatures (.asc)"),
     ConfigOption("gpg_overwrite", "GPG_OVERWRITE", type="bool", default=False,
                  help="Overwrite existing GPG signature files"),
+    ConfigOption("gpg_extra_args", "GPG_EXTRA_ARGS", type="list", default="",
+                 help="Extra args passed to gpg (e.g. --pinentry-mode=loopback)"),
 
     # Runtime options (formerly CLI-only)
     ConfigOption("debug", "DEBUG", type="bool", default=False,

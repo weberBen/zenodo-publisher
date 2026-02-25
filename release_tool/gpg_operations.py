@@ -83,7 +83,7 @@ def get_gpg_key_info(gpg_uid: str = None) -> dict:
     }
 
 
-def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, overwrite: bool = False) -> Path:
+def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, overwrite: bool = False, extra_args: list[str] = None) -> Path:
     """
     Sign a file with GPG (detached signature) using python-gnupg.
 
@@ -92,6 +92,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
         gpg_uid: UID of the GPG key to use, or None to use system default
         armor: If True, produce ASCII-armored .asc; if False, binary .sig
         overwrite: If True, overwrite existing signature files without prompting
+        extra_args: Extra arguments passed to gpg
 
     Returns:
         Path to the signature file
@@ -117,6 +118,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
             detach=True,
             binary=not armor,
             output=str(sig_path),
+            extra_args=extra_args or [],
         )
 
     # Verify the detached signature against the original file
@@ -134,7 +136,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
     return sig_path
 
 
-def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor: bool = True, overwrite: bool = False) -> list:
+def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor: bool = True, overwrite: bool = False, extra_args: list[str] = None) -> list:
     """
     Sign all archived files with GPG and return signature entries.
 
@@ -170,7 +172,7 @@ def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor:
         # so it inherits the same temp/persist location implicitly,
         # since each file are either in archived directory or
         # tmp directory to preserve filename structure of files.
-        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, armor=armor, overwrite=overwrite)
+        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, armor=armor, overwrite=overwrite, extra_args=extra_args)
         sig_md5 = compute_md5_fn(sig_path)
         sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
         # Carry over the persist flag from the signed file

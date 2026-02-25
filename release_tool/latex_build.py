@@ -4,12 +4,13 @@ import subprocess
 from pathlib import Path
 
 
-def compile(compile_dir: Path) -> None:
+def compile(compile_dir: Path, make_args: list[str] | None = None) -> None:
     """
     Compile document using Makefile.
 
     Args:
         compile_dir: Path to compile directory
+        make_args: Extra arguments passed to make
 
     Raises:
         RuntimeError: If compilation fails
@@ -22,9 +23,10 @@ def compile(compile_dir: Path) -> None:
 
     print(f"📄 Building document in {compile_dir}...\n\n")
 
+    cmd = ["make", "deploy"] + (make_args or [])
     try:
         result = subprocess.run(
-            ["make", "deploy"],
+            cmd,
             cwd=compile_dir,
             check=True,
             # capture_output=True,

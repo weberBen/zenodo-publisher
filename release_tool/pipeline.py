@@ -82,7 +82,7 @@ def _run_release(config) -> int:
 
         print(f"{PROJECT_HOSTNAME} 📋 Starting build process...")
 
-        compile(config.compile_dir)
+        compile(config.compile_dir, config.make_args)
     else:
         print(f"{PROJECT_HOSTNAME} ⚠️ Skipping project compilation (see config file)")
 
@@ -167,7 +167,7 @@ def _run_release(config) -> int:
 
     # GPG signing
     if config.gpg_sign:
-        signatures = sign_files(archived_files, compute_md5, gpg_uid=config.gpg_uid, armor=config.gpg_armor, overwrite=config.gpg_overwrite)
+        signatures = sign_files(archived_files, compute_md5, gpg_uid=config.gpg_uid, armor=config.gpg_armor, overwrite=config.gpg_overwrite, extra_args=config.gpg_extra_args)
         archived_files.extend(signatures)
 
     print(f"\n{PROJECT_HOSTNAME} ✅ Archived files:")
