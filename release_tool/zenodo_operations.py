@@ -164,7 +164,7 @@ class ZenodoPublisher:
         if not files_equal and versions_equal:
             return (False, f"Version names are identifial ('{tag_name}'). ⚠️ But files contents are different ({files_msg} files)")
         
-        return (False, f"Files and version are different.\nVersion {versions_msg}\n{files_msg} files")
+        return (False, f"Files and version are different.\nVersion {versions_msg}\nFiles {files_msg}")
 
     def _upload_files(
         self,
