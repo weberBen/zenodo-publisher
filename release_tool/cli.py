@@ -70,5 +70,5 @@ def main():
 
     config = Config(project_root, env_vars, cli_overrides)
 
-    from .release import run_release
+    from .pipeline import run_release
     run_release(config)
