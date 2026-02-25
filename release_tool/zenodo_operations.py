@@ -156,7 +156,7 @@ class ZenodoPublisher:
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
         sig_note = " *signature files ignored" if self.config.gpg_sign else ""
         files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
-                
+
         if files_equal and versions_equal:
             return (True, f"Files and version are identical to previous version '{current_version}' on Zenodo")
         if files_equal and not versions_equal:
