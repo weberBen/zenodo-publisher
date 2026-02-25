@@ -154,7 +154,7 @@ class ZenodoPublisher:
         files_changes = new_md5s - previous_version_md5s
 
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        sig_note = " *sig files ignored" if self.config.gpg_sign else ""
+        sig_note = " *signature files ignored" if self.config.gpg_sign else ""
         files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
                 
         if files_equal and versions_equal:
