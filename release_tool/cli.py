@@ -26,6 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
 
         flag = f"--{opt.name.replace('_', '-')}"
 
+        # Build help text with default value when available
+        help_text = opt.help
+        if opt.default not in (None, "", [], True, False):
+            help_text += f" (default: {opt.default})"
+
         if opt.type == "bool":
             parser.add_argument(
                 flag,
@@ -38,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
                 flag,
                 type=str,
                 default=None,
-                help=opt.help,
+                help=help_text,
             )
 
     return parser

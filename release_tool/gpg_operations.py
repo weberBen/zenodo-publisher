@@ -83,16 +83,17 @@ def get_gpg_key_info(gpg_uid: str = None) -> dict:
     }
 
 
-def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, overwrite: bool = False, extra_args: list[str] = None) -> Path:
+def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> Path:
     """
     Sign a file with GPG (detached signature) using python-gnupg.
+
+    Armor mode is controlled by --armor in extra_args (added by default via config).
 
     Args:
         file_path: Path to the file to sign
         gpg_uid: UID of the GPG key to use, or None to use system default
-        armor: If True, produce ASCII-armored .asc; if False, binary .sig
         overwrite: If True, overwrite existing signature files without prompting
-        extra_args: Extra arguments passed to gpg
+        extra_args: Arguments passed to gpg (--armor included by default)
 
     Returns:
         Path to the signature file
@@ -100,6 +101,8 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
     Raises:
         RuntimeError: If GPG signing fails
     """
+    extra_args = extra_args or []
+    armor = "--armor" in extra_args
     sig_ext = ".asc" if armor else ".sig"
     sig_path = file_path.parent / f"{file_path.name}{sig_ext}"
 
@@ -115,10 +118,9 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
         sig = gpg.sign_file(
             f,
             keyid=gpg_uid,
-            detach=True,
-            binary=not armor,
+            detach=True,  # Let extra_args handle --armor
             output=str(sig_path),
-            extra_args=extra_args or [],
+            extra_args=extra_args,
         )
 
     # Verify the detached signature against the original file
@@ -136,22 +138,24 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, armor: bool = True, over
     return sig_path
 
 
-def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor: bool = True, overwrite: bool = False, extra_args: list[str] = None) -> list:
+def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
     """
     Sign all archived files with GPG and return signature entries.
 
     Signature files follow the same persist/temp rules as the files they sign.
 
     Args:
-        archived_files: List of tuples (file_path, md5, is_preview, filename, persist_file)
+        archived_files: List of dicts with file_path, md5, is_preview, filename, persist, is_signature
         compute_md5_fn: Function to compute MD5 checksum of a file
         gpg_uid: UID of the GPG key to use, or None to use system default
-        armor: If True, produce ASCII-armored .asc; if False, binary .sig
         overwrite: If True, overwrite existing signature files without prompting
+        extra_args: Arguments passed to gpg (--armor included by default)
 
     Returns:
-        List of signature tuples (sig_path, md5, False, sig_filename, persist_file)
+        List of signature dicts
     """
+    extra_args = extra_args or []
+    armor = "--armor" in extra_args
     key_info = get_gpg_key_info(gpg_uid)
     fmt_label = "ASCII-armored (.asc)" if armor else "binary (.sig)"
     print(f"\n🔏 Signing files with GPG key:")
@@ -172,7 +176,7 @@ def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, armor:
         # so it inherits the same temp/persist location implicitly,
         # since each file are either in archived directory or
         # tmp directory to preserve filename structure of files.
-        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, armor=armor, overwrite=overwrite, extra_args=extra_args)
+        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, overwrite=overwrite, extra_args=extra_args)
         sig_md5 = compute_md5_fn(sig_path)
         sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
         # Carry over the persist flag from the signed file

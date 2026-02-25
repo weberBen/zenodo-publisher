@@ -53,6 +53,53 @@ def _resolve_project_name(value, project_root):
     return v if v else project_root.name
 
 
+def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:
+    """Merge default and user args, last value wins for same key.
+
+    --no-X in user_args removes --X from defaults (not passed to subprocess).
+
+    Handles: --flag/--no-flag, --key=value, -Xvalue, KEY=value.
+    """
+    def _arg_key(arg):
+        if arg.startswith("--"):
+            return arg.split("=")[0][2:]   # --armor → armor, --key=val → key
+        if arg.startswith("-") and len(arg) > 2:
+            return arg[:2]                 # -j4 → -j
+        if "=" in arg:
+            return arg.split("=")[0]       # VERBOSE=1 → VERBOSE
+        return arg
+
+    seen = {}
+    order = []
+    for arg in default_args + user_args:
+        if arg.startswith("--no-"):
+            # --no-X removes --X from defaults
+            key = arg[5:]
+            if key in seen:
+                order.remove(key)
+                del seen[key]
+            continue
+        key = _arg_key(arg)
+        if key not in seen:
+            order.append(key)
+        seen[key] = arg
+    return [seen[k] for k in order]
+
+
+_GPG_DEFAULT_ARGS = ["--armor"]
+_MAKE_DEFAULT_ARGS = []
+
+
+def _build_gpg_args(value, project_root):
+    """Merge default GPG args with user args."""
+    return dedup_args(_GPG_DEFAULT_ARGS, value or [])
+
+
+def _dedup_make_args(value, project_root):
+    """Dedup make args."""
+    return dedup_args(_MAKE_DEFAULT_ARGS, value or [])
+
+
 # --- Options registry ---
 
 OPTIONS: list[ConfigOption] = [
@@ -72,6 +119,7 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("compile", "COMPILE", type="bool", default=True,
                  help="Enable project compilation"),
     ConfigOption("make_args", "MAKE_ARGS", type="list", default="",
+                 transform=_dedup_make_args,
                  help="Extra args passed to make (e.g. -j4,VERBOSE=1)"),
 
     # Zenodo configuration
@@ -107,12 +155,11 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("gpg_uid", "GPG_UID", type="optional_str",
                  transform=_strip_or_none,
                  help="GPG key UID (empty = system default)"),
-    ConfigOption("gpg_armor", "GPG_ARMOR", type="bool", default=True,
-                 help="ASCII-armored GPG signatures (.asc)"),
     ConfigOption("gpg_overwrite", "GPG_OVERWRITE", type="bool", default=False,
                  help="Overwrite existing GPG signature files"),
-    ConfigOption("gpg_extra_args", "GPG_EXTRA_ARGS", type="list", default="",
-                 help="Extra args passed to gpg (e.g. --pinentry-mode=loopback)"),
+    ConfigOption("gpg_extra_args", "GPG_EXTRA_ARGS", type="list", default=",".join(_GPG_DEFAULT_ARGS),
+                 transform=_build_gpg_args,
+                 help="Extra args passed to gpg (use --no-armor for binary .sig)"),
 
     # Runtime options (formerly CLI-only)
     ConfigOption("debug", "DEBUG", type="bool", default=False,

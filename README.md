@@ -141,9 +141,8 @@ You have a functionning example of such a project repo [here](https://github.com
 | `FORCE_ZENODO_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
 | `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
-| `GPG_ARMOR` | No | `True` | `True` for ASCII-armored `.asc`, `False` for binary `.sig` |
 | `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |
-| `GPG_EXTRA_ARGS` | No | - | Extra args passed to gpg (comma-separated, e.g. `--pinentry-mode=loopback`) |
+| `GPG_EXTRA_ARGS` | No | `--armor` | Extra args passed to gpg (comma-separated). E.g. use `--no-armor` for binary `.sig` |
 
 See example file [here](./zenodo.env.example).
 
