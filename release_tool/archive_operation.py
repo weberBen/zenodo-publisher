@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from .git_operations import archive_project
+from . import output
 
 
 def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
@@ -39,9 +40,9 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
     else:
         new_file = Path(tempfile.gettempdir()) / new_name
 
-    print(f"\n📝 Copying Preview file: {main_file.name} → {new_file}")
+    output.info(f"📝 Copying preview file: {main_file.name} → {new_file}")
     shutil.copy(main_file, new_file)
-    print(f"✓ File copied to {new_file}")
+    output.info_ok(f"File copied to {new_file}")
 
     return new_file, filename, extension
 

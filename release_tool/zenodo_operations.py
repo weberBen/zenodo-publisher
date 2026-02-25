@@ -3,6 +3,7 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from . import output
 from inveniordm_py import InvenioAPI
 from inveniordm_py.files.metadata import FilesListMetadata, OutgoingStream
 from requests.exceptions import HTTPError
@@ -120,7 +121,7 @@ class ZenodoPublisher:
         Raises:
             ZenodoNoUpdateNeeded: If version already exists or files are identical
         """
-        print("  Checking if update is needed...")
+        output.detail("Checking if update is needed...")
         
         # Check version
         current_version = last_record.data["metadata"].get("version", None)
@@ -189,7 +190,7 @@ class ZenodoPublisher:
             if entry["is_preview"]:
                 default_preview_file = entry["file_path"].name
 
-            print(f"  Uploading {entry['file_path'].name}...")
+            output.detail(f"Uploading {entry['file_path'].name}...")
             with open(entry["file_path"], "rb") as f:
                 file_content = f.read()
 
@@ -198,7 +199,7 @@ class ZenodoPublisher:
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            print(f"  ✓ {entry['file_path'].name} uploaded")
+            output.detail_ok(f"{entry['file_path'].name} uploaded")
 
         # Set default preview
         if default_preview_file:
@@ -235,25 +236,24 @@ class ZenodoPublisher:
         Raises:
             ZenodoError: If publication fails
         """
-        print(f"\n📤 Publishing new version to Zenodo...")
-        print(f"  Concept DOI: {self.concept_doi}")
-        print(f"  Version: {tag_name}")
-        
+        output.info("📤 Publishing new version to Zenodo...")
+        output.detail(f"Concept DOI: {self.concept_doi}")
+        output.detail(f"Version: {tag_name}")
+
         publication_date = self.get_publication_date()
         last_record = self._get_last_record()
-        
-        print(f"  Publication date: {publication_date}")
-        print(f"")
+
+        output.detail(f"Publication date: {publication_date}")
 
         try:
             
-            print("  Creating new draft version...")
+            output.detail("Creating new draft version...")
             existing_draft_id = self._get_exsiting_draft_id()
             if existing_draft_id is not None:
-                print(f"  ⚠️  Detecting existing draft version {existing_draft_id}, discarding...")
+                output.warn(f"Detecting existing draft version {existing_draft_id}, discarding...")
                 self._discard_draft_version(existing_draft_id)
             else:
-                print("  ✓ No existing draft detected")
+                output.detail_ok("No existing draft detected")
             
             draft_record = self._create_new_draft_version(last_record)
 
@@ -266,26 +266,26 @@ class ZenodoPublisher:
                 raise ZenodoError("Cannot create draft new version...")
             
             # Upload files
-            print("  Uploading files...")
+            output.detail("Uploading files...")
             self._upload_files(
                 draft_record,
                 archived_files
             )
 
             # Update metadata
-            print(f"  Updating metadata (version: {tag_name})...")
+            output.detail(f"Updating metadata (version: {tag_name})...")
             self._update_metadata(draft_record, publication_date, tag_name)
-            print("  ✓ Metadata updated")
+            output.detail_ok("Metadata updated")
 
             # Publish
-            print("  Publishing...")
+            output.detail("Publishing...")
             published_record = draft_record.publish()
             doi = published_record.data["doi"]
             record_html = published_record.data["links"]["self_html"]
 
-            print(f"✓ Published to Zenodo!")
-            print(f"  DOI: https://doi.org/{doi}")
-            print(f"  URL: {record_html}")
+            output.info_ok("Published to Zenodo!")
+            output.detail(f"DOI: https://doi.org/{doi}")
+            output.detail(f"URL: {record_html}")
 
             return doi, record_html
 

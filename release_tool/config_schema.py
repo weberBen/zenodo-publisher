@@ -167,7 +167,7 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("prompt_validation_level", "PROMPT_VALIDATION_LEVEL",
                  default="strict",
                  help="Prompt validation level: strict or light"),
-    ConfigOption("force_zenodo_update", "FORCE_ZENODO_UPDATE",
+    ConfigOption("zenodo_force_update", "ZENODO_FORCE_UPDATE",
                  type="bool", default=False,
                  help="Force Zenodo update even if up to date"),
 ]

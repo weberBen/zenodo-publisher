@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Optional
 import tempfile
 
+from . import output
+
 class GitError(Exception):
     """Git operation error."""
     pass
@@ -66,7 +68,7 @@ def check_on_main_branch(project_root: Path, main_branch: str) -> None:
 
 def fetch_remote(project_root: Path) -> None:
     """Fetch updates from remote repository."""
-    print("🔄 Fetching from remote...")
+    output.info("🔄 Fetching from remote...")
     run_git_command(["fetch"], project_root)
 
 
@@ -90,8 +92,8 @@ def has_local_modifs(project_root: Path, main_branch: str) -> bool:
     Returns:
         True if no modifications, False if there are changes
     """
-    output = run_git_command(["status", "--porcelain"], project_root)
-    return output.strip() != ""
+    result = run_git_command(["status", "--porcelain"], project_root)
+    return result.strip() != ""
     
 
 def check_up_to_date(project_root: Path, main_branch: str) -> None:
@@ -114,7 +116,7 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
             f"Please pull/push the latest changes first"
         )
         
-    print(f"✓ Repository is up to date with origin/{main_branch}")
+    output.info_ok(f"Repository is up to date with origin/{main_branch}")
 
 
 def run_gh_command(args: list[str], cwd: Path) -> str:
@@ -159,14 +161,14 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
     """
     try:
         # First, get the list of releases (without body field)
-        output = run_gh_command(
+        result = run_gh_command(
             ["release", "list", "--limit", "1", "--json", "tagName,name"],
             project_root
         )
-        if not output:
+        if not result:
             return None
 
-        releases = json.loads(output)
+        releases = json.loads(result)
         if not releases:
             return None
 
@@ -219,11 +221,11 @@ def tag_exists(project_root: Path, tag_name: str) -> bool:
 
     try:
         # Check if tag exists on remote using ls-remote
-        output = run_git_command(
+        result = run_git_command(
             ["ls-remote", "--tags", "origin", f"refs/tags/{tag_name}"],
             project_root
         )
-        return bool(output.strip())
+        return bool(result.strip())
     except GitError:
         return False
 
@@ -242,16 +244,16 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         GitError: If tag exists but doesn't point to the latest remote commit
     """
     if not tag_exists(project_root, tag_name):
-        print(f"✓ Tag '{tag_name}' does not exist yet")
+        output.info_ok(f"Tag '{tag_name}' does not exist yet")
         return
 
     # Tag exists, check if it points to the latest remote commit
-    print(f"⚠️  Tag '{tag_name}' already exists, verifying it points to latest commit...")
+    output.warn(f"Tag '{tag_name}' already exists, verifying it points to latest commit...")
     tag_commit = get_commit_of_tag(project_root, tag_name)
     remote_latest = get_remote_latest_commit(project_root, main_branch)
 
     if tag_commit == remote_latest:
-        print(f"✓ Tag '{tag_name}' points to the latest remote commit")
+        output.info_ok(f"Tag '{tag_name}' points to the latest remote commit")
         return
 
     raise GitError(
@@ -298,14 +300,14 @@ def create_github_release(
         title: Release title
         notes: Release notes/description
     """
-    print(f"\n🚀 Creating GitHub release '{tag_name}'...")
+    output.info(f"🚀 Creating GitHub release '{tag_name}'...")
 
     run_gh_command(
         ["release", "create", tag_name, "--title", title, "--notes", notes],
         project_root
     )
 
-    print(f"✓ Release '{tag_name}' created and published")
+    output.info_ok(f"Release '{tag_name}' created and published")
 
 
 def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
@@ -336,7 +338,7 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
             f"Latest commit: {latest_commit}"
         )
 
-    print(f"✓ Release '{tag_name}' points to the latest commit")
+    output.info_ok(f"Release '{tag_name}' points to the latest commit")
 
 def archive_project(
     project_root: Path,
@@ -373,7 +375,7 @@ def archive_project(
         project_root
     )
 
-    print(f"✓ Created archive: {output_file}")
+    output.info_ok(f"Created archive: {output_file}")
     return output_file, archive_name, "zip"
 
 
@@ -419,10 +421,10 @@ def add_zenodo_asset_to_release(
         json.dump(info, f, indent=2)
         f.write("\n")
 
-    print(f"  Adding zenodo publication info to release '{tag_name}'...")
+    output.detail(f"Adding zenodo publication info to release '{tag_name}'...")
     run_gh_command(
         ["release", "upload", tag_name, str(info_path), "--clobber"],
         project_root
     )
-    print(f"  ✓ Zenodo publication info added to release")
+    output.detail_ok("Zenodo publication info added to release")
     return info_path

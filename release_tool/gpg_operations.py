@@ -4,6 +4,8 @@ from pathlib import Path
 
 import gnupg
 
+from . import output
+
 def _read_gpg_conf_default_key() -> str | None:
     """
     Read the default-key directive from ~/.gnupg/gpg.conf (read-only).
@@ -112,7 +114,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
             f"Set GPG_OVERWRITE=True to overwrite."
         )
 
-    print(f"  Signing {file_path.name}...")
+    output.detail(f"Signing {file_path.name}...")
     gpg = _get_gpg_instance()
     with open(file_path, "rb") as f:
         sig = gpg.sign_file(
@@ -134,7 +136,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
             f"expected '{gpg_uid}', got fingerprint '{verified.fingerprint}'"
         )
 
-    print(f"  ✓ {sig_path.name} created (verified: {verified.fingerprint[-16:]})")
+    output.detail_ok(f"{sig_path.name} created (verified: {verified.fingerprint[-16:]})")
     return sig_path
 
 
@@ -158,14 +160,13 @@ def sign_files(archived_files: list, compute_md5_fn, gpg_uid: str = None, overwr
     armor = "--armor" in extra_args
     key_info = get_gpg_key_info(gpg_uid)
     fmt_label = "ASCII-armored (.asc)" if armor else "binary (.sig)"
-    print(f"\n🔏 Signing files with GPG key:")
-    print(f"  Key ID:  {key_info['key_id']}")
-    print(f"  Main UID:  {key_info['default-uid']}")
+    output.info("🔏 Signing files with GPG key:")
+    output.detail(f"Key ID:  {key_info['key_id']}")
+    output.detail(f"Main UID:  {key_info['default-uid']}")
     for uid in key_info['uids']:
         if uid != key_info['default-uid']:
-            print(f"  Other UID: {uid}")
-
-    print(f"  Format:  {fmt_label}")
+            output.detail(f"Other UID: {uid}")
+    output.detail(f"Format:  {fmt_label}")
     response = input("  Use this key? [y/n]: ").strip().lower()
     if response not in ("y", "yes", ""):
         raise RuntimeError("GPG signing aborted by user.")

@@ -138,7 +138,7 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
-| `FORCE_ZENODO_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
+| `ZENODO_FORCE_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
 | `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |

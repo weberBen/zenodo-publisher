@@ -1,6 +1,5 @@
 """Main release logic."""
 
-import sys
 from .latex_build import compile
 from .git_operations import (
     check_on_main_branch,
@@ -16,18 +15,12 @@ from .git_operations import (
 from .zenodo_operations import ZenodoPublisher, ZenodoError
 from .archive_operation import archive, compute_md5
 from .gpg_operations import sign_files
-
-RED_UNDERLINE = "\033[91;4m"
-RESET = "\033[0m"
+from . import output
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _project_label(project_name: str) -> str:
-    return f"({RED_UNDERLINE}{project_name}{RESET})"
-
 
 def _prompt(msg: str) -> str:
     return input(f"{msg}: ").strip()
@@ -40,94 +33,98 @@ def _make_validator(level: str):
     return "Enter project name", lambda resp, _name: bool(resp) and resp.lower() == _name
 
 
-def _confirm(label: str, message: str, hint: str, validator, project_name: str) -> bool:
+def _confirm(message: str, hint: str, validator, project_name: str) -> bool:
     """Prompt user for confirmation. Returns True if confirmed."""
-    response = _prompt(f"{label} {message} [{hint}]")
+    response = _prompt(f"{message} [{hint}]")
     if not validator(response, project_name):
-        print(f"{label} ❌ Exit process.\nNothing done.")
+        step_abort()
         return False
     return True
+
+
+def step_abort():
+    output.step_warn("Exit process.")
 
 
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
 
-def _step_git_check(config, label):
+def _step_git_check(config):
     """Check branch, remote sync, and local modifications."""
-    print(f"\n{label} 🔍 Checking git repository status...")
+    output.step("🔍 Checking git repository status...")
     check_on_main_branch(config.project_root, config.main_branch)
-    print(f"{label} ✓ On {config.main_branch} branch")
+    output.step_ok(f"On {config.main_branch} branch")
     check_up_to_date(config.project_root, config.main_branch)
 
 
-def _step_release(config, label) -> str:
+def _step_release(config) -> str:
     """Check or create a GitHub release. Returns the tag name."""
     is_released, latest_release = is_latest_commit_released(config.project_root)
 
     if is_released:
         tag_name = latest_release["tagName"]
-        print(f"\n✓ Latest commit already has a release: {tag_name}")
-        print("✅ Nothing to do for release.")
+        output.info_ok(f"Latest commit already has a release: {tag_name}")
+        output.info_ok("Nothing to do for release.")
         return tag_name
 
     # Display previous release info
-    print(f"\n{label} 📋 Current release status:")
+    output.step("📋 Current release status:")
     if latest_release:
-        print(f"  Last release: {latest_release['tagName']}")
+        output.detail(f"Last release: {latest_release['tagName']}")
         if latest_release.get("name"):
-            print(f"  Title: {latest_release['name']}")
+            output.detail(f"Title: {latest_release['name']}")
         if latest_release.get("body"):
             body = latest_release["body"]
             preview = body[:100] + "..." if len(body) > 100 else body
-            print(f"  Notes: {preview}")
+            output.detail(f"Notes: {preview}")
     else:
-        print("  No releases found (this will be the first release)")
+        output.detail("No releases found (this will be the first release)")
 
     # Prompt for new tag / title / notes
-    print(f"\n{label} 📝 Creating new release...")
+    output.step("📝 Creating new release...")
     while True:
-        new_tag = _prompt(f"{label} Enter new tag name")
+        new_tag = _prompt("Enter new tag name")
         if new_tag:
             break
-        print("Tag name cannot be empty")
+        output.warn("Tag name cannot be empty")
 
     release_title = _prompt(
-        f"{label} Enter release title (press Enter to use '{new_tag}')"
+        f"Enter release title (press Enter to use '{new_tag}')"
     )
     if not release_title:
         release_title = new_tag
-        print(f"Using default title: {release_title}")
+        output.detail(f"Using default title: {release_title}")
 
-    release_notes = _prompt(f"{label} Enter release notes (press Enter to skip)")
+    release_notes = _prompt("Enter release notes (press Enter to skip)")
     if not release_notes:
         release_notes = ""
-        print("No release notes provided")
+        output.detail("No release notes provided")
 
     # Validate and create
-    print(f"\n{label} 🔍 Verifying tag validity...")
+    output.step("🔍 Verifying tag validity...")
     check_tag_validity(config.project_root, new_tag, config.main_branch)
 
     create_github_release(config.project_root, new_tag, release_title, release_notes)
 
-    print(f"\n{label} ✅ Release {new_tag} created successfully!")
+    output.step_ok(f"Release {new_tag} created successfully!")
     return new_tag
 
 
-def _step_compile(config, label, hint, validator):
+def _step_compile(config, hint, validator):
     """Compile project via make (with user prompt)."""
     if not config.compile:
-        print(f"{label} ⚠️ Skipping project compilation (see config file)")
+        output.step_warn("Skipping project compilation (see config file)")
         return
 
-    if not _confirm(label, "Start building project ?", hint, validator, config.project_name):
+    if not _confirm("Start building project ?", hint, validator, config.project_name):
         raise RuntimeError("Build aborted by user.")
 
-    print(f"{label} 📋 Starting build process...")
+    output.step("📋 Starting build process...")
     compile(config.compile_dir, config.make_args)
 
 
-def _step_archive(config, tag_name, label) -> list:
+def _step_archive(config, tag_name) -> list:
     """Create archives and optionally GPG-sign them. Returns archived file list."""
     archived_files = archive(config, tag_name)
 
@@ -140,40 +137,40 @@ def _step_archive(config, tag_name, label) -> list:
         )
         archived_files.extend(signatures)
 
-    print(f"\n{label} ✅ Archived files:")
+    output.step_ok("Archived files:")
     for entry in archived_files:
-        print(f"   • {entry['file_path'].name}")
-        print(f"     MD5: {entry['md5']}")
-        print(f"     (persist: {entry['persist']})")
+        output.detail(f"• {entry['file_path'].name}")
+        output.detail(f"  MD5: {entry['md5']}")
+        output.detail(f"  persist: {entry['persist']}")
 
     return archived_files
 
 
-def _step_zenodo(config, tag_name, archived_files, label, hint, validator):
+def _step_zenodo(config, tag_name, archived_files, hint, validator):
     """Check Zenodo state and publish if needed."""
     if not config.has_zenodo_config():
-        print(f"\n\n{label} ⚠️  No publisher set")
+        output.step_warn("No publisher set")
         return
 
     publisher = ZenodoPublisher(config)
 
     up_to_date, msg = publisher.is_up_to_date(tag_name, archived_files)
     if msg:
-        print(f"\n{label} ✅ {msg}")
-    if up_to_date and not config.force_zenodo_update:
-        print("\nNo publication made.")
+        output.step_ok(msg)
+    if up_to_date and not config.zenodo_force_update:
+        output.info("No publication made.")
         return
     if up_to_date:
-        print(f"\n\n{label} ⚠️ Forcing zenodo update")
+        output.step_warn("Forcing zenodo update")
 
-    if not _confirm(label, "Publish version ?", hint, validator, config.project_name):
-        print(f"⚠️ No publication made")
+    if not _confirm("Publish version ?", hint, validator, config.project_name):
+        output.warn("No publication made")
         return
 
     try:
         zenodo_doi, zenodo_url = publisher.publish_new_version(archived_files, tag_name)
-        print(f"  Zenodo DOI: {zenodo_doi}")
-        print(f"\n{label} ✅ Publication {tag_name} completed successfully!")
+        output.detail(f"Zenodo DOI: {zenodo_doi}")
+        output.step_ok(f"Publication {tag_name} completed successfully!")
 
         if config.zenodo_info_to_release:
             info_path = add_zenodo_asset_to_release(
@@ -181,14 +178,11 @@ def _step_zenodo(config, tag_name, archived_files, label, hint, validator):
                 zenodo_doi, zenodo_url,
                 archived_files, debug=config.debug,
             )
-            print(f"  Zenodo publication info file: {info_path}")
+            output.detail(f"Zenodo publication info file: {info_path}")
 
     except ZenodoError as e:
-        print(
-            f"\n{label} ⚠️  GitHub release created but Zenodo publication failed: {e}",
-            file=sys.stderr,
-        )
-        print("  You can manually upload files to Zenodo")
+        output.error(f"GitHub release created but Zenodo publication failed: {e}")
+        output.detail("You can manually upload files to Zenodo")
 
 
 # ---------------------------------------------------------------------------
@@ -202,35 +196,36 @@ def run_release(config) -> None:
     except Exception as e:
         if config.debug:
             raise
-        print(f"\n💀❌💀 {RED_UNDERLINE}Error during process execution:{RESET} 💀❌💀\n{e}\n")
+        output.fatal("Error during process execution:")
+        output.error(str(e))
     except KeyboardInterrupt:
-        print("\nExited.")
+        output.info("\nExited.")
 
 
 def _run_release(config) -> None:
     """Main release pipeline."""
-    label = _project_label(config.project_name)
+    output.setup(config.project_name, config.debug)
     hint, validator = _make_validator(config.prompt_validation_level)
 
-    print(f"✓ Project root: {config.project_root}")
-    print(f"✓ Project name: {config.project_name}")
-    print(f"✓ Main branch: {config.main_branch}")
+    output.info_ok(f"Project root: {config.project_root}")
+    output.info_ok(f"Project name: {config.project_name}")
+    output.info_ok(f"Main branch: {config.main_branch}")
 
     # 1. Git check
-    _step_git_check(config, label)
+    _step_git_check(config)
 
     # 2. Release check/creation
-    tag_name = _step_release(config, label)
+    tag_name = _step_release(config)
 
     # 3. Compile
-    _step_compile(config, label, hint, validator)
+    _step_compile(config, hint, validator)
 
     # 4. Re-check git + release still valid after compilation
-    _step_git_check(config, label)
+    _step_git_check(config)
     verify_release_on_latest_commit(config.project_root, tag_name)
 
     # 5. Archive + sign
-    archived_files = _step_archive(config, tag_name, label)
+    archived_files = _step_archive(config, tag_name)
 
     # 6. Zenodo publish
-    _step_zenodo(config, tag_name, archived_files, label, hint, validator)
+    _step_zenodo(config, tag_name, archived_files, hint, validator)
