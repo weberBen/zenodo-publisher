@@ -134,6 +134,8 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current UCT date | Publication paper's date (format iso YYYY-MM-DD) |
 | `COMPILE` | No | True | Let the script compile project through `Makefile`|
+| `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
+| `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_ARMOR` | No | `True` | `True` for ASCII-armored `.asc`, `False` for binary `.sig` |
