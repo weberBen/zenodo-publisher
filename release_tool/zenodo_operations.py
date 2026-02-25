@@ -162,7 +162,7 @@ class ZenodoPublisher:
         if files_equal and not versions_equal:
             return (True, f"Files are identical to previous version '{current_version}' on Zenodo\n⚠️ But version names are different ({versions_msg})")
         if not files_equal and versions_equal:
-            return (False, f"Version names are identifial ('{tag_name}'). ⚠️ But files contents are different ({files_msg} files)")
+            return (False, f"Version names are identifial ('{tag_name}'). ⚠️ But files contents are different (Files {files_msg})")
         
         return (False, f"Files and version are different.\nVersion {versions_msg}\nFiles {files_msg}")
 
