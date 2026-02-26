@@ -416,18 +416,17 @@ def get_release_asset_digest(
 ) -> str | None:
     """Return the SHA256 digest of a release asset, or None if it doesn't exist.
 
-    GitHub provides the digest directly in the API response (no download needed).
+    Uses the REST API (gh api) because gh release view does not expose the digest field.
     """
     try:
         result = run_gh_command(
-            ["release", "view", tag_name, "--json", "assets"],
+            ["api", "repos/{owner}/{repo}/releases/tags/" + tag_name,
+             "--jq", f'.assets[] | select(.name == "{asset_name}") | .digest'],
             project_root,
         )
-        assets = json.loads(result).get("assets", [])
-        for asset in assets:
-            if asset.get("name") == asset_name:
-                return asset.get("digest")  # e.g. "sha256:29ca0d..."
-    except (GitHubError, json.JSONDecodeError):
+        if result:
+            return result  # e.g. "sha256:29ca0d..."
+    except GitHubError:
         pass
     return None
 
@@ -442,19 +441,13 @@ def build_zenodo_info_json(
     """Build zenodo_publication_info.json in a temp directory and return its path."""
     doi_url = f"https://doi.org/{doi}"
 
-    if debug:
-        rand_id = random.randint(100000, 999999)
-        doi_parts = doi.rsplit(".", 1)
-        if len(doi_parts) == 2:
-            doi_url = f"https://doi.org/{doi_parts[0]}.{rand_id}"
-        record_url = f"https://zenodo.org/records/{rand_id}"
-
     info = {
         "doi": doi_url,
         "record_url": record_url,
         "files": [
             {"key": e["file_path"].name, "md5": e["md5"], "sha256": e["sha256"]}
             for e in archived_files
+            if not e.get("is_signature")
         ],
     }
     if identifiers:

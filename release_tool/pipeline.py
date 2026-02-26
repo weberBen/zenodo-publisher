@@ -45,6 +45,9 @@ def _confirm(message: str, hint: str, validator, project_name: str) -> bool:
 def step_abort():
     output.step_warn("Exit process.")
 
+def ellipse_hash(hash_str, visible_char=8):
+    hash_str = hash_str.split(":")[-1]
+    return f"{hash_str[:visible_char]}...{hash_str[-visible_char:]}"
 
 # ---------------------------------------------------------------------------
 # Steps
@@ -163,60 +166,57 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
     return archived_files, identifiers
 
 
-def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator) -> tuple[str | None, str | None]:
-    """Check Zenodo state and publish if needed. Returns (doi, record_url) or (None, None)."""
+def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator) -> dict | None:
+    """Check Zenodo state and publish if needed. Returns record_info dict or None."""
     if not config.has_zenodo_config():
         output.step_warn("No publisher set")
-        return None, None
+        return None
 
     publisher = ZenodoPublisher(config)
 
-    up_to_date, msg = publisher.is_up_to_date(tag_name, archived_files)
+    up_to_date, msg, record_info = publisher.is_up_to_date(tag_name, archived_files)
     if msg:
         output.step_ok(msg)
     if up_to_date and not config.zenodo_force_update:
         output.info("No publication made.")
-        return None, None
+        return record_info
     if up_to_date:
         output.step_warn("Forcing zenodo update")
 
     if not _confirm("Publish version ?", hint, validator, config.project_name):
         output.warn("No publication made")
-        return None, None
+        return record_info
 
     try:
-        zenodo_doi, zenodo_url = publisher.publish_new_version(
+        record_info = publisher.publish_new_version(
             archived_files, tag_name, identifiers=identifiers,
         )
-        output.detail(f"Zenodo DOI: {zenodo_doi}")
+        output.detail(f"Zenodo DOI: {record_info['doi']}")
         output.step_ok(f"Publication {tag_name} completed successfully!")
-        return zenodo_doi, zenodo_url
+        return record_info
 
     except ZenodoError as e:
         output.error(f"GitHub release created but Zenodo publication failed: {e}")
         output.detail("You can manually upload files to Zenodo")
-        return None, None
+    finally:
+        return record_info
 
 
 def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
-                                  zenodo_doi, zenodo_url, hint, validator):
+                                  record_info, hint, validator):
     """Generate and upload zenodo_publication_info.json to the GitHub release."""
     if not config.zenodo_info_to_release:
         return
     if not config.has_zenodo_config():
         return
 
-    # If no publication happened, fetch info from existing record
-    if not zenodo_doi or not zenodo_url:
-        output.step("Fetching Zenodo record info...")
-        publisher = ZenodoPublisher(config)
-        zenodo_doi, zenodo_url = publisher.get_record_info()
-        output.detail(f"DOI: {zenodo_doi}")
-        output.detail(f"URL: {zenodo_url}")
+    if not record_info or not record_info.get("doi") or not record_info.get("record_url"):
+        output.step_warn("No Zenodo DOI/URL available, skipping info file")
+        return
 
     # Build the JSON file
     info_path = build_zenodo_info_json(
-        zenodo_doi, zenodo_url, archived_files,
+        record_info["doi"], record_info["record_url"], archived_files,
         identifiers=identifiers, debug=config.debug,
     )
 
@@ -232,6 +232,8 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
 
     if remote_sha:
         output.step_warn(f"Zenodo info file differs from release asset")
+        output.detail(f"Remote: {ellipse_hash(remote_sha)}")
+        output.detail(f"Local: {ellipse_hash(local_sha)}")
         if not _confirm("Overwrite existing zenodo info on release ?", hint, validator, config.project_name):
             output.warn("Zenodo info not updated on release")
             return
@@ -293,8 +295,8 @@ def _run_release(config) -> None:
     archived_files, identifiers = _step_archive(config, tag_name)
 
     # Zenodo publish
-    zenodo_doi, zenodo_url = _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
+    record_info = _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
 
     # Zenodo info to release
     _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
-                                  zenodo_doi, zenodo_url, hint, validator)
+                                  record_info, hint, validator)

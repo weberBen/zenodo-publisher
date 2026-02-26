@@ -52,11 +52,6 @@ class ZenodoPublisher:
         except Exception as e:
             raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}")
 
-    def get_record_info(self) -> tuple[str, str]:
-        """Return (doi, record_url) from the latest published record."""
-        record = self._get_last_record()
-        return record.data["doi"], record.data["links"]["self_html"]
-    
     def _is_draft(self, record_id: str) -> bool:
         try:
             self.client.records(record_id).draft.get()
@@ -104,9 +99,15 @@ class ZenodoPublisher:
         self,
         tag_name: str,
         archived_files: list
-    ) -> str:
+    ) -> tuple[bool, str, dict | None]:
+        """Returns (up_to_date, msg, record_info or None)."""
         last_record = self._get_last_record()
-        return self._is_up_to_date(tag_name, last_record, archived_files)
+        up_to_date, msg = self._is_up_to_date(tag_name, last_record, archived_files)
+        record_info = {
+            "doi": last_record.data.get("doi", ""),
+            "record_url": last_record.data.get("links", {}).get("self_html", ""),
+        }
+        return up_to_date, msg, record_info
     
     def _is_up_to_date(
         self,
@@ -240,17 +241,17 @@ class ZenodoPublisher:
         archived_files: list,
         tag_name: str,
         identifiers: list | None = None,
-    ) -> str:
+    ) -> dict:
         """
         Publish a new version on Zenodo.
 
         Args:
             archived_files: List of tuples (file_path, md5_checksum) to upload
             tag_name: Tag name (used as version)
-            record_id: Record ID of the latest version
+            identifiers: Optional list of identifier dicts
 
         Returns:
-            DOI of the published version
+            Record info dict with 'doi' and 'record_url'
 
         Raises:
             ZenodoError: If publication fails
@@ -300,13 +301,13 @@ class ZenodoPublisher:
             output.detail("Publishing...")
             published_record = draft_record.publish()
             doi = published_record.data["doi"]
-            record_html = published_record.data["links"]["self_html"]
+            record_url = published_record.data["links"]["self_html"]
 
             output.info_ok("Published to Zenodo!")
             output.detail(f"DOI: https://doi.org/{doi}")
-            output.detail(f"URL: {record_html}")
+            output.detail(f"URL: {record_url}")
 
-            return doi, record_html
+            return {"doi": doi, "record_url": record_url}
 
         except Exception as e:
             if self.config.debug:
