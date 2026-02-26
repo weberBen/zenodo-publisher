@@ -207,31 +207,34 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _update_metadata(self, draft_record, publication_date, version: str, identifier: dict | None = None) -> None:
+    def _update_metadata(self, draft_record, publication_date, version: str, identifiers: list | None = None) -> None:
         """
         Update the metadata of the cached draft.
 
         Args:
             version: Version string
-            identifier: Optional SHA256 hash to add as alternate identifier
+            identifiers: Optional list of identifier dicts to add as alternate identifiers
         """
         draft_record.data["metadata"]["version"] = version
         draft_record.data["metadata"]["publication_date"] = publication_date
 
-        if identifier:
-            identifiers = draft_record.data["metadata"].get("identifiers", [])
-            # Remove any existing sha256 identifier from previous version
-            identifiers = [i for i in identifiers if not i.get("identifier", "").startswith(f"{identifier["type"]}:")]
-            identifiers.append({"scheme": "other", "identifier": f"{identifier["formatted_value"]}"})
-            draft_record.data["metadata"]["identifiers"] = identifiers
-        
+        if identifiers:
+            existing = draft_record.data["metadata"].get("identifiers", [])
+            # Remove previous identifiers for each hash type we're adding
+            remove_prefixes = {ident["type"] for ident in identifiers}
+            existing = [i for i in existing
+                        if not any(i.get("identifier", "").startswith(f"{p}:") for p in remove_prefixes)]
+            for ident in identifiers:
+                existing.append({"scheme": "other", "identifier": ident["formatted_value"]})
+            draft_record.data["metadata"]["identifiers"] = existing
+
         draft_record.update()
 
     def publish_new_version(
         self,
         archived_files: list,
         tag_name: str,
-        identifier: dict | None = None,
+        identifiers: list | None = None,
     ) -> str:
         """
         Publish a new version on Zenodo.
@@ -285,7 +288,7 @@ class ZenodoPublisher:
 
             # Update metadata
             output.detail(f"Updating metadata (version: {tag_name})...")
-            self._update_metadata(draft_record, publication_date, tag_name, identifier=identifier)
+            self._update_metadata(draft_record, publication_date, tag_name, identifiers=identifiers)
             output.detail_ok("Metadata updated")
 
             # Publish

@@ -415,7 +415,7 @@ def add_zenodo_asset_to_release(
     doi: str,
     record_url: str,
     archived_files: list,
-    identifier: dict | None = None,
+    identifiers: list | None = None,
     debug: bool = False,
 ) -> Path:
     """
@@ -426,7 +426,8 @@ def add_zenodo_asset_to_release(
         tag_name: Tag name of the release
         doi: Zenodo DOI
         record_url: Zenodo record URL
-        archived_files: List of tuples (file_path, md5, is_preview, filename, persist_file)
+        archived_files: List of archived file dicts
+        identifiers: Optional list of identifier dicts
         debug: If True, anonymize the DOI number with a random value
     """
     doi_url = f"https://doi.org/{doi}"
@@ -446,8 +447,8 @@ def add_zenodo_asset_to_release(
             for e in archived_files
         ],
     }
-    if identifier:
-        info["identifier"] = identifier
+    if identifiers:
+        info["identifiers"] = identifiers
 
     info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
     with open(info_path, "w") as f:

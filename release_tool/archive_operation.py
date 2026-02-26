@@ -65,49 +65,67 @@ def compute_sha256(file_path: Path) -> str:
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
 
-def _compute_identifier_hash(config, results) -> dict | None:
-    """Compute a single SHA256 identifier from selected archived files.
+def _compute_file_hash(file_path: Path, algorithm: str) -> str:
+    """Compute hash of a file using the given hashlib algorithm."""
+    h = hashlib.new(algorithm)
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    If multiple files match, their SHA256 hashes are sorted and concatenated,
-    then hashed again to produce a single deterministic SHA256.
+
+def _compute_identifiers(config, results) -> list | None:
+    """Compute identifier hashes from selected archived files for each configured algorithm.
+
+    For each algorithm, if multiple files match, their hashes are sorted and concatenated,
+    then hashed again to produce a single deterministic value.
+
+    Returns a list of identifier dicts, one per algorithm, or None if no files match.
     """
     id_types = set(config.zenodo_identifier_types)
-    matching_hashes = []
-    
-    for entry in results:
-        if (entry["extension"] in id_types) or (entry["type"] in id_types):
-            matching_hashes.append(entry["sha256"])
 
-    if not matching_hashes:
+    matching_entries = [
+        entry for entry in results
+        if (entry["extension"] in id_types) or (entry["type"] in id_types)
+    ]
+
+    if not matching_entries:
         return None
 
-    if len(matching_hashes) == 1:
-        return matching_hashes[0]
+    identifiers = []
+    for algorithm in config.zenodo_identifier_hash_algorithms:
+        # Reuse pre-computed hash if available, otherwise compute on the fly
+        file_hashes = [
+            entry.get(algorithm) or _compute_file_hash(entry["file_path"], algorithm)
+            for entry in matching_entries
+        ]
 
-    combined = "".join(sorted(matching_hashes))
-    identifier_hash = hashlib.sha256(combined.encode()).hexdigest()
-    
-    hash_type = "sha256"
-    identifier = {
-        "value": identifier_hash,
-        "formatted_value": f"{hash_type}:{identifier_hash}",
-        "type": f"{hash_type}",
-        "files": matching_hashes,
-        "description": "sorted by hash value"
-    }
-    
-    return identifier
+        if len(file_hashes) == 1:
+            identifier_hash = file_hashes[0]
+        else:
+            combined = "".join(sorted(file_hashes))
+            identifier_hash = hashlib.new(algorithm, combined.encode()).hexdigest()
+
+        identifiers.append({
+            "value": identifier_hash,
+            "formatted_value": f"{algorithm}:{identifier_hash}",
+            "type": algorithm,
+            "files": file_hashes,
+            "description": "sorted by hash value",
+        })
+
+    return identifiers
 
 
-def archive(config, tag_name: str) -> tuple[list, dict | None]:
+def archive(config, tag_name: str) -> tuple[list, list | None]:
     """
-    Create archives, compute checksums, and optionally compute an identifier hash.
+    Create archives, compute checksums, and optionally compute identifier hashes.
 
     Uses config.archive_types to determine what to archive (pdf, project).
     Uses config.persist_types to determine what to persist to archive_dir.
 
     Returns:
-        Tuple of (archived_files list, identifier_hash or None)
+        Tuple of (archived_files list, identifiers list or None)
     """
     results = []
 
@@ -149,8 +167,8 @@ def archive(config, tag_name: str) -> tuple[list, dict | None]:
             "is_signature": False,
         })
 
-    identifier = None
+    identifiers = None
     if config.zenodo_identifier_hash and config.zenodo_identifier_types:
-        identifier = _compute_identifier_hash(config, results)
+        identifiers = _compute_identifiers(config, results)
 
-    return results, identifier
+    return results, identifiers

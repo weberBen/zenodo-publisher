@@ -144,6 +144,9 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("zenodo_identifier_types", "ZENODO_IDENTIFIER_TYPES",
                  type="list", default="",
                  help="File types to include in identifier hash (e.g. pdf,project). If multiple, hashes are concatenated"),
+    ConfigOption("zenodo_identifier_hash_algorithms", "ZENODO_IDENTIFIER_HASH_ALGORITHMS",
+                 type="list", default="sha256",
+                 help="Hash algorithms for identifiers (e.g. sha256,md5,sha512). Uses hashlib"),
 
     # Archive options
     ConfigOption("archive_types", "ARCHIVE_TYPES", type="list",
