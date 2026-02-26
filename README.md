@@ -168,6 +168,36 @@ For latex project , we recommand doing a deep clean (including the pdf) on the d
 But if your base compile time is too long, you can skip the clean, which will use your already compiled file.
 You can also disable the compile `COMPILE=False` but be aware that in case of missing compiled file, the script will raise exception.
 
+#### Environment variables passed to `make`
+
+The script passes the following environment variables to `make deploy`, containing information about the commit being released:
+
+| Variable | Description |
+|----------|-------------|
+| `ZP_COMMIT_DATE_EPOCH` | Unix epoch timestamp of the commit |
+| `ZP_COMMIT_SHA` | Full SHA hash of the commit |
+| `ZP_COMMIT_TAG` | Tag name (set by the pipeline to the release tag) |
+| `ZP_COMMIT_SUBJECT` | Commit message subject line |
+| `ZP_BRANCH` | Branch name (set by the pipeline to the main branch) |
+| `ZP_COMMIT_COMMITTER_NAME` | Name of the committer |
+| `ZP_COMMIT_COMMITTER_EMAIL` | Email of the committer |
+| `ZP_COMMIT_AUTHOR_NAME` | Name of the author |
+| `ZP_COMMIT_AUTHOR_EMAIL` | Email of the author |
+
+All variables are prefixed with `ZP_` to avoid collisions with git's own environment variables (e.g. `GIT_AUTHOR_NAME`).
+
+##### Reproducible PDFs with `SOURCE_DATE_EPOCH`
+
+For LaTeX projects, you can set `SOURCE_DATE_EPOCH` from `ZP_COMMIT_DATE_EPOCH` at the top of your Makefile:
+
+```makefile
+ifdef ZP_COMMIT_DATE_EPOCH
+export SOURCE_DATE_EPOCH ?= $(ZP_COMMIT_DATE_EPOCH)
+endif
+```
+
+When `SOURCE_DATE_EPOCH` is set, pdflatex/lualatex automatically use this date for `\today` and PDF metadata instead of the current time. This makes the PDF reproducible: running the script twice on the same commit produces the same PDF with the same MD5 checksum.
+
 ### 3. Configure LaTeX for reproducible PDFs
 
 For MD5 checksum comparison to work correctly, your PDFs must be reproducible. Add these lines to your `.tex` file:
@@ -255,6 +285,13 @@ Your PDF hasn't changed. This usually means:
 - Build artifacts from a previous build affected the output
 - Version tag is the same, so the check update halt here
 - Version tag is different but files content is the same so proceeded with new version
+
+### "Files are different" but project hasn't changed
+The script detects file differences (MD5) between local archives and Zenodo even though the git project hasn't changed. This is typically caused by non-reproducible PDFs: each compilation embeds the current date/time, producing a different checksum every run.
+
+**Solution**: Set `SOURCE_DATE_EPOCH` from `ZP_COMMIT_DATE_EPOCH` at the top of your Makefile.
+
+This locks `\today` and PDF metadata to the commit date, making the PDF identical across runs. Also make sure you have the [reproducible PDF settings](#3-configure-latex-for-reproducible-pdfs) in your `.tex` file.
 
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`
