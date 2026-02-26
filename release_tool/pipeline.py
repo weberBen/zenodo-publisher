@@ -9,6 +9,7 @@ from .git_operations import (
     create_github_release,
     verify_release_on_latest_commit,
     add_zenodo_asset_to_release,
+    get_commit_info,
     GitError,
     GitHubError,
 )
@@ -110,8 +111,14 @@ def _step_release(config) -> str:
     output.step_ok(f"Release {new_tag} created successfully!")
     return new_tag
 
+def _step_commit_info(config):
+    commit_env = get_commit_info(config.project_root)
+    output.info_ok(f"Commit SHA: {commit_env['GIT_COMMIT_SHA']}")
+    output.info_ok(f"Commit timestamp: {commit_env['SOURCE_DATE_EPOCH']}")
+    
+    return commit_env
 
-def _step_compile(config, hint, validator):
+def _step_compile(config, hint, validator, env_vars=None):
     """Compile project via make (with user prompt)."""
     if not config.compile:
         output.step_warn("Skipping project compilation (see config file)")
@@ -121,7 +128,7 @@ def _step_compile(config, hint, validator):
         raise RuntimeError("Build aborted by user.")
 
     output.step("📋 Starting build process...")
-    compile(config.compile_dir, config.make_args)
+    compile(config.compile_dir, config.make_args, env_vars=env_vars)
 
 
 def _step_archive(config, tag_name) -> list:
@@ -211,21 +218,24 @@ def _run_release(config) -> None:
     output.info_ok(f"Project name: {config.project_name}")
     output.info_ok(f"Main branch: {config.main_branch}")
 
-    # 1. Git check
+    # Git check
     _step_git_check(config)
 
-    # 2. Release check/creation
+    # Release check/creation
     tag_name = _step_release(config)
 
-    # 3. Compile
-    _step_compile(config, hint, validator)
+    # Commit info (timestand, hash)
+    commit_env = _step_commit_info(config)
 
-    # 4. Re-check git + release still valid after compilation
+    # Compile
+    _step_compile(config, hint, validator, env_vars=commit_env)
+
+    # Re-check git + release still valid after compilation
     _step_git_check(config)
     verify_release_on_latest_commit(config.project_root, tag_name)
 
-    # 5. Archive + sign
+    # Archive + sign
     archived_files = _step_archive(config, tag_name)
 
-    # 6. Zenodo publish
+    # Zenodo publish
     _step_zenodo(config, tag_name, archived_files, hint, validator)

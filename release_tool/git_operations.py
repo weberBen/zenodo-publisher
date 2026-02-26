@@ -196,6 +196,14 @@ def get_latest_commit(project_root: Path) -> str:
     return run_git_command(["rev-parse", "HEAD"], project_root)
 
 
+def get_commit_info(project_root: Path) -> dict:
+    """Get timestamp (epoch) and SHA of the latest commit."""
+    return {
+        "SOURCE_DATE_EPOCH": run_git_command(["log", "-1", "--format=%ct"], project_root),
+        "GIT_COMMIT_SHA": get_latest_commit(project_root),
+    }
+
+
 def get_remote_latest_commit(project_root: Path, main_branch: str) -> str:
     """Get the latest commit hash from the remote main branch."""
     return run_git_command(["rev-parse", f"origin/{main_branch}"], project_root)
