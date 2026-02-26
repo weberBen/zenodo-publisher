@@ -221,11 +221,15 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _load_metadata_overrides(self) -> dict | None:
+    def _load_metadata_overrides(self, identifiers: list | None = None) -> dict | None:
         """Load metadata overrides from .zenodo.json at the project root.
 
         Expected format (InvenioRDM metadata):
         { "metadata": { "title": "...", "creators": [...], ... } }
+
+        Raises ZenodoError if:
+        - 'version' is present (must be set by the pipeline via git tag)
+        - identifiers collide with pipeline-generated hash identifiers
         """
         zenodo_json = self.config.project_root / ".zenodo.json"
         if not zenodo_json.exists():
@@ -240,13 +244,33 @@ class ZenodoPublisher:
 
         overrides = data.get("metadata", data)
 
-        # Warn about fields that will be overridden by the pipeline
-        pipeline_keys = {"version", "publication_date", "identifiers"}
-        ignored = pipeline_keys & overrides.keys()
-        if ignored:
-            output.warn(f".zenodo.json keys ignored (set by pipeline process): {', '.join(ignored)}")
-            for k in ignored:
-                del overrides[k]
+        # version must not be overridden
+        if "version" in overrides:
+            raise ZenodoError(
+                ".zenodo.json contains 'version' — this is set by the pipeline (git tag). "
+                "Remove it from .zenodo.json to continue."
+            )
+
+        # publication_date: allow but warn
+        if "publication_date" in overrides:
+            output.warn(
+                f".zenodo.json overrides publication_date to '{overrides['publication_date']}' "
+                f"(config value '{self._publication_date or 'today UTC'}' will be ignored)"
+            )
+
+        # identifiers: check for collisions with pipeline hash identifiers
+        if "identifiers" in overrides and identifiers:
+            hash_prefixes = {ident["type"] for ident in identifiers}
+            collisions = [
+                i for i in overrides["identifiers"]
+                if any(i.get("identifier", "").startswith(f"{p}:") for p in hash_prefixes)
+            ]
+            if collisions:
+                collision_values = [c["identifier"] for c in collisions]
+                raise ZenodoError(
+                    f".zenodo.json identifiers conflict with pipeline-generated hash identifiers: "
+                    f"{collision_values}. Remove them from .zenodo.json to continue."
+                )
 
         return overrides if overrides else None
 
@@ -263,6 +287,9 @@ class ZenodoPublisher:
         """
         if metadata_overrides:
             output.detail(f"Applying metadata overrides: {list(metadata_overrides.keys())}")
+            # publication_date from .zenodo.json takes priority over config
+            if "publication_date" in metadata_overrides:
+                publication_date = metadata_overrides.pop("publication_date")
             draft_record.data["metadata"].update(metadata_overrides)
 
         draft_record.data["metadata"]["version"] = version
@@ -338,7 +365,7 @@ class ZenodoPublisher:
 
             # Update metadata
             output.detail(f"Updating metadata (version: {tag_name})...")
-            metadata_overrides = self._load_metadata_overrides()
+            metadata_overrides = self._load_metadata_overrides(identifiers=identifiers)
             self._update_metadata(draft_record, publication_date, tag_name,
                                   identifiers=identifiers,
                                   metadata_overrides=metadata_overrides)

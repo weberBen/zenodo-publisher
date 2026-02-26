@@ -256,7 +256,11 @@ Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.git
 
 Place a `.zenodo.json` file at your project root to update Zenodo metadata on each publication. The file follows the [InvenioRDM metadata schema](https://inveniordm.docs.cern.ch/reference/metadata/) (the format used by Zenodo's current API, not the legacy format).
 
-Only the fields present in the file are updated. Missing fields keep their value from the previous version. The `version`, `publication_date`, and `identifiers` keys are ignored if present (they are set by the pipeline).
+Only the fields present in the file are updated. Missing fields keep their value from the previous version.
+
+- **`version`**: not allowed. The pipeline sets it from the git tag. The process will stop if present.
+- **`publication_date`**: allowed. Overrides the config value (with a warning).
+- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any collide with pipeline-generated hash identifiers (e.g. `sha256:...`, `md5:...`).
 
 Example `.zenodo.json`:
 
