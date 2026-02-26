@@ -95,6 +95,12 @@ class ZenodoPublisher:
         new_draft = self.client.records(record.data["id"]).draft.get()
         return new_draft
 
+    def _format_record_info(self, record):
+        return {
+            "doi": record.data["doi"],
+            "record_url": record.data["links"]["self_html"],
+        }
+        
     def is_up_to_date(
         self,
         tag_name: str,
@@ -103,11 +109,7 @@ class ZenodoPublisher:
         """Returns (up_to_date, msg, record_info or None)."""
         last_record = self._get_last_record()
         up_to_date, msg = self._is_up_to_date(tag_name, last_record, archived_files)
-        record_info = {
-            "doi": last_record.data.get("doi", ""),
-            "record_url": last_record.data.get("links", {}).get("self_html", ""),
-        }
-        return up_to_date, msg, record_info
+        return up_to_date, msg, self._format_record_info(last_record)
     
     def _is_up_to_date(
         self,
@@ -300,14 +302,13 @@ class ZenodoPublisher:
             # Publish
             output.detail("Publishing...")
             published_record = draft_record.publish()
-            doi = published_record.data["doi"]
-            record_url = published_record.data["links"]["self_html"]
+            record_info = self._format_record_info(last_record)
 
             output.info_ok("Published to Zenodo!")
-            output.detail(f"DOI: https://doi.org/{doi}")
-            output.detail(f"URL: {record_url}")
+            output.detail(f"DOI: https://doi.org/{record_info['doi']}")
+            output.detail(f"URL: {record_info['record_url']}")
 
-            return {"doi": doi, "record_url": record_url}
+            return record_info
 
         except Exception as e:
             if self.config.debug:
