@@ -1,5 +1,6 @@
 """Zenodo operations for publishing releases using inveniordm-py."""
 
+import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -220,14 +221,50 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _update_metadata(self, draft_record, publication_date, version: str, identifiers: list | None = None) -> None:
+    def _load_metadata_overrides(self) -> dict | None:
+        """Load metadata overrides from .zenodo.json at the project root.
+
+        Expected format (InvenioRDM metadata):
+        { "metadata": { "title": "...", "creators": [...], ... } }
+        """
+        zenodo_json = self.config.project_root / ".zenodo.json"
+        if not zenodo_json.exists():
+            output.warn("No .zenodo.json found, skipping metadata update")
+            return None
+
+        try:
+            with open(zenodo_json) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            raise ZenodoError(f"Failed to read .zenodo.json: {e}")
+
+        overrides = data.get("metadata", data)
+
+        # Warn about fields that will be overridden by the pipeline
+        pipeline_keys = {"version", "publication_date", "identifiers"}
+        ignored = pipeline_keys & overrides.keys()
+        if ignored:
+            output.warn(f".zenodo.json keys ignored (set by pipeline process): {', '.join(ignored)}")
+            for k in ignored:
+                del overrides[k]
+
+        return overrides if overrides else None
+
+    def _update_metadata(self, draft_record, publication_date, version: str,
+                         identifiers: list | None = None,
+                         metadata_overrides: dict | None = None) -> None:
         """
         Update the metadata of the cached draft.
 
         Args:
             version: Version string
             identifiers: Optional list of identifier dicts to add as alternate identifiers
+            metadata_overrides: Optional dict of metadata fields from .zenodo.json
         """
+        if metadata_overrides:
+            output.detail(f"Applying metadata overrides: {list(metadata_overrides.keys())}")
+            draft_record.data["metadata"].update(metadata_overrides)
+
         draft_record.data["metadata"]["version"] = version
         draft_record.data["metadata"]["publication_date"] = publication_date
 
@@ -301,7 +338,10 @@ class ZenodoPublisher:
 
             # Update metadata
             output.detail(f"Updating metadata (version: {tag_name})...")
-            self._update_metadata(draft_record, publication_date, tag_name, identifiers=identifiers)
+            metadata_overrides = self._load_metadata_overrides()
+            self._update_metadata(draft_record, publication_date, tag_name,
+                                  identifiers=identifiers,
+                                  metadata_overrides=metadata_overrides)
             output.detail_ok("Metadata updated")
 
             # Publish

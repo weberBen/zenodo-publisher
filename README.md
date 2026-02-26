@@ -248,8 +248,48 @@ Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.git
 
 ### 8. Zenodo Publishing
 - Uploads files to Zenodo
-- Update metadata
+- Applies metadata overrides from `.zenodo.json` if present (see below)
+- Sets `version`, `publication_date`, and `identifiers`
 - Publish ([InvenioRDM API](https://inveniordm.docs.cern.ch/))
+
+### Metadata overrides (`.zenodo.json`)
+
+Place a `.zenodo.json` file at your project root to update Zenodo metadata on each publication. The file follows the [InvenioRDM metadata schema](https://inveniordm.docs.cern.ch/reference/metadata/) (the format used by Zenodo's current API, not the legacy format).
+
+Only the fields present in the file are updated. Missing fields keep their value from the previous version. The `version`, `publication_date`, and `identifiers` keys are ignored if present (they are set by the pipeline).
+
+Example `.zenodo.json`:
+
+```json
+{
+  "metadata": {
+    "title": "My Project",
+    "description": "<p>A short description.</p>",
+    "creators": [
+      {
+        "person_or_org": {
+          "type": "personal",
+          "given_name": "John",
+          "family_name": "Doe",
+          "identifiers": [
+            { "scheme": "orcid", "identifier": "0000-0002-1234-5678" }
+          ]
+        },
+        "affiliations": [{ "name": "CNRS" }]
+      }
+    ],
+    "resource_type": { "id": "publication-article" },
+    "rights": [{ "id": "cc-by-4.0" }],
+    "subjects": [
+      { "subject": "physics" }
+    ]
+  }
+}
+```
+
+See [`.zenodo.json.example`](./.zenodo.json.example) for a more complete template.
+
+> **Note:** This is not the legacy `.zenodo.json` format used by Zenodo's GitHub integration. It uses the InvenioRDM metadata structure directly (e.g. `person_or_org` instead of `name`, `rights` instead of `license`, `resource_type.id` instead of `upload_type`).
 
 ## Limitations
 
@@ -264,7 +304,8 @@ Always test with `ZENODO_API_URL=https://sandbox.zenodo.org/api` before using pr
 The script **discards existing drafts** on the Zenodo identified deposit by the concept DOI. If you're collaborating on Zenodo through the web interface while using this script, drafts may be lost.
 
 ### Zenodo metadata
-- Metadata is copied from the previous version. Only `version` and `publication_date` are modified.
+- Metadata is copied from the previous version. `version`, `publication_date`, and `identifiers` are set by the pipeline.
+- Other metadata fields (title, creators, description, keywords, license, ...) can be overridden via a `.zenodo.json` file (see below).
 - Each version gets a new DOI (no custom DOI per release)
 
 ### First Version Required
@@ -296,9 +337,15 @@ The script detects file differences (MD5) between local archives and Zenodo even
 
 This locks `\today` and PDF metadata to the commit date, making the PDF identical across runs. Also make sure you have the [reproducible PDF settings](#3-configure-latex-for-reproducible-pdfs) in your `.tex` file.
 
+### `.zenodo.json` format errors
+This tool uses the **new InvenioRDM metadata format**, not the legacy `.zenodo.json` format from Zenodo's GitHub integration. Common mistakes:
+- `"name": "Doe, John"` → use `"person_or_org": { "given_name": "John", "family_name": "Doe" }`
+- `"upload_type": "software"` → use `"resource_type": { "id": "software" }`
+- `"license": "mit"` → use `"rights": [{ "id": "mit" }]`
+- `"access_right": "open"` → not needed (set via `access` at the record level, not in metadata)
+- `"keywords": [...]` → use `"subjects": [{ "subject": "..." }]`
+
+See the [InvenioRDM metadata reference](https://inveniordm.docs.cern.ch/reference/metadata/) for the full schema, or the [example file](zenodo.json.example).
+
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`
-
-## To do
-
-- [ ] Integrate `.zenodo.json` file for richer metadata update
