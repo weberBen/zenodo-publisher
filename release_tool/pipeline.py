@@ -229,7 +229,12 @@ def _run_release(config) -> None:
 
     # Commit info (timestand, hash)
     commit_env = _step_commit_info(config)
-
+    commit_env = {
+        **commit_env,
+        "GIT_BRANCH": config.main_branch,
+        "GIT_COMMIT_TAG": tag_name,
+    }
+    
     # Compile
     _step_compile(config, hint, validator, env_vars=commit_env)
 
