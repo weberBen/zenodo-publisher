@@ -65,7 +65,7 @@ def compute_sha256(file_path: Path) -> str:
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
 
-def _compute_identifier_hash(config, results) -> str | None:
+def _compute_identifier_hash(config, results) -> dict | None:
     """Compute a single SHA256 identifier from selected archived files.
 
     If multiple files match, their SHA256 hashes are sorted and concatenated,
@@ -85,10 +85,21 @@ def _compute_identifier_hash(config, results) -> str | None:
         return matching_hashes[0]
 
     combined = "".join(sorted(matching_hashes))
-    return hashlib.sha256(combined.encode()).hexdigest()
+    identifier_hash = hashlib.sha256(combined.encode()).hexdigest()
+    
+    hash_type = "sha256"
+    identifier = {
+        "value": identifier_hash,
+        "formatted_value": f"{hash_type}:{identifier_hash}",
+        "type": f"{hash_type}",
+        "files": matching_hashes,
+        "description": "sorted by hash value"
+    }
+    
+    return identifier
 
 
-def archive(config, tag_name: str) -> tuple[list, str | None]:
+def archive(config, tag_name: str) -> tuple[list, dict | None]:
     """
     Create archives, compute checksums, and optionally compute an identifier hash.
 
@@ -105,12 +116,15 @@ def archive(config, tag_name: str) -> tuple[list, str | None]:
         file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
         is_preview = (config.main_file_extension == extension)
         results.append({
-            "file_path": file_path, "md5": compute_md5(file_path),
+            "file_path": file_path,
+            "md5": compute_md5(file_path),
             "sha256": compute_sha256(file_path),
-            "is_preview": is_preview, "filename": filename,
+            "is_preview": is_preview,
+            "filename": filename,
             "extension": extension,
             "type": "main_file",
-            "persist": persist_file, "is_signature": False,
+            "persist": persist_file,
+            "is_signature": False,
         })
 
     if "project" in config.archive_types:
@@ -124,16 +138,19 @@ def archive(config, tag_name: str) -> tuple[list, str | None]:
         )
         is_preview = (config.main_file_extension == extension)
         results.append({
-            "file_path": file_path, "md5": compute_md5(file_path),
+            "file_path": file_path,
+            "md5": compute_md5(file_path),
             "sha256": compute_sha256(file_path),
-            "is_preview": is_preview, "filename": filename,
+            "is_preview": is_preview,
+            "filename": filename,
             "extension": extension,
             "type": "project",
-            "persist": persist_file, "is_signature": False,
+            "persist": persist_file,
+            "is_signature": False,
         })
 
-    identifier_hash = None
+    identifier = None
     if config.zenodo_identifier_hash and config.zenodo_identifier_types:
-        identifier_hash = _compute_identifier_hash(config, results)
+        identifier = _compute_identifier_hash(config, results)
 
-    return results, identifier_hash
+    return results, identifier

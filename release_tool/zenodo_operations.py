@@ -4,7 +4,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from . import output
-from .config import IDENTIFIER_HASH_TYPE
 
 from inveniordm_py import InvenioAPI
 from inveniordm_py.files.metadata import FilesListMetadata, OutgoingStream
@@ -208,22 +207,22 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _update_metadata(self, draft_record, publication_date, version: str, identifier_hash: str | None = None) -> None:
+    def _update_metadata(self, draft_record, publication_date, version: str, identifier: dict | None = None) -> None:
         """
         Update the metadata of the cached draft.
 
         Args:
             version: Version string
-            identifier_hash: Optional SHA256 hash to add as alternate identifier
+            identifier: Optional SHA256 hash to add as alternate identifier
         """
         draft_record.data["metadata"]["version"] = version
         draft_record.data["metadata"]["publication_date"] = publication_date
 
-        if identifier_hash:
+        if identifier:
             identifiers = draft_record.data["metadata"].get("identifiers", [])
             # Remove any existing sha256 identifier from previous version
-            identifiers = [i for i in identifiers if not i.get("identifier", "").startswith(f"{IDENTIFIER_HASH_TYPE}:")]
-            identifiers.append({"scheme": "other", "identifier": f"{IDENTIFIER_HASH_TYPE}:{identifier_hash}"})
+            identifiers = [i for i in identifiers if not i.get("identifier", "").startswith(f"{identifier["type"]}:")]
+            identifiers.append({"scheme": "other", "identifier": f"{identifier["formatted_value"]}"})
             draft_record.data["metadata"]["identifiers"] = identifiers
         
         draft_record.update()
@@ -232,7 +231,7 @@ class ZenodoPublisher:
         self,
         archived_files: list,
         tag_name: str,
-        identifier_hash: str | None = None,
+        identifier: dict | None = None,
     ) -> str:
         """
         Publish a new version on Zenodo.
@@ -286,7 +285,7 @@ class ZenodoPublisher:
 
             # Update metadata
             output.detail(f"Updating metadata (version: {tag_name})...")
-            self._update_metadata(draft_record, publication_date, tag_name, identifier_hash=identifier_hash)
+            self._update_metadata(draft_record, publication_date, tag_name, identifier=identifier)
             output.detail_ok("Metadata updated")
 
             # Publish

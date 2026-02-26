@@ -15,7 +15,6 @@ from .zenodo_operations import ZenodoPublisher, ZenodoError
 from .archive_operation import archive, compute_md5, compute_sha256
 from .gpg_operations import sign_files
 from . import output
-from .config import IDENTIFIER_HASH_TYPE
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -132,9 +131,9 @@ def _step_compile(config, hint, validator, env_vars=None):
     compile(config.compile_dir, config.make_args, env_vars=env_vars)
 
 
-def _step_archive(config, tag_name) -> tuple[list, str | None]:
-    """Create archives and optionally GPG-sign them. Returns (archived_files, identifier_hash)."""
-    archived_files, identifier_hash = archive(config, tag_name)
+def _step_archive(config, tag_name) -> tuple[list, dict | None]:
+    """Create archives and optionally GPG-sign them. Returns (archived_files, identifier)."""
+    archived_files, identifier = archive(config, tag_name)
 
     if config.gpg_sign:
         signatures = sign_files(
@@ -151,13 +150,13 @@ def _step_archive(config, tag_name) -> tuple[list, str | None]:
         output.detail(f"  MD5: {entry['md5']}")
         output.detail(f"  SHA256: {entry['sha256']}")
         output.detail(f"  persist: {entry['persist']}")
-    if identifier_hash:
-        output.detail(f"\n-> Identifier {IDENTIFIER_HASH_TYPE}: {identifier_hash} ({'+'.join(set(config.zenodo_identifier_types))} *sorted by hash value)")
+    if identifier:
+        output.detail(f"\n-> Identifier {identifier['formatted_value']} ({'+'.join(set(config.zenodo_identifier_types))} {identifier['description']})")
 
-    return archived_files, identifier_hash
+    return archived_files, identifier
 
 
-def _step_zenodo(config, tag_name, archived_files, identifier_hash, hint, validator):
+def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator):
     """Check Zenodo state and publish if needed."""
     if not config.has_zenodo_config():
         output.step_warn("No publisher set")
@@ -180,7 +179,7 @@ def _step_zenodo(config, tag_name, archived_files, identifier_hash, hint, valida
 
     try:
         zenodo_doi, zenodo_url = publisher.publish_new_version(
-            archived_files, tag_name, identifier_hash=identifier_hash,
+            archived_files, tag_name, identifier=identifier,
         )
         output.detail(f"Zenodo DOI: {zenodo_doi}")
         output.step_ok(f"Publication {tag_name} completed successfully!")
@@ -190,7 +189,7 @@ def _step_zenodo(config, tag_name, archived_files, identifier_hash, hint, valida
                 config.project_root, tag_name,
                 zenodo_doi, zenodo_url,
                 archived_files,
-                identifier_hash=identifier_hash,
+                identifier=identifier,
                 debug=config.debug,
             )
             output.detail(f"Zenodo publication info file: {info_path}")
@@ -248,7 +247,7 @@ def _run_release(config) -> None:
     verify_release_on_latest_commit(config.project_root, tag_name)
 
     # Archive + sign
-    archived_files, identifier_hash = _step_archive(config, tag_name)
+    archived_files, identifier = _step_archive(config, tag_name)
 
     # Zenodo publish
-    _step_zenodo(config, tag_name, archived_files, identifier_hash, hint, validator)
+    _step_zenodo(config, tag_name, archived_files, identifier, hint, validator)

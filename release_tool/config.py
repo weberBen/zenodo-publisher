@@ -5,8 +5,6 @@ from typing import Any, Optional
 
 from .config_schema import OPTIONS, ConfigOption
 
-IDENTIFIER_HASH_TYPE = "sha256"
-
 def find_project_root(start_path: Optional[Path] = None) -> Path:
     """
     Find the project root by looking for .git directory.
