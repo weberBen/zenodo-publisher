@@ -65,20 +65,38 @@ def compute_sha256(file_path: Path) -> str:
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
 
+def _compute_identifier_hash(config, results) -> str | None:
+    """Compute a single SHA256 identifier from selected archived files.
 
-def archive(config, tag_name: str) -> list[tuple[Path, str]]:
+    If multiple files match, their SHA256 hashes are sorted and concatenated,
+    then hashed again to produce a single deterministic SHA256.
     """
-    Create archives and compute their MD5 checksums.
+    id_types = set(config.zenodo_identifier_types)
+    matching_hashes = []
+    
+    for entry in results:
+        if (entry["extension"] in id_types) or (entry["type"] in id_types):
+            matching_hashes.append(entry["sha256"])
+
+    if not matching_hashes:
+        return None
+
+    if len(matching_hashes) == 1:
+        return matching_hashes[0]
+
+    combined = "".join(sorted(matching_hashes))
+    return hashlib.sha256(combined.encode()).hexdigest()
+
+
+def archive(config, tag_name: str) -> tuple[list, str | None]:
+    """
+    Create archives, compute checksums, and optionally compute an identifier hash.
 
     Uses config.archive_types to determine what to archive (pdf, project).
     Uses config.persist_types to determine what to persist to archive_dir.
 
-    Args:
-        config: Configuration object
-        tag_name: Tag name (version)
-
     Returns:
-        List of tuples (file_path, md5_checksum)
+        Tuple of (archived_files list, identifier_hash or None)
     """
     results = []
 
@@ -90,6 +108,8 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
             "file_path": file_path, "md5": compute_md5(file_path),
             "sha256": compute_sha256(file_path),
             "is_preview": is_preview, "filename": filename,
+            "extension": extension,
+            "type": "main_file",
             "persist": persist_file, "is_signature": False,
         })
 
@@ -107,7 +127,13 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
             "file_path": file_path, "md5": compute_md5(file_path),
             "sha256": compute_sha256(file_path),
             "is_preview": is_preview, "filename": filename,
+            "extension": extension,
+            "type": "project",
             "persist": persist_file, "is_signature": False,
         })
 
-    return results
+    identifier_hash = None
+    if config.zenodo_identifier_hash and config.zenodo_identifier_types:
+        identifier_hash = _compute_identifier_hash(config, results)
+
+    return results, identifier_hash

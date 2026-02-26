@@ -8,6 +8,7 @@ from typing import Optional
 import tempfile
 
 from . import output
+from .config import IDENTIFIER_HASH_TYPE
 
 class GitError(Exception):
     """Git operation error."""
@@ -415,7 +416,8 @@ def add_zenodo_asset_to_release(
     doi: str,
     record_url: str,
     archived_files: list,
-    debug: bool = False
+    identifier_hash: str | None = None,
+    debug: bool = False,
 ) -> Path:
     """
     Create a zenodo_publication_info.json and attach it as asset to a GitHub release.
@@ -445,6 +447,8 @@ def add_zenodo_asset_to_release(
             for e in archived_files
         ],
     }
+    if identifier_hash:
+        info["identifier"] = f"{IDENTIFIER_HASH_TYPE}:{identifier_hash}"
 
     info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
     with open(info_path, "w") as f:

@@ -136,6 +136,8 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current UTC date | Publication date (format ISO YYYY-MM-DD) |
 | `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
+| `ZENODO_IDENTIFIER_HASH` | No | `False` | Add SHA256 hash as alternate identifier in Zenodo metadata |
+| `ZENODO_IDENTIFIER_TYPES` | No | - | File types to include in identifier hash (e.g. `pdf`, `project`, `pdf,project`). If multiple, hashes are concatenated and re-hashed |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
 | `ZENODO_FORCE_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
