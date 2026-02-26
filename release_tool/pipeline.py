@@ -150,10 +150,13 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
         output.detail(f"  MD5: {entry['md5']}")
         output.detail(f"  SHA256: {entry['sha256']}")
         output.detail(f"  persist: {entry['persist']}")
+    
+
     if identifiers:
         types_label = '+'.join(set(config.zenodo_identifier_types))
+        output.detail(f"\n-> Identifiers ({types_label} *{identifiers[0]['description']})")
         for ident in identifiers:
-            output.detail(f"-> Identifier {ident['formatted_value']} ({types_label} {ident['description']})")
+            output.detail(f"\t{ident['formatted_value']}")
 
     return archived_files, identifiers
 
