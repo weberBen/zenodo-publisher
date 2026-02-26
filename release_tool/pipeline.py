@@ -214,6 +214,7 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
         output.step_warn("No Zenodo DOI/URL available, skipping info file")
         return
 
+    output.step("Generating zenodo publication info file...")
     # Build the JSON file
     info_path = build_zenodo_info_json(
         record_info["doi"], record_info["record_url"], archived_files,
@@ -225,6 +226,9 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
     remote_sha = get_release_asset_digest(
         config.project_root, tag_name, info_path.name,
     )
+    
+    output.detail(f"Zenodo publication info file: {info_path}")
+    output.detail(f"Hash {local_sha}")
 
     if remote_sha and local_sha == remote_sha:
         output.step_ok("Zenodo info file already up to date on release")
@@ -241,7 +245,6 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
     output.detail(f"Uploading zenodo publication info to release '{tag_name}'...")
     upload_release_asset(config.project_root, tag_name, info_path, clobber=bool(remote_sha))
     output.step_ok("Zenodo publication info added to release")
-    output.detail("-> Zenodo publication info file:", info_path)
 
 
 # ---------------------------------------------------------------------------
