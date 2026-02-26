@@ -9,7 +9,7 @@ from .git_operations import (
     create_github_release,
     verify_release_on_latest_commit,
     add_zenodo_asset_to_release,
-    get_commit_info,
+    get_last_commit_info,
     GitError,
     GitHubError,
 )
@@ -112,9 +112,12 @@ def _step_release(config) -> str:
     return new_tag
 
 def _step_commit_info(config):
-    commit_env = get_commit_info(config.project_root)
+    commit_env = get_last_commit_info(config.project_root)
     output.info_ok(f"Commit SHA: {commit_env['GIT_COMMIT_SHA']}")
     output.info_ok(f"Commit timestamp: {commit_env['SOURCE_DATE_EPOCH']}")
+    output.info_ok(f"Commit subject: {commit_env['GIT_COMMIT_SUBJECT']}")
+    output.info_ok(f"Author: {commit_env['GIT_AUTHOR_NAME']} <{commit_env['GIT_AUTHOR_EMAIL']}>")
+    output.info_ok(f"Committer: {commit_env['GIT_COMMITTER_NAME']} <{commit_env['GIT_COMMITTER_EMAIL']}>")
     
     return commit_env
 

@@ -191,18 +191,40 @@ def get_commit_of_tag(project_root: Path, tag: str) -> str:
     return run_git_command(["rev-list", "-n", "1", tag], project_root)
 
 
+def get_commit(project_root: Path, commit: str = "HEAD")  -> str:
+    """Get the commit hash."""
+    return run_git_command(["rev-parse", commit], project_root)
+    
 def get_latest_commit(project_root: Path) -> str:
     """Get the latest commit hash."""
-    return run_git_command(["rev-parse", "HEAD"], project_root)
+    return get_commit(project_root, commit="HEAD")
 
 
-def get_commit_info(project_root: Path) -> dict:
-    """Get timestamp (epoch) and SHA of the latest commit."""
+def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
+    """Get timestamp (epoch), SHA, committer name and email of a commit.
+
+    Args:
+        project_root: Path to project root
+        commit: Commit reference (default: HEAD)
+    """
+    # Commit info (single command)
+    result = run_git_command(
+        ["log", "-1", "--format=%H%n%ct%n%cn%n%ce%n%an%n%ae%n%s", commit], project_root
+    )
+    sha, timestamp, c_name, c_email, a_name, a_email, subject = result.split("\n", 6)
+
     return {
-        "SOURCE_DATE_EPOCH": run_git_command(["log", "-1", "--format=%ct"], project_root),
-        "GIT_COMMIT_SHA": get_latest_commit(project_root),
+        "SOURCE_DATE_EPOCH": timestamp,
+        "GIT_COMMIT_SHA": sha,
+        "GIT_COMMIT_SUBJECT": subject,
+        "GIT_COMMITTER_NAME": c_name,
+        "GIT_COMMITTER_EMAIL": c_email,
+        "GIT_AUTHOR_NAME": a_name,
+        "GIT_AUTHOR_EMAIL": a_email,
     }
 
+def get_last_commit_info(project_root: Path):
+    return get_commit_info(project_root, commit="HEAD")
 
 def get_remote_latest_commit(project_root: Path, main_branch: str) -> str:
     """Get the latest commit hash from the remote main branch."""
