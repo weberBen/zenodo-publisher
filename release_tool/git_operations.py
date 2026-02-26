@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Optional
 import tempfile
 
+from . import output
+
 class GitError(Exception):
     """Git operation error."""
     pass
@@ -66,7 +68,7 @@ def check_on_main_branch(project_root: Path, main_branch: str) -> None:
 
 def fetch_remote(project_root: Path) -> None:
     """Fetch updates from remote repository."""
-    print("🔄 Fetching from remote...")
+    output.info("🔄 Fetching from remote...")
     run_git_command(["fetch"], project_root)
 
 
@@ -90,8 +92,8 @@ def has_local_modifs(project_root: Path, main_branch: str) -> bool:
     Returns:
         True if no modifications, False if there are changes
     """
-    output = run_git_command(["status", "--porcelain"], project_root)
-    return output.strip() != ""
+    result = run_git_command(["status", "--porcelain"], project_root)
+    return result.strip() != ""
     
 
 def check_up_to_date(project_root: Path, main_branch: str) -> None:
@@ -114,7 +116,7 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
             f"Please pull/push the latest changes first"
         )
         
-    print(f"✓ Repository is up to date with origin/{main_branch}")
+    output.info_ok(f"Repository is up to date with origin/{main_branch}")
 
 
 def run_gh_command(args: list[str], cwd: Path) -> str:
@@ -159,14 +161,14 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
     """
     try:
         # First, get the list of releases (without body field)
-        output = run_gh_command(
+        result = run_gh_command(
             ["release", "list", "--limit", "1", "--json", "tagName,name"],
             project_root
         )
-        if not output:
+        if not result:
             return None
 
-        releases = json.loads(output)
+        releases = json.loads(result)
         if not releases:
             return None
 
@@ -189,10 +191,40 @@ def get_commit_of_tag(project_root: Path, tag: str) -> str:
     return run_git_command(["rev-list", "-n", "1", tag], project_root)
 
 
+def get_commit(project_root: Path, commit: str = "HEAD")  -> str:
+    """Get the commit hash."""
+    return run_git_command(["rev-parse", commit], project_root)
+    
 def get_latest_commit(project_root: Path) -> str:
     """Get the latest commit hash."""
-    return run_git_command(["rev-parse", "HEAD"], project_root)
+    return get_commit(project_root, commit="HEAD")
 
+
+def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
+    """Get timestamp (epoch), SHA, committer name and email of a commit.
+
+    Args:
+        project_root: Path to project root
+        commit: Commit reference (default: HEAD)
+    """
+    # Commit info (single command)
+    result = run_git_command(
+        ["log", "-1", "--format=%H%n%ct%n%cn%n%ce%n%an%n%ae%n%s", commit], project_root
+    )
+    sha, timestamp, c_name, c_email, a_name, a_email, subject = result.split("\n", 6)
+
+    return {
+        "ZP_COMMIT_DATE_EPOCH": timestamp,
+        "ZP_COMMIT_SHA": sha,
+        "ZP_COMMIT_SUBJECT": subject,
+        "ZP_COMMIT_COMMITTER_NAME": c_name,
+        "ZP_COMMIT_COMMITTER_EMAIL": c_email,
+        "ZP_COMMIT_AUTHOR_NAME": a_name,
+        "ZP_COMMIT_AUTHOR_EMAIL": a_email,
+    }
+
+def get_last_commit_info(project_root: Path):
+    return get_commit_info(project_root, commit="HEAD")
 
 def get_remote_latest_commit(project_root: Path, main_branch: str) -> str:
     """Get the latest commit hash from the remote main branch."""
@@ -219,11 +251,11 @@ def tag_exists(project_root: Path, tag_name: str) -> bool:
 
     try:
         # Check if tag exists on remote using ls-remote
-        output = run_git_command(
+        result = run_git_command(
             ["ls-remote", "--tags", "origin", f"refs/tags/{tag_name}"],
             project_root
         )
-        return bool(output.strip())
+        return bool(result.strip())
     except GitError:
         return False
 
@@ -242,16 +274,16 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         GitError: If tag exists but doesn't point to the latest remote commit
     """
     if not tag_exists(project_root, tag_name):
-        print(f"✓ Tag '{tag_name}' does not exist yet")
+        output.info_ok(f"Tag '{tag_name}' does not exist yet")
         return
 
     # Tag exists, check if it points to the latest remote commit
-    print(f"⚠️  Tag '{tag_name}' already exists, verifying it points to latest commit...")
+    output.warn(f"Tag '{tag_name}' already exists, verifying it points to latest commit...")
     tag_commit = get_commit_of_tag(project_root, tag_name)
     remote_latest = get_remote_latest_commit(project_root, main_branch)
 
     if tag_commit == remote_latest:
-        print(f"✓ Tag '{tag_name}' points to the latest remote commit")
+        output.info_ok(f"Tag '{tag_name}' points to the latest remote commit")
         return
 
     raise GitError(
@@ -298,14 +330,14 @@ def create_github_release(
         title: Release title
         notes: Release notes/description
     """
-    print(f"\n🚀 Creating GitHub release '{tag_name}'...")
+    output.info(f"🚀 Creating GitHub release '{tag_name}'...")
 
     run_gh_command(
         ["release", "create", tag_name, "--title", title, "--notes", notes],
         project_root
     )
 
-    print(f"✓ Release '{tag_name}' created and published")
+    output.info_ok(f"Release '{tag_name}' created and published")
 
 
 def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
@@ -336,7 +368,7 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
             f"Latest commit: {latest_commit}"
         )
 
-    print(f"✓ Release '{tag_name}' points to the latest commit")
+    output.info_ok(f"Release '{tag_name}' points to the latest commit")
 
 def archive_project(
     project_root: Path,
@@ -373,56 +405,70 @@ def archive_project(
         project_root
     )
 
-    print(f"✓ Created archive: {output_file}")
+    output.info_ok(f"Created archive: {output_file}")
     return output_file, archive_name, "zip"
 
 
-def add_zenodo_asset_to_release(
+def get_release_asset_digest(
     project_root: Path,
     tag_name: str,
+    asset_name: str,
+) -> str | None:
+    """Return the SHA256 digest of a release asset, or None if it doesn't exist.
+
+    Uses the REST API (gh api) because gh release view does not expose the digest field.
+    """
+    try:
+        result = run_gh_command(
+            ["api", "repos/{owner}/{repo}/releases/tags/" + tag_name,
+             "--jq", f'.assets[] | select(.name == "{asset_name}") | .digest'],
+            project_root,
+        )
+        if result:
+            return result  # e.g. "sha256:29ca0d..."
+    except GitHubError:
+        pass
+    return None
+
+
+def build_zenodo_info_json(
     doi: str,
     record_url: str,
     archived_files: list,
-    debug: bool = False
+    identifiers: list | None = None,
+    debug: bool = False,
 ) -> Path:
-    """
-    Create a zenodo_publication_info.json and attach it as asset to a GitHub release.
-
-    Args:
-        project_root: Path to project root
-        tag_name: Tag name of the release
-        doi: Zenodo DOI
-        record_url: Zenodo record URL
-        archived_files: List of tuples (file_path, md5, is_preview, filename, persist_file)
-        debug: If True, anonymize the DOI number with a random value
-    """
+    """Build zenodo_publication_info.json in a temp directory and return its path."""
     doi_url = f"https://doi.org/{doi}"
-
-    if debug:
-        rand_id = random.randint(100000, 999999)
-        doi_parts = doi.rsplit(".", 1)
-        if len(doi_parts) == 2:
-            doi_url = f"https://doi.org/{doi_parts[0]}.{rand_id}"
-        record_url = f"https://zenodo.org/records/{rand_id}"
 
     info = {
         "doi": doi_url,
         "record_url": record_url,
         "files": [
-            {"key": e["file_path"].name, "md5": e["md5"]}
+            {"key": e["file_path"].name, "md5": e["md5"], "sha256": e["sha256"]}
             for e in archived_files
+            if not e.get("is_signature")
         ],
     }
+    if identifiers:
+        info["identifiers"] = identifiers
 
     info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
     with open(info_path, "w") as f:
         json.dump(info, f, indent=2)
         f.write("\n")
 
-    print(f"  Adding zenodo publication info to release '{tag_name}'...")
-    run_gh_command(
-        ["release", "upload", tag_name, str(info_path), "--clobber"],
-        project_root
-    )
-    print(f"  ✓ Zenodo publication info added to release")
     return info_path
+
+
+def upload_release_asset(
+    project_root: Path,
+    tag_name: str,
+    file_path: Path,
+    clobber: bool = False,
+) -> None:
+    """Upload a file as a GitHub release asset."""
+    args = ["release", "upload", tag_name, str(file_path)]
+    if clobber:
+        args.append("--clobber")
+    run_gh_command(args, project_root)

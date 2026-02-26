@@ -1,10 +1,13 @@
 """Compilation utilities."""
 
+import os
 import subprocess
 from pathlib import Path
 
+from . import output
 
-def compile(compile_dir: Path, make_args: list[str] | None = None) -> None:
+
+def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dict | None = None) -> None:
     """
     Compile document using Makefile.
 
@@ -21,21 +24,25 @@ def compile(compile_dir: Path, make_args: list[str] | None = None) -> None:
     if not makefile.exists():
         raise FileNotFoundError(f"Makefile not found at {makefile}")
 
-    print(f"📄 Building document in {compile_dir}...\n\n")
+    output.info(f"📄 Building document in {compile_dir}...")
+
+    env = {**os.environ, **env_vars} if env_vars else None
 
     cmd = ["make", "deploy"] + (make_args or [])
     try:
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             cwd=compile_dir,
             check=True,
-            # capture_output=True,
-            text=True
+            text=True,
+            env=env,
         )
-        print("\n\n✅ Compilation successful")
+        output.info_ok("Compilation successful")
 
     except subprocess.CalledProcessError as e:
-        print(f"✗ Compilation failed")
-        print(f"\nStdout:\n{e.stdout}")
-        print(f"\nStderr:\n{e.stderr}")
+        output.error("Compilation failed")
+        if e.stdout:
+            output.detail(f"Stdout:\n{e.stdout}")
+        if e.stderr:
+            output.detail(f"Stderr:\n{e.stderr}")
         raise RuntimeError("Compilation failed") from e

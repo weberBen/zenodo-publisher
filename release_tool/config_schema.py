@@ -138,6 +138,15 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("zenodo_info_to_release", "ZENODO_INFO_TO_RELEASE",
                  type="bool", default=False,
                  help="Add Zenodo info JSON to GitHub release"),
+    ConfigOption("zenodo_identifier_hash", "ZENODO_IDENTIFIER_HASH",
+                 type="bool", default=False,
+                 help="Add SHA256 hash as alternate identifier in Zenodo metadata"),
+    ConfigOption("zenodo_identifier_types", "ZENODO_IDENTIFIER_TYPES",
+                 type="list", default="",
+                 help="File types to include in identifier hash (e.g. pdf,project). If multiple, hashes are concatenated"),
+    ConfigOption("zenodo_identifier_hash_algorithms", "ZENODO_IDENTIFIER_HASH_ALGORITHMS",
+                 type="list", default="sha256",
+                 help="Hash algorithms for identifiers (e.g. sha256,md5,sha512). Uses hashlib"),
 
     # Archive options
     ConfigOption("archive_types", "ARCHIVE_TYPES", type="list",
@@ -167,7 +176,7 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("prompt_validation_level", "PROMPT_VALIDATION_LEVEL",
                  default="strict",
                  help="Prompt validation level: strict or light"),
-    ConfigOption("force_zenodo_update", "FORCE_ZENODO_UPDATE",
+    ConfigOption("zenodo_force_update", "ZENODO_FORCE_UPDATE",
                  type="bool", default=False,
                  help="Force Zenodo update even if up to date"),
 ]
