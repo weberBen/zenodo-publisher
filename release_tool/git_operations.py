@@ -409,27 +409,37 @@ def archive_project(
     return output_file, archive_name, "zip"
 
 
-def add_zenodo_asset_to_release(
+def get_release_asset_digest(
     project_root: Path,
     tag_name: str,
+    asset_name: str,
+) -> str | None:
+    """Return the SHA256 digest of a release asset, or None if it doesn't exist.
+
+    GitHub provides the digest directly in the API response (no download needed).
+    """
+    try:
+        result = run_gh_command(
+            ["release", "view", tag_name, "--json", "assets"],
+            project_root,
+        )
+        assets = json.loads(result).get("assets", [])
+        for asset in assets:
+            if asset.get("name") == asset_name:
+                return asset.get("digest")  # e.g. "sha256:29ca0d..."
+    except (GitHubError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def build_zenodo_info_json(
     doi: str,
     record_url: str,
     archived_files: list,
     identifiers: list | None = None,
     debug: bool = False,
 ) -> Path:
-    """
-    Create a zenodo_publication_info.json and attach it as asset to a GitHub release.
-
-    Args:
-        project_root: Path to project root
-        tag_name: Tag name of the release
-        doi: Zenodo DOI
-        record_url: Zenodo record URL
-        archived_files: List of archived file dicts
-        identifiers: Optional list of identifier dicts
-        debug: If True, anonymize the DOI number with a random value
-    """
+    """Build zenodo_publication_info.json in a temp directory and return its path."""
     doi_url = f"https://doi.org/{doi}"
 
     if debug:
@@ -455,10 +465,17 @@ def add_zenodo_asset_to_release(
         json.dump(info, f, indent=2)
         f.write("\n")
 
-    output.detail(f"Adding zenodo publication info to release '{tag_name}'...")
-    run_gh_command(
-        ["release", "upload", tag_name, str(info_path), "--clobber"],
-        project_root
-    )
-    output.detail_ok("Zenodo publication info added to release")
     return info_path
+
+
+def upload_release_asset(
+    project_root: Path,
+    tag_name: str,
+    file_path: Path,
+    clobber: bool = False,
+) -> None:
+    """Upload a file as a GitHub release asset."""
+    args = ["release", "upload", tag_name, str(file_path)]
+    if clobber:
+        args.append("--clobber")
+    run_gh_command(args, project_root)

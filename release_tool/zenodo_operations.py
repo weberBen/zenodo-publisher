@@ -51,6 +51,11 @@ class ZenodoPublisher:
             return self.client.records(concept_record.data["id"]).get()
         except Exception as e:
             raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}")
+
+    def get_record_info(self) -> tuple[str, str]:
+        """Return (doi, record_url) from the latest published record."""
+        record = self._get_last_record()
+        return record.data["doi"], record.data["links"]["self_html"]
     
     def _is_draft(self, record_id: str) -> bool:
         try:

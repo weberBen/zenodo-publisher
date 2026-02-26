@@ -8,8 +8,10 @@ from .git_operations import (
     check_tag_validity,
     create_github_release,
     verify_release_on_latest_commit,
-    add_zenodo_asset_to_release,
     get_last_commit_info,
+    get_release_asset_digest,
+    build_zenodo_info_json,
+    upload_release_asset,
 )
 from .zenodo_operations import ZenodoPublisher, ZenodoError
 from .archive_operation import archive, compute_md5, compute_sha256
@@ -161,11 +163,11 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
     return archived_files, identifiers
 
 
-def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator):
-    """Check Zenodo state and publish if needed."""
+def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator) -> tuple[str | None, str | None]:
+    """Check Zenodo state and publish if needed. Returns (doi, record_url) or (None, None)."""
     if not config.has_zenodo_config():
         output.step_warn("No publisher set")
-        return
+        return None, None
 
     publisher = ZenodoPublisher(config)
 
@@ -174,13 +176,13 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
         output.step_ok(msg)
     if up_to_date and not config.zenodo_force_update:
         output.info("No publication made.")
-        return
+        return None, None
     if up_to_date:
         output.step_warn("Forcing zenodo update")
 
     if not _confirm("Publish version ?", hint, validator, config.project_name):
         output.warn("No publication made")
-        return
+        return None, None
 
     try:
         zenodo_doi, zenodo_url = publisher.publish_new_version(
@@ -188,20 +190,56 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
         )
         output.detail(f"Zenodo DOI: {zenodo_doi}")
         output.step_ok(f"Publication {tag_name} completed successfully!")
-
-        if config.zenodo_info_to_release:
-            info_path = add_zenodo_asset_to_release(
-                config.project_root, tag_name,
-                zenodo_doi, zenodo_url,
-                archived_files,
-                identifiers=identifiers,
-                debug=config.debug,
-            )
-            output.detail(f"Zenodo publication info file: {info_path}")
+        return zenodo_doi, zenodo_url
 
     except ZenodoError as e:
         output.error(f"GitHub release created but Zenodo publication failed: {e}")
         output.detail("You can manually upload files to Zenodo")
+        return None, None
+
+
+def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
+                                  zenodo_doi, zenodo_url, hint, validator):
+    """Generate and upload zenodo_publication_info.json to the GitHub release."""
+    if not config.zenodo_info_to_release:
+        return
+    if not config.has_zenodo_config():
+        return
+
+    # If no publication happened, fetch info from existing record
+    if not zenodo_doi or not zenodo_url:
+        output.step("Fetching Zenodo record info...")
+        publisher = ZenodoPublisher(config)
+        zenodo_doi, zenodo_url = publisher.get_record_info()
+        output.detail(f"DOI: {zenodo_doi}")
+        output.detail(f"URL: {zenodo_url}")
+
+    # Build the JSON file
+    info_path = build_zenodo_info_json(
+        zenodo_doi, zenodo_url, archived_files,
+        identifiers=identifiers, debug=config.debug,
+    )
+
+    # Compare with existing asset on the release
+    local_sha = f"sha256:{compute_sha256(info_path)}"
+    remote_sha = get_release_asset_digest(
+        config.project_root, tag_name, info_path.name,
+    )
+
+    if remote_sha and local_sha == remote_sha:
+        output.step_ok("Zenodo info file already up to date on release")
+        return
+
+    if remote_sha:
+        output.step_warn(f"Zenodo info file differs from release asset")
+        if not _confirm("Overwrite existing zenodo info on release ?", hint, validator, config.project_name):
+            output.warn("Zenodo info not updated on release")
+            return
+
+    output.detail(f"Uploading zenodo publication info to release '{tag_name}'...")
+    upload_release_asset(config.project_root, tag_name, info_path, clobber=bool(remote_sha))
+    output.step_ok("Zenodo publication info added to release")
+    output.detail("-> Zenodo publication info file:", info_path)
 
 
 # ---------------------------------------------------------------------------
@@ -255,4 +293,8 @@ def _run_release(config) -> None:
     archived_files, identifiers = _step_archive(config, tag_name)
 
     # Zenodo publish
-    _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
+    zenodo_doi, zenodo_url = _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
+
+    # Zenodo info to release
+    _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
+                                  zenodo_doi, zenodo_url, hint, validator)
