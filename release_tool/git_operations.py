@@ -214,13 +214,13 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
     sha, timestamp, c_name, c_email, a_name, a_email, subject = result.split("\n", 6)
 
     return {
-        "SOURCE_DATE_EPOCH": timestamp,
-        "GIT_COMMIT_SHA": sha,
-        "GIT_COMMIT_SUBJECT": subject,
-        "GIT_COMMITTER_NAME": c_name,
-        "GIT_COMMITTER_EMAIL": c_email,
-        "GIT_AUTHOR_NAME": a_name,
-        "GIT_AUTHOR_EMAIL": a_email,
+        "ZP_COMMIT_DATE_EPOCH": timestamp,
+        "ZP_COMMIT_SHA": sha,
+        "ZP_COMMIT_SUBJECT": subject,
+        "ZP_COMMIT_COMMITTER_NAME": c_name,
+        "ZP_COMMIT_COMMITTER_EMAIL": c_email,
+        "ZP_COMMIT_AUTHOR_NAME": a_name,
+        "ZP_COMMIT_AUTHOR_EMAIL": a_email,
     }
 
 def get_last_commit_info(project_root: Path):

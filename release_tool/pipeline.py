@@ -113,11 +113,11 @@ def _step_release(config) -> str:
 
 def _step_commit_info(config):
     commit_env = get_last_commit_info(config.project_root)
-    output.info_ok(f"Commit SHA: {commit_env['GIT_COMMIT_SHA']}")
-    output.info_ok(f"Commit timestamp: {commit_env['SOURCE_DATE_EPOCH']}")
-    output.info_ok(f"Commit subject: {commit_env['GIT_COMMIT_SUBJECT']}")
-    output.info_ok(f"Author: {commit_env['GIT_AUTHOR_NAME']} <{commit_env['GIT_AUTHOR_EMAIL']}>")
-    output.info_ok(f"Committer: {commit_env['GIT_COMMITTER_NAME']} <{commit_env['GIT_COMMITTER_EMAIL']}>")
+    output.info_ok(f"Commit SHA: {commit_env['ZP_COMMIT_SHA']}")
+    output.info_ok(f"Commit timestamp: {commit_env['ZP_COMMIT_DATE_EPOCH']}")
+    output.info_ok(f"Commit subject: {commit_env['ZP_COMMIT_SUBJECT']}")
+    output.info_ok(f"Author: {commit_env['ZP_COMMIT_AUTHOR_NAME']} <{commit_env['ZP_COMMIT_AUTHOR_EMAIL']}>")
+    output.info_ok(f"Committer: {commit_env['ZP_COMMIT_COMMITTER_NAME']} <{commit_env['ZP_COMMIT_OMMITTER_EMAIL']}>")
     
     return commit_env
 
@@ -231,8 +231,8 @@ def _run_release(config) -> None:
     commit_env = _step_commit_info(config)
     commit_env = {
         **commit_env,
-        "GIT_BRANCH": config.main_branch,
-        "GIT_COMMIT_TAG": tag_name,
+        "ZP_BRANCH": config.main_branch,
+        "ZP_COMMIT_TAG": tag_name,
     }
     
     # Compile
