@@ -57,6 +57,15 @@ def compute_md5(file_path: Path) -> str:
     return md5_hash.hexdigest()
 
 
+def compute_sha256(file_path: Path) -> str:
+    """Compute SHA256 checksum of a file."""
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256_hash.update(chunk)
+    return sha256_hash.hexdigest()
+
+
 def archive(config, tag_name: str) -> list[tuple[Path, str]]:
     """
     Create archives and compute their MD5 checksums.
@@ -79,6 +88,7 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
         is_preview = (config.main_file_extension == extension)
         results.append({
             "file_path": file_path, "md5": compute_md5(file_path),
+            "sha256": compute_sha256(file_path),
             "is_preview": is_preview, "filename": filename,
             "persist": persist_file, "is_signature": False,
         })
@@ -95,6 +105,7 @@ def archive(config, tag_name: str) -> list[tuple[Path, str]]:
         is_preview = (config.main_file_extension == extension)
         results.append({
             "file_path": file_path, "md5": compute_md5(file_path),
+            "sha256": compute_sha256(file_path),
             "is_preview": is_preview, "filename": filename,
             "persist": persist_file, "is_signature": False,
         })

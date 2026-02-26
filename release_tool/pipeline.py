@@ -14,7 +14,7 @@ from .git_operations import (
     GitHubError,
 )
 from .zenodo_operations import ZenodoPublisher, ZenodoError
-from .archive_operation import archive, compute_md5
+from .archive_operation import archive, compute_md5, compute_sha256
 from .gpg_operations import sign_files
 from . import output
 
@@ -140,7 +140,7 @@ def _step_archive(config, tag_name) -> list:
 
     if config.gpg_sign:
         signatures = sign_files(
-            archived_files, compute_md5,
+            archived_files, compute_md5, compute_sha256,
             gpg_uid=config.gpg_uid,
             overwrite=config.gpg_overwrite,
             extra_args=config.gpg_extra_args,
@@ -151,6 +151,7 @@ def _step_archive(config, tag_name) -> list:
     for entry in archived_files:
         output.detail(f"• {entry['file_path'].name}")
         output.detail(f"  MD5: {entry['md5']}")
+        output.detail(f"  SHA256: {entry['sha256']}")
         output.detail(f"  persist: {entry['persist']}")
 
     return archived_files
