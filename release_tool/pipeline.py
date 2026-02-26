@@ -172,9 +172,15 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
         output.step_warn("No publisher set")
         return None
 
+    output.step("Zenodo process...")
+    
     publisher = ZenodoPublisher(config)
 
     up_to_date, msg, record_info = publisher.is_up_to_date(tag_name, archived_files)
+    if up_to_date and record_info:
+        output.info(f"Last record url: https://doi.org/{record_info['doi']}")
+        output.info(f"Last record url: {record_info['record_url']}")
+    
     if msg:
         output.step_ok(msg)
     if up_to_date and not config.zenodo_force_update:

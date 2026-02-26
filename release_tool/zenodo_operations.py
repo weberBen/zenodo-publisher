@@ -109,7 +109,12 @@ class ZenodoPublisher:
         """Returns (up_to_date, msg, record_info or None)."""
         last_record = self._get_last_record()
         up_to_date, msg = self._is_up_to_date(tag_name, last_record, archived_files)
-        return up_to_date, msg, self._format_record_info(last_record)
+        
+        record_info = None
+        if up_to_date:
+            record_info = self._format_record_info(last_record)
+        
+        return up_to_date, msg, record_info
     
     def _is_up_to_date(
         self,
@@ -302,7 +307,7 @@ class ZenodoPublisher:
             # Publish
             output.detail("Publishing...")
             published_record = draft_record.publish()
-            record_info = self._format_record_info(last_record)
+            record_info = self._format_record_info(published_record)
 
             output.info_ok("Published to Zenodo!")
             output.detail(f"DOI: https://doi.org/{record_info['doi']}")
