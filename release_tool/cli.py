@@ -47,19 +47,21 @@ def _add_release_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build argparse parser with subcommands and backward-compatible top-level flags."""
+    """Build argparse parser with required subcommands."""
     parser = argparse.ArgumentParser(
         description="Release tool for Zenodo project"
     )
 
-    # Top-level: all release flags for backward compat (bare `zp --flag`)
-    _add_release_flags(parser)
+    parser.add_argument(
+        "--work-dir", type=str, default=None,
+        help="Working directory (default: current directory)",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
     # --- zp release --------------------------------------------------------
     release_p = subparsers.add_parser(
-        "release", help="Run the full release pipeline (default when no subcommand)")
+        "release", help="Run the full release pipeline")
     _add_release_flags(release_p)
     release_p.set_defaults(func=cmd_release)
 
@@ -203,7 +205,7 @@ def cmd_archive(args):
 # ---------------------------------------------------------------------------
 
 def main():
-    """CLI entry point: dispatch to subcommand or default to release."""
+    """CLI entry point: dispatch to subcommand or show help."""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -213,4 +215,5 @@ def main():
     if hasattr(args, "func"):
         args.func(args)
     else:
-        cmd_release(args)
+        parser.print_help()
+        sys.exit(1)
