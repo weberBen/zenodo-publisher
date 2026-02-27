@@ -246,10 +246,14 @@ def cmd_archive(args):
     hash_algos.insert(0, 'sha256')
     hash_algos = list(set(hash_algos))
     
-    print(f"Archive:  {file_path}")
+    # Align all labels to the longest one + ":"
+    labels = ["Archive"] + hash_algos
+    pad = max(len(l) for l in labels)
+
+    print(f"{'Archive':<{pad}}:  {file_path}")
     for hash_algo in hash_algos:
-        hash = compute_file_hash(file_path, hash_algo)
-        print(f"{hash_algo}:      {hash}")
+        h = compute_file_hash(file_path, hash_algo)
+        print(f"{hash_algo:<{pad}}:  {h}")
 
 # ---------------------------------------------------------------------------
 # Entry point
