@@ -96,9 +96,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cache", action="store_true", default=False,
         help="Fetch the tag from the remote origin instead of using the local repo "
              "(useful when the tag has not been fetched locally)")
-    archive_p.add_argument(
-        "--work-dir", type=str, default=None,
-        help="Working directory (default: current directory)")
     archive_p.set_defaults(func=cmd_archive)
 
     return parser
@@ -158,7 +155,6 @@ def setup_env(args, cli_override=True):
 
 def cmd_release(args):
     """Run the full release pipeline (current behavior)."""
-    setup_work_dir(args)
     
     (project_root, config), errors = setup_env(args, cli_override=True)
     if len(errors)>0:
@@ -176,7 +172,6 @@ def cmd_archive(args):
     )
     from .archive_operation import compute_file_hash
 
-    setup_work_dir(args)
     (project_root, config), errors = setup_env(args, cli_override=True)
     print((project_root, config))
 
@@ -187,24 +182,21 @@ def cmd_archive(args):
     
     if remote_url:
         project_name = args.project_name
-        hash_algorithms = args.hash_algorithm or []
+        hash_algos = []
     else:
         if not config:
             print(f"\n❌\u274c {'\n'.join(errors)}", file=sys.stderr)
             return
-        
+
         project_name = config.project_name
-        hash_algorithms = config.zenodo_identifier_hash or []
-    
+        hash_algos = config.zenodo_identifier_hash_algorithms
+
     if not project_name:
         print(
-        "\n❌\u274c --project-name is required when using --remote outside a ZP repository",
-        file=sys.stderr,
-    )
-        
-    hash_algorithms.insert(0, 'md5')
-    hash_algorithms.insert(0, 'md5')
-    hash_algorithms = list(set(hash_algorithms))
+            "\n❌\u274c --project-name is required when using --remote outside a ZP repository",
+            file=sys.stderr,
+        )
+        return
 
     # --- Create the archive ------------------------------------------------
     file_path = None
@@ -250,10 +242,14 @@ def cmd_archive(args):
             return
 
     # --- Checksums ---------------------------------------------------------
+    hash_algos.insert(0, 'md5')
+    hash_algos.insert(0, 'sha256')
+    hash_algos = list(set(hash_algos))
+    
     print(f"Archive:  {file_path}")
-    for hash_algorithm in hash_algorithms:
-        hash = compute_file_hash(file_path, hash_algorithm)
-        print(f"{hash_algorithm}:      {hash}")
+    for hash_algo in hash_algos:
+        hash = compute_file_hash(file_path, hash_algo)
+        print(f"{hash_algo}:      {hash}")
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -263,6 +259,10 @@ def main():
     """CLI entry point: dispatch to subcommand or default to release."""
     parser = build_parser()
     args = parser.parse_args()
+
+    # Handle --work-dir once, before dispatching to any subcommand.
+    # This ensures it works regardless of position (before or after subcommand).
+    setup_work_dir(args)
 
     if hasattr(args, "func"):
         args.func(args)
