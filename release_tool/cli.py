@@ -6,22 +6,51 @@ import sys
 from pathlib import Path
 
 from .config import Config, find_project_root, load_env, NotInitializedError
-from .config_schema import OPTIONS
+from .config_schema import OPTIONS, COMMON_FLAG_NAMES, ARCHIVE_CLI_OPTIONS
 
 
 # ---------------------------------------------------------------------------
 # Parser helpers
 # ---------------------------------------------------------------------------
 
+def _add_flag(parser, flag, opt_type, default, help_text, *,
+              required=False, metavar=None):
+    """Add a single flag to *parser*."""
+    if opt_type == "store_true":
+        parser.add_argument(
+            flag, action="store_true", default=default, help=help_text)
+    elif opt_type == "bool":
+        parser.add_argument(
+            flag, action=argparse.BooleanOptionalAction,
+            default=None, help=help_text,
+        )
+    else:
+        kwargs = {"type": str, "default": default, "help": help_text}
+        if required:
+            kwargs["required"] = True
+        if metavar:
+            kwargs["metavar"] = metavar
+        parser.add_argument(flag, **kwargs)
+
+
+def _add_common_flags(parser: argparse.ArgumentParser) -> None:
+    """Add flags shared by all subcommands (e.g. --debug/--no-debug)."""
+    for opt in OPTIONS:
+        if opt.name not in COMMON_FLAG_NAMES or not opt.cli:
+            continue
+        flag = f"--{opt.name.replace('_', '-')}"
+        _add_flag(parser, flag, opt.type, None, opt.help)
+
+
 def _add_release_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --work-dir and all schema-driven flags to *parser*."""
+    """Add --work-dir and all schema-driven release flags to *parser*."""
     parser.add_argument(
         "--work-dir", type=str, default=None,
         help="Working directory (default: current directory)",
     )
 
     for opt in OPTIONS:
-        if not opt.cli:
+        if not opt.cli or opt.name in COMMON_FLAG_NAMES:
             continue
 
         flag = f"--{opt.name.replace('_', '-')}"
@@ -30,20 +59,15 @@ def _add_release_flags(parser: argparse.ArgumentParser) -> None:
         if opt.default not in (None, "", [], True, False):
             help_text += f" (default: {opt.default})"
 
-        if opt.type == "bool":
-            parser.add_argument(
-                flag,
-                action=argparse.BooleanOptionalAction,
-                default=None,
-                help=opt.help,
-            )
-        else:
-            parser.add_argument(
-                flag,
-                type=str,
-                default=None,
-                help=help_text,
-            )
+        _add_flag(parser, flag, opt.type, None, help_text)
+
+
+def _add_archive_flags(parser: argparse.ArgumentParser) -> None:
+    """Add schema-driven archive flags to *parser*."""
+    for opt in ARCHIVE_CLI_OPTIONS:
+        flag = f"--{opt.name.replace('_', '-')}"
+        _add_flag(parser, flag, opt.type, opt.default, opt.help,
+                  required=opt.required, metavar=opt.metavar)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     # --- zp release --------------------------------------------------------
     release_p = subparsers.add_parser(
         "release", help="Run the full release pipeline")
+    _add_common_flags(release_p)
     _add_release_flags(release_p)
     release_p.set_defaults(func=cmd_release)
 
@@ -76,23 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Zenodo, use the exact same project name as configured on Zenodo."
         ),
     )
-    archive_p.add_argument(
-        "--tag", required=True,
-        help="Git tag to archive")
-    archive_p.add_argument(
-        "--project-name", default=None,
-        help="Project name for archive prefix (default: from .zenodo.env or git root dir name). "
-             "Required when using --remote outside a git repository")
-    archive_p.add_argument(
-        "--output-dir", default=None,
-        help="Output directory (default: temporary directory)")
-    archive_p.add_argument(
-        "--remote", default=None, metavar="URL",
-        help="Git remote URL – perform a shallow clone instead of using the local repo")
-    archive_p.add_argument(
-        "--no-cache", action="store_true", default=False,
-        help="Fetch the tag from the remote origin instead of using the local repo "
-             "(useful when the tag has not been fetched locally)")
+    _add_common_flags(archive_p)
+    _add_archive_flags(archive_p)
     archive_p.set_defaults(func=cmd_archive)
 
     return parser
@@ -157,7 +167,7 @@ def cmd_release(args):
         return
 
     from .pipeline import run_release
-    run_release(config)
+    run_release(config, debug=config.debug)
 
 
 def cmd_archive(args):
@@ -166,6 +176,7 @@ def cmd_archive(args):
     output_dir = Path(args.output_dir) if args.output_dir else None
     remote_url = args.remote
     no_cache = args.no_cache
+    debug = args.debug
 
     # --- Resolve project context ---
     (project_root, config), errors = setup_env(args, cli_override=False)
@@ -197,6 +208,7 @@ def cmd_archive(args):
     run_archive(
         project_root, config, tag_name, project_name,
         output_dir, remote_url, no_cache, hash_algos,
+        debug=debug
     )
 
 

@@ -258,10 +258,10 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
 # Entry points
 # ---------------------------------------------------------------------------
 
-def run_release(config) -> None:
+def run_release(config, debug=False) -> None:
     """Run the release process with the given config."""
     try:
-        _run_release(config)
+        _run_release(config, debug=False)
     except Exception as e:
         if config.debug:
             raise
@@ -271,7 +271,7 @@ def run_release(config) -> None:
         output.info("\nExited.")
 
 
-def _run_release(config) -> None:
+def _run_release(config, debug=False) -> None:
     """Main release pipeline."""
     setup_pipeline(config.project_name, config.debug, config.project_root)
     hint, validator = _make_validator(config.prompt_validation_level)

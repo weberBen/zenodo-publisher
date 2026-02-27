@@ -20,12 +20,14 @@ def run_archive(
     remote_url: Optional[str],
     no_cache: bool,
     hash_algos: list[str],
+    debug=False,
 ) -> None:
     """Run the archive pipeline with error handling."""
     try:
         _run_archive(
             project_root, config, tag_name, project_name,
             output_dir, remote_url, no_cache, hash_algos,
+            debug=debug
         )
     except KeyboardInterrupt:
         output.info("\nExited.")
@@ -45,13 +47,14 @@ def _run_archive(
     remote_url: Optional[str],
     no_cache: bool,
     hash_algos: list[str],
+    debug=False
 ) -> None:
     """Main archive logic."""
     if config:
         setup_pipeline(config.project_name, config.debug, config.project_root)
     else:
         setup_pipeline(project_name)
-
+    
     # --- Create the archive ------------------------------------------------
     file_path = None
 

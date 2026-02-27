@@ -102,6 +102,21 @@ def _dedup_make_args(value, project_root):
 
 # --- Options registry ---
 
+@dataclass
+class CLIOption:
+    """A pure CLI argument (not backed by .zenodo.env)."""
+    name: str
+    type: str = "str"       # "str", "bool", "store_true"
+    default: Any = None
+    required: bool = False
+    help: str = ""
+    metavar: str | None = None
+
+
+# ConfigOption names shared across all subcommands (added via _add_common_flags).
+COMMON_FLAG_NAMES: set[str] = {"debug"}
+
+
 OPTIONS: list[ConfigOption] = [
     # Required settings
     ConfigOption("project_name", "PROJECT_NAME", default="",
@@ -179,4 +194,23 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("zenodo_force_update", "ZENODO_FORCE_UPDATE",
                  type="bool", default=False,
                  help="Force Zenodo update even if up to date"),
+]
+
+
+ARCHIVE_CLI_OPTIONS: list[CLIOption] = [
+    CLIOption("tag", required=True,
+              help="Git tag to archive"),
+    CLIOption("project_name",
+              help="Project name for archive prefix "
+                   "(default: from .zenodo.env or git root dir name). "
+                   "Required when using --remote outside a git repository"),
+    CLIOption("output_dir",
+              help="Output directory (default: temporary directory)"),
+    CLIOption("remote", metavar="URL",
+              help="Git remote URL \u2013 perform a shallow clone "
+                   "instead of using the local repo"),
+    CLIOption("no_cache", type="store_true", default=False,
+              help="Fetch the tag from the remote origin instead of "
+                   "using the local repo "
+                   "(useful when the tag has not been fetched locally)"),
 ]
