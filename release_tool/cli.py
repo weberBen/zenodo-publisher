@@ -1,7 +1,6 @@
 """CLI entry point with auto-generated argparse from config schema."""
 
 import argparse
-import hashlib
 import os
 import sys
 from pathlib import Path
@@ -20,10 +19,6 @@ def _add_release_flags(parser: argparse.ArgumentParser) -> None:
         "--work-dir", type=str, default=None,
         help="Working directory (default: current directory)",
     )
-    # parser.add_argument(
-    #     "--debug", type=bool, default=False,
-    #     help="Debug mode",
-    # )
 
     for opt in OPTIONS:
         if not opt.cli:
@@ -100,28 +95,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
 def setup_work_dir(args):
     if getattr(args, "work_dir", None):
         os.chdir(args.work_dir)
 
+
 def setup_env(args, cli_override=True):
     project_root = None
-    env_vars = None
     errors = []
-    
+
     try:
         project_root = find_project_root()
     except Exception as e:
-        if args.debug:
-            raise
         errors.append(str(e))
         return (None, None), errors
-    
+
     try:
         env_vars = load_env(project_root)
     except (RuntimeError, NotInitializedError) as e:
-        if args.debug:
-            raise
         errors.append(str(e))
         return (project_root, None), errors
 
@@ -135,124 +131,72 @@ def setup_env(args, cli_override=True):
                 cli_overrides[opt.name] = val
 
     if not env_vars:
-        if args.debug:
-            raise
-        errors.append(f"Invalid env file loading")
+        errors.append("Invalid env file loading")
         return (project_root, None), errors
-        
+
     try:
         config = Config(project_root, env_vars, cli_overrides)
     except Exception as e:
-        if args.debug:
-            raise
         errors.append(str(e))
         return (project_root, None), errors
-    
+
     return (project_root, config), errors
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
 
 def cmd_release(args):
-    """Run the full release pipeline (current behavior)."""
-    
+    """Run the full release pipeline."""
     (project_root, config), errors = setup_env(args, cli_override=True)
-    if len(errors)>0:
-        print(f"\n❌\u274c {'\n'.join(errors)}", file=sys.stderr)
-        return 
-    
+    if errors:
+        print(f"\n\u274c {chr(10).join(errors)}", file=sys.stderr)
+        return
+
     from .pipeline import run_release
     run_release(config)
 
 
 def cmd_archive(args):
     """Create a git archive at a given tag and print checksums."""
-    from .git_operations import (
-        archive_project, archive_remote_project, get_remote_url, GitError,
-    )
-    from .archive_operation import compute_file_hash
-
-    (project_root, config), errors = setup_env(args, cli_override=True)
-    print((project_root, config))
-
     tag_name = args.tag
     output_dir = Path(args.output_dir) if args.output_dir else None
     remote_url = args.remote
     no_cache = args.no_cache
-    
+
+    # --- Resolve project context ---
+    (project_root, config), errors = setup_env(args, cli_override=False)
+
     if remote_url:
         project_name = args.project_name
         hash_algos = []
     else:
-        if not config:
-            print(f"\n❌\u274c {'\n'.join(errors)}", file=sys.stderr)
+        if not project_root:
+            print(f"\n\u274c {chr(10).join(errors)}", file=sys.stderr)
             return
 
-        project_name = config.project_name
-        hash_algos = config.zenodo_identifier_hash_algorithms
+        project_name = args.project_name
+        if not project_name and config:
+            project_name = config.project_name
+        if not project_name:
+            project_name = project_root.name
+
+        hash_algos = list(config.zenodo_identifier_hash_algorithms or []) if config else []
 
     if not project_name:
         print(
-            "\n❌\u274c --project-name is required when using --remote outside a ZP repository",
+            "\n\u274c --project-name is required when using --remote outside a git repository",
             file=sys.stderr,
         )
         return
 
-    # --- Create the archive ------------------------------------------------
-    file_path = None
+    from .pipeline import run_archive
+    run_archive(
+        project_root, config, tag_name, project_name,
+        output_dir, remote_url, no_cache, hash_algos,
+    )
 
-    if remote_url:
-        # Explicit remote URL
-        try:
-            file_path = archive_remote_project(
-                remote_url, tag_name, args.project_name, output_dir=output_dir)
-        except GitError as e:
-            print(f"\n❌\u274c {e}", file=sys.stderr)
-            return
-
-    elif no_cache:
-        # Local repo but fetch from origin
-        try:
-            origin_url = get_remote_url(project_root)
-        except GitError as e:
-            print(f"\n\u274c Could not get remote origin URL: {e}", file=sys.stderr)
-            return
-        try:
-            file_path = archive_remote_project(
-                origin_url, tag_name, project_name, output_dir=output_dir)
-        except GitError as e:
-            print(f"\n❌\u274c {e}", file=sys.stderr)
-            return
-
-    else:
-        # Local archive
-        try:
-            file_path, _, _ = archive_project(
-                project_root, tag_name, project_name,
-                archive_dir=output_dir,
-                persist=output_dir is not None,
-            )
-        except GitError as e:
-            print(f"\n❌\u274c {e}", file=sys.stderr)
-            print(
-                "Hint: use --no-cache to archive from the remote origin "
-                "without touching the local repo",
-                file=sys.stderr,
-            )
-            return
-
-    # --- Checksums ---------------------------------------------------------
-    base = ['md5', 'sha256']
-    hash_algos = base + [a for a in hash_algos if a not in base]
-    
-    # Align all labels to the longest one + ":"
-    labels = ["Archive"] + hash_algos
-    pad = max(len(l) for l in labels)
-
-    print(f"{'Archive':<{pad}}:  {file_path}")
-    for hash_algo in hash_algos:
-        h = compute_file_hash(file_path, hash_algo)
-        print(f"{hash_algo:<{pad}}:  {h}")
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -264,7 +208,6 @@ def main():
     args = parser.parse_args()
 
     # Handle --work-dir once, before dispatching to any subcommand.
-    # This ensures it works regardless of position (before or after subcommand).
     setup_work_dir(args)
 
     if hasattr(args, "func"):

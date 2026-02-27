@@ -1,7 +1,7 @@
 """Main release logic."""
 
-from .latex_build import compile
-from .git_operations import (
+from ..latex_build import compile
+from ..git_operations import (
     check_on_main_branch,
     check_up_to_date,
     is_latest_commit_released,
@@ -13,10 +13,11 @@ from .git_operations import (
     build_zenodo_info_json,
     upload_release_asset,
 )
-from .zenodo_operations import ZenodoPublisher, ZenodoError
-from .archive_operation import archive, compute_md5, compute_sha256
-from .gpg_operations import sign_files
-from . import output
+from ..zenodo_operations import ZenodoPublisher, ZenodoError
+from ..archive_operation import archive, compute_md5, compute_sha256
+from ..gpg_operations import sign_files
+from .. import output
+from ._common import setup_pipeline
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -120,7 +121,7 @@ def _step_commit_info(config):
     output.info_ok(f"Commit subject: {commit_env['ZP_COMMIT_SUBJECT']}")
     output.info_ok(f"Author: {commit_env['ZP_COMMIT_AUTHOR_NAME']} <{commit_env['ZP_COMMIT_AUTHOR_EMAIL']}>")
     output.info_ok(f"Committer: {commit_env['ZP_COMMIT_COMMITTER_NAME']} <{commit_env['ZP_COMMIT_COMMITTER_EMAIL']}>")
-    
+
     return commit_env
 
 def _step_compile(config, hint, validator, env_vars=None):
@@ -155,7 +156,7 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
         output.detail(f"  MD5: {entry['md5']}")
         output.detail(f"  SHA256: {entry['sha256']}")
         output.detail(f"  persist: {entry['persist']}")
-    
+
 
     if identifiers:
         types_label = '+'.join(set(config.zenodo_identifier_types))
@@ -173,14 +174,14 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
         return None
 
     output.step("Zenodo process...")
-    
+
     publisher = ZenodoPublisher(config)
 
     up_to_date, msg, record_info = publisher.is_up_to_date(tag_name, archived_files)
     if up_to_date and record_info:
         output.info(f"Last record url: https://doi.org/{record_info['doi']}")
         output.info(f"Last record url: {record_info['record_url']}")
-    
+
     if msg:
         output.step_ok(msg)
     if up_to_date and not config.zenodo_force_update:
@@ -232,7 +233,7 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
     remote_sha = get_release_asset_digest(
         config.project_root, tag_name, info_path.name,
     )
-    
+
     output.detail(f"Zenodo publication info file: {info_path}")
     output.detail(f"Hash {local_sha}")
 
@@ -272,11 +273,9 @@ def run_release(config) -> None:
 
 def _run_release(config) -> None:
     """Main release pipeline."""
-    output.setup(config.project_name, config.debug)
+    setup_pipeline(config.project_name, config.debug, config.project_root)
     hint, validator = _make_validator(config.prompt_validation_level)
 
-    output.info_ok(f"Project root: {config.project_root}")
-    output.info_ok(f"Project name: {config.project_name}")
     output.info_ok(f"Main branch: {config.main_branch}")
 
     # Git check
@@ -292,7 +291,7 @@ def _run_release(config) -> None:
         "ZP_BRANCH": config.main_branch,
         "ZP_COMMIT_TAG": tag_name,
     }
-    
+
     # Compile
     _step_compile(config, hint, validator, env_vars=commit_env)
 
