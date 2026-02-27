@@ -6,6 +6,7 @@ import random
 from pathlib import Path
 from typing import Optional
 import tempfile
+import shutil
 
 from . import output
 
@@ -407,6 +408,67 @@ def archive_project(
 
     output.info_ok(f"Created archive: {output_file}")
     return output_file, archive_name, "zip"
+
+
+def archive_remote_project(
+    repo_url: str,
+    tag_name: str,
+    project_name: str,
+    output_dir: Optional[Path] = None,
+) -> Path:
+    """
+    Create a zip archive from a remote git repository at the given tag.
+
+    Performs a shallow fetch of the tag into a temporary repository,
+    runs git archive, then cleans up. No .zenodo.env required.
+
+    Args:
+        repo_url: Git remote URL (HTTPS or SSH)
+        tag_name: Git tag to archive
+        project_name: Project name for the archive prefix
+        output_dir: Directory for the output file (default: temp dir)
+
+    Returns:
+        Path to the created zip file
+
+    Raises:
+        GitError: If any git operation fails
+    """
+
+    archive_name = f"{project_name}-{tag_name}"
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_repo = tmp_dir / "tmp_repo"
+    
+    if output_dir:
+        output_file = Path(output_dir) / f"{archive_name}.zip"
+    else:
+        output_file = tmp_repo / f"{archive_name}.zip"
+
+    try:
+        refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
+
+        run_git_command(["init", str(tmp_repo)], cwd=tmp_dir)
+        run_git_command(["remote", "add", "origin", repo_url], cwd=tmp_repo)
+        run_git_command(["fetch", "--depth=1", "origin", refspec], cwd=tmp_repo)
+        run_git_command(
+            ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), tag_name],
+            cwd=tmp_repo,
+        )
+
+        output.info_ok(f"Created archive: {output_file}")
+        return output_file
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def get_remote_url(project_root: Path) -> str:
+    """Get the remote 'origin' URL of a local git repository.
+
+    Raises:
+        GitError: If the remote URL cannot be retrieved
+    """
+    return run_git_command(["remote", "get-url", "origin"], project_root)
 
 
 def get_release_asset_digest(

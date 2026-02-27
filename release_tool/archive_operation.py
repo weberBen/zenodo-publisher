@@ -50,22 +50,14 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
 
 def compute_md5(file_path: Path) -> str:
     """Compute MD5 checksum of a file."""
-    md5_hash = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            md5_hash.update(chunk)
-    return md5_hash.hexdigest()
+    return compute_file_hash(file_path, 'md5')
 
 
 def compute_sha256(file_path: Path) -> str:
     """Compute SHA256 checksum of a file."""
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256_hash.update(chunk)
-    return sha256_hash.hexdigest()
+    return compute_file_hash(file_path, 'sha256')
 
-def _compute_file_hash(file_path: Path, algorithm: str) -> str:
+def compute_file_hash(file_path: Path, algorithm: str) -> str:
     """Compute hash of a file using the given hashlib algorithm."""
     h = hashlib.new(algorithm)
     with open(file_path, "rb") as f:
@@ -96,7 +88,7 @@ def _compute_identifiers(config, results) -> list | None:
     for algorithm in config.zenodo_identifier_hash_algorithms:
         # Reuse pre-computed hash if available, otherwise compute on the fly
         file_hashes = [
-            entry.get(algorithm) or _compute_file_hash(entry["file_path"], algorithm)
+            entry.get(algorithm) or compute_file_hash(entry["file_path"], algorithm)
             for entry in matching_entries
         ]
 

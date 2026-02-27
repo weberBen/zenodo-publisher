@@ -111,6 +111,49 @@ Then use the script at the root of your project.
 
 You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). See the associated readme for instruction.
 
+## Commands
+
+### `zp` / `zp release` — Full release pipeline
+
+Runs the full release pipeline (git check, GitHub release, compile, archive, Zenodo publish). This is the default behavior when no subcommand is specified.
+
+```bash
+zp                     # default (release)
+zp release             # explicit subcommand
+zp release --debug     # with flags
+```
+
+### `zp archive` — Create a standalone archive
+
+Creates a zip archive of the project at a given git tag using `git archive`, and prints checksums. Does **not** require the full Zenodo pipeline.
+
+```bash
+# Inside a ZP project (reads PROJECT_NAME from .zenodo.env)
+zp archive --tag v1.0.0
+zp archive --tag v1.0.0 --project-name MyProject
+zp archive --tag v1.0.0 --output-dir ./releases
+
+# --no-cache: fetch the tag from the remote origin instead of using the local repo
+# (useful when the tag has not been fetched locally)
+zp archive --tag v1.0.0 --no-cache
+
+# --remote: archive from any remote git repository (no .zenodo.env needed)
+zp archive --tag v1.0.0 --project-name MyProject --remote git@github.com:user/repo.git
+zp archive --tag v1.0.0 --project-name MyProject --remote https://github.com/user/repo.git --output-dir ./out
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--tag` | Yes | — | Git tag to archive |
+| `--project-name` | No* | `.zenodo.env` or dir name | Project name used as archive prefix. *Required with `--remote` outside a git repo |
+| `--output-dir` | No | Temporary directory | Output directory for the archive |
+| `--remote` | No | — | Git remote URL — performs a shallow clone instead of using the local repo |
+| `--no-cache` | No | `False` | Fetch the tag from the remote origin (avoids touching the local repo) |
+| `--work-dir` | No | Current directory | Working directory |
+
+> **Important — project name and checksums:** The project name is embedded in the archive prefix (`ProjectName-tag/`). Changing the project name changes the archive content and therefore its MD5/SHA256 checksums. If you want to compare a locally-created archive with the one published on Zenodo, you **must** use the exact same project name that was configured when the archive was published to Zenodo.
+
+If run inside a ZP project that has `ZENODO_IDENTIFIER_HASH_ALGORITHMS` configured in `.zenodo.env`, the command also prints the identifier hashes for each configured algorithm.
 
 ## Project Setup
 
@@ -350,6 +393,14 @@ This tool uses the **new InvenioRDM metadata format**, not the legacy `.zenodo.j
 - `"keywords": [...]` → use `"subjects": [{ "subject": "..." }]`
 
 See the [InvenioRDM metadata reference](https://inveniordm.docs.cern.ch/reference/metadata/) for the full schema, or the [example file](zenodo.json.example).
+
+### Archive checksums differ from Zenodo
+
+The project name is part of the archive prefix (`ProjectName-tag/`), so changing the project name changes the archive content and therefore its MD5 and SHA256 checksums. The project name given to `zp archive` may not match the actual git repository name.
+
+To reproduce the exact same archive as the one on Zenodo, use the **exact same project name** that was configured when publishing (the `PROJECT_NAME` value in `.zenodo.env` at the time of publication, or the directory name if it was not set).
+
+This applies to `zp archive`, `zp archive --no-cache`, and `zp archive --remote`.
 
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`
