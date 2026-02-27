@@ -399,7 +399,7 @@ def archive_project(
     if persist and archive_dir:
         output_file = archive_dir / f"{archive_name}.zip"
     else:
-        output_file = Path(tempfile.gettempdir()) / f"{archive_name}.zip"
+        output_file = Path(tempfile.mkdtemp()) / f"{archive_name}.zip"
 
     run_git_command(
         ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), tag_name],
@@ -443,7 +443,7 @@ def archive_remote_project(
     if output_dir:
         output_file = Path(output_dir) / f"{archive_name}.zip"
     else:
-        output_file = Path(tempfile.gettempdir()) / f"{archive_name}.zip"
+        output_file = Path(tempfile.mkdtemp()) / f"{archive_name}.zip"
 
     try:
         refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
