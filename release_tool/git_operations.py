@@ -443,7 +443,7 @@ def archive_remote_project(
     if output_dir:
         output_file = Path(output_dir) / f"{archive_name}.zip"
     else:
-        output_file = tmp_repo / f"{archive_name}.zip"
+        output_file = Path(tempfile.gettempdir()) / f"{archive_name}.zip"
 
     try:
         refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"

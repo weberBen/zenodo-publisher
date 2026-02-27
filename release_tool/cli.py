@@ -242,9 +242,10 @@ def cmd_archive(args):
             return
 
     # --- Checksums ---------------------------------------------------------
-    hash_algos.insert(0, 'md5')
+    hash_algos.remove('md5') # if exists
+    hash_algos.remove('sha256') # if exists
     hash_algos.insert(0, 'sha256')
-    hash_algos = list(set(hash_algos))
+    hash_algos.insert(0, 'md5')
     
     # Align all labels to the longest one + ":"
     labels = ["Archive"] + hash_algos
