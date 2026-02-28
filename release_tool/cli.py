@@ -207,11 +207,48 @@ def cmd_archive(args):
         )
         return
 
+    # --- Resolve archive format: CLI --format > config > default "zip" ---
+    archive_format = getattr(args, "format", None)
+    if not archive_format and config:
+        archive_format = getattr(config, "archive_format", "zip")
+    if not archive_format:
+        archive_format = "zip"
+
+    valid_formats = {"zip", "tar", "tar.gz"}
+    if archive_format not in valid_formats:
+        print(
+            f"\n\u274c Invalid format '{archive_format}'. "
+            f"Must be one of: {', '.join(sorted(valid_formats))}",
+            file=sys.stderr,
+        )
+        return
+
+    # --- Resolve --hash: merge with existing hash_algos ---
+    cli_hash = getattr(args, "hash", None)
+    if cli_hash:
+        extra = [h.strip() for h in cli_hash.split(",") if h.strip()]
+        hash_algos += [a for a in extra if a not in hash_algos]
+
+    # --- Resolve tar/gzip args: CLI > config > empty ---
+    def _resolve_args(cli_attr, config_attr):
+        cli_val = getattr(args, cli_attr, None)
+        if cli_val:
+            return [a.strip() for a in cli_val.split(",") if a.strip()]
+        if config:
+            return list(getattr(config, config_attr, None) or [])
+        return []
+
+    tar_args = _resolve_args("tar_extra_args", "archive_tar_extra_args")
+    gzip_args = _resolve_args("gzip_extra_args", "archive_gzip_extra_args")
+
     from .pipeline import run_archive
     run_archive(
         project_root, config, tag_name, project_name,
         output_dir, remote_url, no_cache, hash_algos,
-        debug=debug
+        archive_format=archive_format,
+        tar_args=tar_args,
+        gzip_args=gzip_args,
+        debug=debug,
     )
 
 

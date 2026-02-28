@@ -3,12 +3,23 @@
 import subprocess
 import json
 import random
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import tempfile
 import shutil
 
 from . import output
+
+
+@dataclass
+class ArchiveResult:
+    """Result of a git archive operation."""
+    file_path: Path
+    archive_name: str
+    format: str  # "zip", "tar", "tar.gz"
+
 
 class GitError(Exception):
     """Git operation error."""
@@ -371,13 +382,13 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
 
     output.info_ok(f"Release '{tag_name}' points to the latest commit")
 
-def archive_project(
+def archive_zip_project(
     project_root: Path,
     tag_name: str,
     project_name: str,
     archive_dir: Optional[Path] = None,
-    persist: bool = False
-) -> Path:
+    persist: bool = False,
+) -> ArchiveResult:
     """
     Create a zip archive of the project at the given tag.
 
@@ -389,7 +400,7 @@ def archive_project(
         persist: If True, save to archive_dir; if False, create temp file
 
     Returns:
-        Path to the zip file
+        ArchiveResult with file path and metadata
 
     Raises:
         GitError: If archive creation fails
@@ -407,15 +418,15 @@ def archive_project(
     )
 
     output.info_ok(f"Created archive: {output_file}")
-    return output_file, archive_name, "zip"
+    return ArchiveResult(file_path=output_file, archive_name=archive_name, format="zip")
 
 
-def archive_remote_project(
+def archive_zip_remote_project(
     repo_url: str,
     tag_name: str,
     project_name: str,
     output_dir: Optional[Path] = None,
-) -> Path:
+) -> ArchiveResult:
     """
     Create a zip archive from a remote git repository at the given tag.
 
@@ -429,7 +440,7 @@ def archive_remote_project(
         output_dir: Directory for the output file (default: temp dir)
 
     Returns:
-        Path to the created zip file
+        ArchiveResult with file path and metadata
 
     Raises:
         GitError: If any git operation fails
@@ -439,7 +450,7 @@ def archive_remote_project(
 
     tmp_dir = Path(tempfile.mkdtemp())
     tmp_repo = tmp_dir / "tmp_repo"
-    
+
     if output_dir:
         output_file = Path(output_dir) / f"{archive_name}.zip"
     else:
@@ -457,7 +468,7 @@ def archive_remote_project(
         )
 
         output.info_ok(f"Created archive: {output_file}")
-        return output_file
+        return ArchiveResult(file_path=output_file, archive_name=archive_name, format="zip")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -469,6 +480,86 @@ def get_remote_url(project_root: Path) -> str:
         GitError: If the remote URL cannot be retrieved
     """
     return run_git_command(["remote", "get-url", "origin"], project_root)
+
+
+# ---------------------------------------------------------------------------
+# Post-archive utilities (extract, tree hash, reproducible tar)
+# ---------------------------------------------------------------------------
+
+def extract_zip(zip_path: Path, dest_dir: Path) -> Path:
+    """Extract a ZIP archive into dest_dir.
+
+    If the ZIP contains a single root directory (e.g. ProjectName-tag/),
+    returns that subdirectory. Otherwise returns dest_dir.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest_dir)
+
+    entries = list(dest_dir.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return dest_dir
+
+
+def compute_tree_hash(content_dir: Path, object_format: str = "sha1") -> str:
+    """Compute a git tree hash by initing git directly in content_dir.
+
+    Initialises a temporary git repo in *content_dir* with the requested
+    object format (sha1 or sha256), stages everything with ``git add --all``,
+    and returns the output of ``git write-tree``.
+
+    The ``.git`` directory is removed in the ``finally`` block so the caller
+    gets the directory back in its original state.
+
+    Raises:
+        GitError: If content_dir already contains a .git directory.
+    """
+    git_dir = content_dir / ".git"
+    if git_dir.exists():
+        raise GitError(f"content_dir already contains .git: {content_dir}")
+    
+    run_git_command(["init", f"--object-format={object_format}", "."], cwd=content_dir)
+    run_git_command(["config", "user.email", "noop@noop.local"], cwd=content_dir)
+    run_git_command(["config", "user.name", "noop"], cwd=content_dir)
+    run_git_command(["add", "--all"], cwd=content_dir)
+    return run_git_command(["write-tree"], cwd=content_dir)
+
+
+def pack_tar(
+    content_dir: Path,
+    output_path: Path,
+    compress_gz: bool = False,
+    tar_args: list[str] | None = None,
+    gzip_args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Create a TAR (or TAR.GZ) from *content_dir* using ``tar``.
+
+    *content_dir* is expected to be e.g. ``/tmp/xxx/ProjectName-tag/``.
+    The directory name itself becomes the archive prefix.
+
+    *tar_args* and *gzip_args* are the final merged argument lists
+    (defaults + user overrides), built by config_schema transforms.
+
+    *env* is the subprocess environment (e.g. for reproducibility vars).
+    """
+    parent = content_dir.parent
+    dirname = content_dir.name
+
+    # 1. Always produce the .tar first
+    tar_path = output_path if not compress_gz else output_path.with_suffix("")
+    subprocess.run(
+        ["tar"] + (tar_args or []) + ["-cf", str(tar_path), "-C", str(parent), dirname],
+        check=True, env=env,
+    )
+
+    # 2. Compress with gzip if tar.gz requested
+    #    gzip replaces file.tar with file.tar.gz automatically
+    if compress_gz:
+        subprocess.run(
+            ["gzip"] + (gzip_args or []) + [str(tar_path)],
+            check=True, env=env,
+        )
 
 
 def get_release_asset_digest(

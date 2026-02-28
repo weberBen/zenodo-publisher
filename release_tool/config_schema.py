@@ -86,13 +86,48 @@ def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:
     return [seen[k] for k in order]
 
 
+TREE_ALGORITHMS = {"tree": "sha1", "tree256": "sha256"}
+
 _GPG_DEFAULT_ARGS = ["--armor"]
 _MAKE_DEFAULT_ARGS = []
+# for reproductibility
+_TAR_DEFAULT_ARGS = [
+    "--sort=name", "--format=posix",
+    "--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime",
+    "--mtime=1970-01-01 00:00:00Z",
+    "--numeric-owner", "--owner=0", "--group=0",
+    "--mode=go+u,go-w",
+]
+_GZIP_DEFAULT_ARGS = ["--no-name", "--best"]
 
 
 def _build_gpg_args(value, project_root):
     """Merge default GPG args with user args."""
     return dedup_args(_GPG_DEFAULT_ARGS, value or [])
+
+
+def _build_tar_args(value, project_root):
+    """Merge default TAR args with user args."""
+    result = dedup_args(_TAR_DEFAULT_ARGS, value or [])
+    if result != _TAR_DEFAULT_ARGS:
+        import warnings
+        warnings.warn(
+            "Custom tar args detected — this may affect archive reproducibility",
+            stacklevel=2,
+        )
+    return result
+
+
+def _build_gzip_args(value, project_root):
+    """Merge default GZIP args with user args."""
+    result = dedup_args(_GZIP_DEFAULT_ARGS, value or [])
+    if result != _GZIP_DEFAULT_ARGS:
+        import warnings
+        warnings.warn(
+            "Custom gzip args detected — this may affect archive reproducibility",
+            stacklevel=2,
+        )
+    return result
 
 
 def _dedup_make_args(value, project_root):
@@ -172,6 +207,16 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("archive_dir", "ARCHIVE_DIR", type="optional_str",
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),
+    ConfigOption("archive_format", "ARCHIVE_FORMAT", default="zip",
+                 help="Archive format: zip, tar, or tar.gz"),
+    ConfigOption("archive_tar_extra_args", "ARCHIVE_TAR_EXTRA_ARGS",
+                 type="list", default=",".join(_TAR_DEFAULT_ARGS),
+                 transform=_build_tar_args,
+                 help="Extra args for tar (override defaults via dedup_args)"),
+    ConfigOption("archive_gzip_extra_args", "ARCHIVE_GZIP_EXTRA_ARGS",
+                 type="list", default=",".join(_GZIP_DEFAULT_ARGS),
+                 transform=_build_gzip_args,
+                 help="Extra args for gzip (override defaults via dedup_args)"),
 
     # GPG signing
     ConfigOption("gpg_sign", "GPG_SIGN", type="bool", default=False,
@@ -213,4 +258,13 @@ ARCHIVE_CLI_OPTIONS: list[CLIOption] = [
               help="Fetch the tag from the remote origin instead of "
                    "using the local repo "
                    "(useful when the tag has not been fetched locally)"),
+    CLIOption("format",
+              help="Archive format: zip, tar, or tar.gz (overrides config)"),
+    CLIOption("hash",
+              help="Additional hash algorithms, comma-separated "
+                   "(e.g. sha512,tree,tree256)"),
+    CLIOption("tar_extra_args",
+              help="Extra tar args, comma-separated (override defaults)"),
+    CLIOption("gzip_extra_args",
+              help="Extra gzip args, comma-separated (override defaults)"),
 ]
