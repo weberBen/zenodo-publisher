@@ -12,6 +12,6 @@ def setup_pipeline(project_name, debug=False, project_root=None):
         output.info_ok(f"Project root: {project_root}")
         output.info_ok(f"Project root name: {RED_UNDERLINE}{project_root.name}{RESET}")
     else:
-        output.info_warn(f"No project root")
+        output.warn(f"No local project root detected")
     
     output.info_ok(f"Project name: {project_name}")

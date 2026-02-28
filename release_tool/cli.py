@@ -73,7 +73,8 @@ def _add_archive_flags(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build argparse parser with required subcommands."""
     parser = argparse.ArgumentParser(
-        description="Release tool for Zenodo project"
+        prog="zp",
+        description="Release tool for Zenodo project",
     )
 
     parser.add_argument(
@@ -81,7 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Working directory (default: current directory)",
     )
 
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(
+        dest="command", title="commands", metavar="<command>")
 
     # --- zp release --------------------------------------------------------
     release_p = subparsers.add_parser(
