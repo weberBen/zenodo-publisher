@@ -34,7 +34,11 @@ def _add_flag(parser, flag, opt_type, default, help_text, *,
 
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
-    """Add flags shared by all subcommands (e.g. --debug/--no-debug)."""
+    """Add flags shared by all subcommands (--work-dir, --debug/--no-debug)."""
+    parser.add_argument(
+        "--work-dir", type=str, default=None,
+        help="Working directory (default: current directory)",
+    )
     for opt in OPTIONS:
         if opt.name not in COMMON_FLAG_NAMES or not opt.cli:
             continue
@@ -43,12 +47,7 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_release_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --work-dir and all schema-driven release flags to *parser*."""
-    parser.add_argument(
-        "--work-dir", type=str, default=None,
-        help="Working directory (default: current directory)",
-    )
-
+    """Add all schema-driven release flags to *parser*."""
     for opt in OPTIONS:
         if not opt.cli or opt.name in COMMON_FLAG_NAMES:
             continue
@@ -74,13 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build argparse parser with required subcommands."""
     parser = argparse.ArgumentParser(
         prog="zp",
-        usage="%(prog)s [-h] [--work-dir WORK_DIR] <command> ...",
         description="Release tool for Zenodo project",
-    )
-
-    parser.add_argument(
-        "--work-dir", type=str, default=None,
-        help="Working directory (default: current directory)",
     )
 
     subparsers = parser.add_subparsers(
