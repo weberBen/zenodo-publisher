@@ -71,9 +71,14 @@ def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:
 
     seen = {}
     order = []
-    for arg in default_args + user_args:
+    for arg in default_args:
+        key = _arg_key(arg)
+        if key not in seen:
+            order.append(key)
+        seen[key] = arg
+    for arg in user_args:
         if arg.startswith("--no-"):
-            # --no-X removes --X from defaults
+            # --no-X in user_args removes --X from defaults
             key = arg[5:]
             if key in seen:
                 order.remove(key)
@@ -210,11 +215,11 @@ OPTIONS: list[ConfigOption] = [
     ConfigOption("archive_format", "ARCHIVE_FORMAT", default="zip",
                  help="Archive format: zip, tar, or tar.gz"),
     ConfigOption("archive_tar_extra_args", "ARCHIVE_TAR_EXTRA_ARGS",
-                 type="list", default=",".join(_TAR_DEFAULT_ARGS),
+                 type="list", default="",
                  transform=_build_tar_args,
                  help="Extra args for tar (override defaults via dedup_args)"),
     ConfigOption("archive_gzip_extra_args", "ARCHIVE_GZIP_EXTRA_ARGS",
-                 type="list", default=",".join(_GZIP_DEFAULT_ARGS),
+                 type="list", default="",
                  transform=_build_gzip_args,
                  help="Extra args for gzip (override defaults via dedup_args)"),
 
