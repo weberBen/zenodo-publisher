@@ -38,6 +38,7 @@ def run_archive(
             archive_format=archive_format,
             tar_args=tar_args,
             gzip_args=gzip_args,
+            debug=debug,
         )
     except KeyboardInterrupt:
         output.info("\nExited.")
@@ -118,7 +119,7 @@ def _step_tar(
         env=env,
     )
     zip_path.unlink()
-    
+
     result.file_path = tar_path
     result.format = archive_format
     
@@ -159,12 +160,13 @@ def _run_archive(
     archive_format: str = "zip",
     tar_args: list[str] | None = None,
     gzip_args: list[str] | None = None,
+    debug: bool = False,
 ) -> None:
     """Main archive pipeline."""
     if config:
         setup_pipeline(config.project_name, config.debug, config.project_root)
     else:
-        setup_pipeline(project_name)
+        setup_pipeline(project_name, debug=debug)
 
     # Build algo lists
     base = ['md5', 'sha256']

@@ -95,3 +95,8 @@ def fatal(msg: str):
 def debug(msg: str):
     """Debug (hidden when debug=False): '  [debug] value=42'"""
     logger.debug(f"  [debug] {msg}")
+
+
+def cmd(args: list[str]):
+    """Log a subprocess command (debug only): '  $ git status'"""
+    logger.debug(f"  $ {' '.join(args)}")

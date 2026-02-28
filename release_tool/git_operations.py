@@ -1,8 +1,7 @@
 """Git operations and GitHub release management for the release tool."""
 
-import subprocess
 import json
-import random
+import subprocess
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +10,7 @@ import tempfile
 import shutil
 
 from . import output
+from .subprocess_utils import run as run_cmd
 
 
 @dataclass
@@ -46,12 +46,12 @@ def run_git_command(args: list[str], cwd: Path) -> str:
         GitError: If command fails
     """
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ["git"] + args,
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -146,12 +146,12 @@ def run_gh_command(args: list[str], cwd: Path) -> str:
         GitHubError: If command fails
     """
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ["gh"] + args,
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -548,18 +548,14 @@ def pack_tar(
 
     # 1. Always produce the .tar first
     tar_path = output_path if not compress_gz else output_path.with_suffix("")
-    subprocess.run(
-        ["tar"] + (tar_args or []) + ["-cf", str(tar_path), "-C", str(parent), dirname],
-        check=True, env=env,
-    )
+    tar_cmd = ["tar"] + (tar_args or []) + ["-cf", str(tar_path), "-C", str(parent), dirname]
+    run_cmd(tar_cmd, check=True, env=env)
 
     # 2. Compress with gzip if tar.gz requested
     #    gzip replaces file.tar with file.tar.gz automatically
     if compress_gz:
-        subprocess.run(
-            ["gzip"] + (gzip_args or []) + [str(tar_path)],
-            check=True, env=env,
-        )
+        run_cmd(["gzip"] + (gzip_args or []) + [str(tar_path)], check=True, env=env)
+
 
 
 def get_release_asset_digest(
