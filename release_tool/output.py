@@ -26,10 +26,19 @@ def setup(project_name: str = "", debug: bool = False):
     global _label
     _label = f"({RED_UNDERLINE}{project_name}{RESET})" if project_name else ""
 
+    level = logging.DEBUG if debug else logging.INFO
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    logger.setLevel(level)
+
+    # python-gnupg uses a logger named "gnupg" internally to log gpg command
+    # lines and status messages (see https://gnupg.readthedocs.io/en/stable/).
+    # By attaching our handler, these messages appear in --debug output without
+    # any explicit logging calls in gpg_operations.py.
+    gnupg_logger = logging.getLogger("gnupg")
+    gnupg_logger.addHandler(handler)
+    gnupg_logger.setLevel(level)
 
 
 # --- Step level (pipeline, with project label) ---

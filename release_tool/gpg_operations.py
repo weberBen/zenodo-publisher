@@ -29,6 +29,11 @@ def _read_gpg_conf_default_key() -> str | None:
 
 def _get_gpg_instance() -> gnupg.GPG:
     """Create a python-gnupg GPG instance."""
+    
+    # python-gnupg uses a logger named "gnupg" internally to log gpg command
+    # lines and status messages (see https://gnupg.readthedocs.io/en/stable/).
+    # By attaching our handler previously defined, these messages appear in --debug output without
+    # any explicit logging calls in gpg_operations.py.
     return gnupg.GPG()
 
 
