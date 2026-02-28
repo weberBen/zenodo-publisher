@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build argparse parser with required subcommands."""
     parser = argparse.ArgumentParser(
         prog="zp",
+        usage="%(prog)s [-h] [--work-dir WORK_DIR] <command> ...",
         description="Release tool for Zenodo project",
     )
 
@@ -83,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(
-        dest="command", title="commands", metavar="<command>")
+        dest="command", title="commands", metavar="")
 
     # --- zp release --------------------------------------------------------
     release_p = subparsers.add_parser(
