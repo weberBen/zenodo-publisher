@@ -1,9 +1,10 @@
+import os
 import shutil
 import hashlib
 import tempfile
 from pathlib import Path
 
-from .git_operations import archive_zip_project, extract_zip, compute_tree_hash
+from .git_operations import archive_zip_project, extract_zip, compute_tree_hash, pack_tar
 from .config_transform_common import TREE_ALGORITHMS
 from . import output
 
@@ -67,19 +68,72 @@ def compute_file_hash(file_path: Path, algorithm: str) -> str:
     return h.hexdigest()
 
 
+def process_project_archive(zip_path, filename, tree_algos=None, archive_format="zip",
+                            tar_args=None, gzip_args=None):
+    """Extract zip once for tree hashes and/or TAR conversion.
+
+    Returns (final_path, final_format, tree_hashes) where tree_hashes is {algo: hash}.
+    """
+    tree_algos = tree_algos or []
+    need_tar = archive_format in ("tar", "tar.gz")
+    tree_hashes = {}
+
+    if not tree_algos and not need_tar:
+        return zip_path, "zip", tree_hashes
+
+    with tempfile.TemporaryDirectory() as tmp:
+        content_dir = extract_zip(zip_path, Path(tmp))
+
+        for algo in tree_algos:
+            tree_hashes[algo] = compute_tree_hash(content_dir, TREE_ALGORITHMS[algo])
+
+        if need_tar:
+            compress_gz = archive_format == "tar.gz"
+            ext = "tar.gz" if compress_gz else "tar"
+            tar_path = zip_path.parent / f"{filename}.{ext}"
+            env = {**os.environ, "LC_ALL": "C", "TZ": "UTC", "SOURCE_DATE_EPOCH": "0"}
+            pack_tar(content_dir, tar_path, compress_gz=compress_gz,
+                     tar_args=tar_args, gzip_args=gzip_args, env=env)
+            zip_path.unlink()
+            return tar_path, archive_format, tree_hashes
+
+    return zip_path, "zip", tree_hashes
+
+
+def _compute_hashes(results, algorithms=None):
+    """Compute all required hashes for each archived entry.
+
+    Always computes md5 and sha256. Adds any extra algorithms from config.
+    For tree algorithms on project entries, extracts the zip and uses git tree hash.
+    For tree algorithms on non-project entries, falls back to the corresponding hashlib algo.
+    """
+    all_algos = {"md5", "sha256"} | set(algorithms or [])
+    tree_algos = {a for a in all_algos if a in TREE_ALGORITHMS}
+    file_algos = all_algos - tree_algos
+
+    for entry in results:
+        for algo in file_algos:
+            entry[algo] = compute_file_hash(entry["file_path"], algo)
+
+    if tree_algos:
+        for entry in results:
+            if entry["type"] == "project":
+                # tree hashes must be pre-computed by caller (single extraction)
+                for algo in tree_algos:
+                    if algo not in entry:
+                        raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
+            else:
+                for algo in tree_algos:
+                    entry[algo] = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algo])
+
+
 def _compute_identifiers(config, results) -> list | None:
-    """Compute identifier hashes from selected archived files for each configured algorithm.
+    """Build identifier dicts from pre-computed hashes.
 
     For each algorithm, if multiple files match, their hashes are sorted and concatenated,
     then hashed again to produce a single deterministic value.
 
-    Tree algorithms (tree, tree256) are handled as a special case:
-    - Pre-computed tree hashes are expected in each entry dict.
-    - If a "project" entry is missing its tree hash, a ValueError is raised
-      (it should have been pre-computed in archive()).
-    - For non-project entries (e.g. PDF), falls back to sha1/sha256 file hash.
-
-    Returns a list of identifier dicts, one per algorithm, or None if no files match.
+    All hashes must already be present in each entry dict (computed by _compute_hashes).
     """
     id_types = set(config.zenodo_identifier_types)
 
@@ -93,19 +147,7 @@ def _compute_identifiers(config, results) -> list | None:
 
     identifiers = []
     for algorithm in config.zenodo_identifier_hash_algorithms:
-        file_hashes = []
-        for entry in matching_entries:
-            h = entry.get(algorithm)
-            if h is None:
-                if algorithm in TREE_ALGORITHMS:
-                    if entry["type"] == "project":
-                        raise ValueError(
-                            f"Tree hash '{algorithm}' not pre-computed for project entry."
-                        )
-                    h = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algorithm])
-                else:
-                    h = compute_file_hash(entry["file_path"], algorithm)
-            file_hashes.append(h)
+        file_hashes = [entry[algorithm] for entry in matching_entries]
 
         if len(file_hashes) == 1:
             identifier_hash = file_hashes[0]
@@ -143,8 +185,6 @@ def archive(config, tag_name: str) -> tuple[list, list | None]:
         is_preview = (config.main_file_extension == extension)
         results.append({
             "file_path": file_path,
-            "md5": compute_md5(file_path),
-            "sha256": compute_sha256(file_path),
             "is_preview": is_preview,
             "filename": filename,
             "extension": extension,
@@ -166,8 +206,6 @@ def archive(config, tag_name: str) -> tuple[list, list | None]:
         is_preview = (config.main_file_extension == result.format)
         entry = {
             "file_path": file_path,
-            "md5": compute_md5(file_path),
-            "sha256": compute_sha256(file_path),
             "is_preview": is_preview,
             "filename": result.archive_name,
             "extension": result.format,
@@ -178,8 +216,35 @@ def archive(config, tag_name: str) -> tuple[list, list | None]:
 
         results.append(entry)
 
+    identifiers = _postprocess(config, results)
+
+    return results, identifiers
+
+
+def _postprocess(config, results):
+    """Process project archive (tree hashes, TAR), compute all hashes, build identifiers."""
+    hash_algos = config.zenodo_identifier_hash_algorithms if (
+        config.zenodo_identifier_hash and config.zenodo_identifier_types
+    ) else []
+
+    tree_algos = [a for a in hash_algos if a in TREE_ALGORITHMS]
+    project_entry = next((e for e in results if e["type"] == "project"), None)
+
+    if project_entry:
+        final_path, final_format, tree_hashes = process_project_archive(
+            project_entry["file_path"], project_entry["filename"],
+            tree_algos=tree_algos, archive_format=config.archive_format,
+            tar_args=config.archive_tar_extra_args,
+            gzip_args=config.archive_gzip_extra_args,
+        )
+        project_entry["file_path"] = final_path
+        project_entry["extension"] = final_format
+        project_entry.update(tree_hashes)
+
+    _compute_hashes(results, hash_algos)
+
     identifiers = None
     if config.zenodo_identifier_hash and config.zenodo_identifier_types:
         identifiers = _compute_identifiers(config, results)
 
-    return results, identifiers
+    return identifiers

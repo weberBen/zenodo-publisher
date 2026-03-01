@@ -1,16 +1,13 @@
 """Standalone archive pipeline — create a git archive and print checksums."""
 
-import os
-import tempfile
 from pathlib import Path
 from typing import Optional
 
 from ..git_operations import (
     ArchiveResult,
     archive_zip_project, archive_zip_remote_project, get_remote_url, GitError,
-    extract_zip, compute_tree_hash, pack_tar,
 )
-from ..archive_operation import compute_file_hash
+from ..archive_operation import compute_file_hash, process_project_archive
 from ..config_transform_common import TREE_ALGORITHMS
 from .. import output
 from ._common import setup_pipeline
@@ -66,47 +63,6 @@ def _step_archive(
         raise
 
 
-
-def _step_tree(
-    content_dir: Path,
-    tree_algos: dict[str, str],
-) -> dict[str, str]:
-    """Compute tree hashes from extracted content. Returns {algo_name: hash}."""
-    return {
-        algo_name: compute_tree_hash(content_dir, obj_fmt)
-        for algo_name, obj_fmt in tree_algos.items()
-    }
-
-
-def _step_tar(
-    result: ArchiveResult,
-    content_dir: Path,
-    archive_format: str,
-    tar_args: list[str] | None = None,
-    gzip_args: list[str] | None = None,
-) -> ArchiveResult:
-    """Convert to TAR/TAR.GZ from extracted content. Updates result in place."""
-    zip_path = result.file_path
-    compress_gz = archive_format == "tar.gz"
-    ext = "tar.gz" if compress_gz else "tar"
-    tar_path = zip_path.parent / f"{result.archive_name}.{ext}"
-
-    env = {**os.environ, "LC_ALL": "C", "TZ": "UTC", "SOURCE_DATE_EPOCH": "0"}
-    pack_tar(
-        content_dir, tar_path,
-        compress_gz=compress_gz,
-        tar_args=tar_args,
-        gzip_args=gzip_args,
-        env=env,
-    )
-    zip_path.unlink()
-
-    result.file_path = tar_path
-    result.format = archive_format
-
-    return result
-
-
 def _step_display(
     result: ArchiveResult,
     all_algos: list[str],
@@ -143,25 +99,22 @@ def _run_archive(config) -> None:
     # Build algo lists
     base = ['md5', 'sha256']
     all_algos = base + [a for a in hash_algos if a not in base]
-    tree_algos = {a: TREE_ALGORITHMS[a] for a in all_algos if a in TREE_ALGORITHMS}
-    need_extract = bool(tree_algos) or config.archive_format != "zip"
+    tree_algos = [a for a in all_algos if a in TREE_ALGORITHMS]
 
     # archive → zip
     result = _step_archive(
         config.project_root, config.tag, config.project_name,
         config.output_dir, config.remote, config.no_cache)
 
-    # extract → tree → tar (single extraction)
-    tree_hashes = {}
-    if need_extract:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            content_dir = extract_zip(result.file_path, Path(tmp_dir))
-            if tree_algos:
-                tree_hashes = _step_tree(content_dir, tree_algos)
-            if config.archive_format in ("tar", "tar.gz"):
-                result = _step_tar(result, content_dir, config.archive_format,
-                                   tar_args=config.archive_tar_extra_args,
-                                   gzip_args=config.archive_gzip_extra_args)
+    # extract → tree → tar (single extraction via shared function)
+    final_path, final_format, tree_hashes = process_project_archive(
+        result.file_path, result.archive_name,
+        tree_algos=tree_algos, archive_format=config.archive_format,
+        tar_args=config.archive_tar_extra_args,
+        gzip_args=config.archive_gzip_extra_args,
+    )
+    result.file_path = final_path
+    result.format = final_format
 
     # display
     _step_display(result, all_algos, tree_hashes)
