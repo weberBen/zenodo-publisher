@@ -145,7 +145,7 @@ def _compute_identifiers(config, results) -> list | None:
         return None
 
     identifiers = []
-    for algorithm in config.zenodo_identifier_hash_algorithms:
+    for algorithm in config.hash_algorithms:
         file_hashes = [entry["hashes"][algorithm]["value"] for entry in matching_entries]
 
         if len(file_hashes) == 1:
@@ -222,7 +222,7 @@ def archive(config, tag_name: str) -> tuple[list, list | None]:
 
 def _postprocess(config, results):
     """Process project archive (tree hashes, TAR), compute all hashes, build identifiers."""
-    hash_algos = config.zenodo_identifier_hash_algorithms if (
+    hash_algos = config.hash_algorithms if (
         config.zenodo_identifier_hash and config.zenodo_identifier_types
     ) else []
 

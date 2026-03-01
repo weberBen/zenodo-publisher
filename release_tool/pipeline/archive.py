@@ -90,7 +90,7 @@ def _run_archive(config) -> None:
     setup_pipeline(config.project_name, config.debug, config.project_root)
 
     # Resolve hash algos: config + CLI --hash
-    hash_algos = list(config.zenodo_identifier_hash_algorithms or [])
+    hash_algos = list(config.hash_algorithms or [])
     cli_hash = getattr(config, "hash", None)
     if cli_hash:
         extra = [h.strip() for h in cli_hash.split(",") if h.strip()]

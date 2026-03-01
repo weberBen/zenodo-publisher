@@ -148,7 +148,7 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
             overwrite=config.gpg_overwrite,
             extra_args=config.gpg_extra_args,
         )
-        compute_hashes(signatures)
+        compute_hashes(signatures, config.hash_algorithms)
         archived_files.extend(signatures)
 
     output.step_ok("Archived files:")

@@ -156,7 +156,7 @@ zp archive --tag v1.0.0 --project-name MyProject --remote https://github.com/use
 
 > **Important — project name and checksums:** The project name is embedded in the archive prefix (`ProjectName-tag/`). Changing the project name changes the archive content and therefore its MD5/SHA256 checksums. If you want to compare a locally-created archive with the one published on Zenodo, you **must** use the exact same project name that was configured when the archive was published to Zenodo.
 
-If run inside a ZP project that has `ZENODO_IDENTIFIER_HASH_ALGORITHMS` configured in `.zenodo.env`, the command also prints the identifier hashes for each configured algorithm.
+If run inside a ZP project that has `HASH_ALGORITHMS` configured in `.zenodo.env`, the command also prints the identifier hashes for each configured algorithm.
 
 ## Project Setup
 
@@ -187,7 +187,7 @@ If run inside a ZP project that has `ZENODO_IDENTIFIER_HASH_ALGORITHMS` configur
 | `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
 | `ZENODO_IDENTIFIER_HASH` | No | `False` | Add hash identifiers in Zenodo metadata (alternate identifiers) |
 | `ZENODO_IDENTIFIER_TYPES` | No | - | File types to include in identifier hash (e.g. `pdf`, `project`, `pdf,project`). If multiple, hashes are sorted, concatenated and re-hashed |
-| `ZENODO_IDENTIFIER_HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`). Any `hashlib` algorithm |
+| `HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`). Any `hashlib` algorithm |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
 | `ZENODO_FORCE_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
@@ -399,7 +399,7 @@ zp archive --tag v1.0.0 --hash tree,tree256
 # In .zenodo.env for release pipeline identifiers:
 ZENODO_IDENTIFIER_HASH=True
 ZENODO_IDENTIFIER_TYPES=project
-ZENODO_IDENTIFIER_HASH_ALGORITHMS=tree,tree256,sha256
+HASH_ALGORITHMS=tree,tree256,sha256
 ```
 
 **Why tree hash is the most robust identifier for reproducibility:** It depends only on the actual file content, not on the archive format, compression settings, or any external tooling. Anyone with the same source files can compute the same tree hash, making it ideal for cross-platform verification and long-term content identification.

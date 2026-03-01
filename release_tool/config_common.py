@@ -42,10 +42,10 @@ COMMON_OPTIONS: list[ConfigOption] = [
                  type="list", default="",
                  transform=_build_gzip_args,
                  help="Extra args for gzip (override defaults via dedup_args)"),
-    ConfigOption("zenodo_identifier_hash_algorithms",
-                 "ZENODO_IDENTIFIER_HASH_ALGORITHMS",
+    ConfigOption("hash_algorithms",
+                 "HASH_ALGORITHMS",
                  type="list", default="sha256",
-                 help="Hash algorithms for identifiers (e.g. sha256,md5,sha512). Uses hashlib"),
+                 help="Hash algorithms (e.g. sha256,md5,tree). Uses hashlib or git tree hash"),
 ]
 
 

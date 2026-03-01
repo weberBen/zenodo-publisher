@@ -59,7 +59,7 @@ class ArchiveConfig(CommonConfig):
     _required: list[str] = ["tag"]
     _cli_aliases: dict[str, str] = {
         "archive_format": "format",
-        "zenodo_identifier_hash_algorithms": "hash-algo",
+        "hash_algorithms": "hash-algo",
     }
 
     def __init__(self, project_root, env_vars, cli_overrides=None):
