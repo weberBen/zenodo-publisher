@@ -149,6 +149,9 @@ zp archive --tag v1.0.0 --project-name MyProject --remote https://github.com/use
 | `--output-dir` | No | Temporary directory | Output directory for the archive |
 | `--remote` | No | — | Git remote URL — performs a shallow clone instead of using the local repo |
 | `--no-cache` | No | `False` | Fetch the tag from the remote origin (avoids touching the local repo) |
+| `--format` | No | `zip` | Archive format: `zip`, `tar`, or `tar.gz` |
+| `--hash-algo` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`) |
+| `--hash` | No | — | Additional hash algorithms to display (e.g. `sha512,tree,tree256`) |
 | `--work-dir` | No | Current directory | Working directory |
 
 > **Important — project name and checksums:** The project name is embedded in the archive prefix (`ProjectName-tag/`). Changing the project name changes the archive content and therefore its MD5/SHA256 checksums. If you want to compare a locally-created archive with the one published on Zenodo, you **must** use the exact same project name that was configured when the archive was published to Zenodo.
@@ -174,6 +177,9 @@ If run inside a ZP project that has `ZENODO_IDENTIFIER_HASH_ALGORITHMS` configur
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
 | `ZENODO_API_URL` | No | `https://zenodo.org/api` | Use `https://sandbox.zenodo.org/api` for testing |
+| `ARCHIVE_FORMAT` | No | `zip` | Archive format: `zip`, `tar`, or `tar.gz`. Use `tar`/`tar.gz` for [reproducible archives](#archive-reproducibility) |
+| `ARCHIVE_TAR_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for tar, comma-separated (override [default reproducible args](#archive-reproducibility)) |
+| `ARCHIVE_GZIP_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for gzip, comma-separated (override default `--no-name,--best`) |
 | `ARCHIVE_TYPES` | No | `project` (zip file) | What to archive: `<extension>`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
@@ -276,8 +282,10 @@ This tool use `git fetch` (not in dry run mode). Thus if it's a problem to fetch
 Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.github.com/)). This automatically creates and pushes the tag.
 
 ### 5. Archive & Upload
-- Creates file archive (and optionally project ZIP)
-- The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
+- Creates file archive (and optionally project archive)
+- The project archive uses `git archive`, so untracked local files are excluded
+- Archive format is controlled by `ARCHIVE_FORMAT`: `zip` (default), `tar`, or `tar.gz`
+- TAR/TAR.GZ archives are built with [reproducible parameters](#archive-reproducibility) for deterministic output
 
 ### 5b. GPG Signing (optional)
 - If `GPG_SIGN=True`, signs each archived file with a detached GPG signature
@@ -337,6 +345,68 @@ Example `.zenodo.json`:
 See [`.zenodo.json.example`](./.zenodo.json.example) for a more complete template.
 
 > **Note:** This is not the legacy `.zenodo.json` format used by Zenodo's GitHub integration. It uses the InvenioRDM metadata structure directly (e.g. `person_or_org` instead of `name`, `rights` instead of `license`, `resource_type.id` instead of `upload_type`).
+
+### Archive reproducibility
+
+By default, archives are created in **ZIP** format via `git archive`. However, ZIP is **not reproducible**: internal metadata (timestamps, OS flags, compression implementation details) vary between runs, producing different checksums for identical content.
+
+For **reproducible archives** — archives that can be reconstructed bit-for-bit by anyone from the same source — use `tar` or `tar.gz` format:
+
+```bash
+ARCHIVE_FORMAT=tar.gz   # in .zenodo.env
+# or
+zp archive --tag v1.0.0 --format tar.gz
+```
+
+**How it works:** The pipeline first creates a ZIP via `git archive` (the only format git natively supports for prefix-based archives), then extracts it and repacks as TAR using deterministic parameters.
+
+Default TAR args:
+```python
+TAR_DEFAULT_ARGS = [
+    "--sort=name", "--format=posix",
+    "--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime",
+    "--mtime=1970-01-01 00:00:00Z",
+    "--numeric-owner", "--owner=0", "--group=0",
+    "--mode=go+u,go-w",
+]
+```
+
+Default gzip args (for `tar.gz`):
+```python
+GZIP_DEFAULT_ARGS = ["--no-name", "--best"]
+```
+
+These defaults follow the [Reproducible Builds](https://reproducible-builds.org/docs/archives/) guidelines and [GNU tar reproducibility recommendations](https://www.gnu.org/software/tar/manual/html_section/Reproducibility.html). They strip all non-deterministic metadata (timestamps, owner info, ordering) so that the same content always produces the same archive.
+
+You can override these defaults with `ARCHIVE_TAR_EXTRA_ARGS` and `ARCHIVE_GZIP_EXTRA_ARGS`, but a warning will be emitted as this may break reproducibility.
+
+> Use `--debug` to see every command executed with its arguments, so you can verify exactly which `tar`/`gzip` invocations are run.
+
+### Content identification with tree hash
+
+Even with reproducible TAR archives, hashing the archive file itself ties the identifier to the archive format and parameters. A more robust approach is to **hash the content independently of the archive** using git tree hashes.
+
+A **git tree hash** is a hash of the file tree (content + permissions + file names) that **excludes** commits, tags, and all git metadata. It is computed by initialising a temporary git repository, staging all files, and running `git write-tree`. This produces a deterministic identifier for the content regardless of how it was archived or compressed.
+
+Available tree hash algorithms:
+- `tree` — SHA-1 (git's default object format)
+- `tree256` — SHA-256 (via `git init --object-format=sha256`)
+
+```bash
+# In zp archive:
+zp archive --tag v1.0.0 --hash tree,tree256
+
+# In .zenodo.env for release pipeline identifiers:
+ZENODO_IDENTIFIER_HASH=True
+ZENODO_IDENTIFIER_TYPES=project
+ZENODO_IDENTIFIER_HASH_ALGORITHMS=tree,tree256,sha256
+```
+
+**Why tree hash is the most robust identifier for reproducibility:** It depends only on the actual file content, not on the archive format, compression settings, or any external tooling. Anyone with the same source files can compute the same tree hash, making it ideal for cross-platform verification and long-term content identification.
+
+**Symlink caveat:** Git stores symlinks as-is on Linux/macOS, but on Windows they may be resolved to regular files depending on git and OS configuration. If your project contains symlinks and you need cross-platform reproducibility, be aware that tree hashes may differ between platforms.
+
+**Non-archive files (e.g. PDF):** Files that are not git archives (like compiled PDFs) cannot have a tree hash. For these files, the tool falls back to the corresponding `hashlib` algorithm: `sha1` for `tree`, `sha256` for `tree256`. This allows mixed-type identifiers (e.g. `ZENODO_IDENTIFIER_TYPES=pdf,project`) where each file uses the most appropriate hashing method.
 
 ## Limitations
 
