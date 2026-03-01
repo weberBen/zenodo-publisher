@@ -156,7 +156,7 @@ class ZenodoPublisher:
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {(e["md5"], e["is_signature"]) for e in archived_files}
+        new_md5s = {(e["hashes"]["md5"]["value"], e["is_signature"]) for e in archived_files}
 
         if self.config.gpg_sign:
             # Exclude signature files from comparison: GPG signatures contain

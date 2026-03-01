@@ -145,22 +145,21 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
     return sig_path
 
 
-def sign_files(archived_files: list, compute_md5_fn, compute_sha256_fn, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
+def sign_files(archived_files: list, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
     """
     Sign all archived files with GPG and return signature entries.
 
     Signature files follow the same persist/temp rules as the files they sign.
+    Returned entries have no "hashes" — the caller should use compute_hashes().
 
     Args:
-        archived_files: List of dicts with file_path, md5, sha256, is_preview, filename, persist, is_signature
-        compute_md5_fn: Function to compute MD5 checksum of a file
-        compute_sha256_fn: Function to compute SHA256 checksum of a file
+        archived_files: List of entry dicts with file_path, filename, persist, etc.
         gpg_uid: UID of the GPG key to use, or None to use system default
         overwrite: If True, overwrite existing signature files without prompting
         extra_args: Arguments passed to gpg (--armor included by default)
 
     Returns:
-        List of signature dicts
+        List of signature entry dicts (without hashes)
     """
     extra_args = extra_args or []
     armor = "--armor" in extra_args
@@ -184,17 +183,14 @@ def sign_files(archived_files: list, compute_md5_fn, compute_sha256_fn, gpg_uid:
         # since each file are either in archived directory or
         # tmp directory to preserve filename structure of files.
         sig_path = gpg_sign_file(entry["file_path"], gpg_uid, overwrite=overwrite, extra_args=extra_args)
-        sig_md5 = compute_md5_fn(sig_path)
-        sig_sha256 = compute_sha256_fn(sig_path)
         sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
         # Carry over the persist flag from the signed file
         signatures.append({
             "file_path": sig_path,
-            "md5": sig_md5,
-            "sha256": sig_sha256,
             "is_preview": False,
             "filename": sig_filename,
             "persist": entry["persist"],
             "is_signature": True,
+            "type": "signature",
         })
     return signatures

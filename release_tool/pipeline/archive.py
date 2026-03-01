@@ -77,7 +77,7 @@ def _step_display(
         if algo in tree_hashes:
             h = tree_hashes[algo]
         else:
-            h = compute_file_hash(result.file_path, algo)
+            h = compute_file_hash(result.file_path, algo)["value"]
         output.info(f"{algo:<{pad}}:  {h}")
 
 

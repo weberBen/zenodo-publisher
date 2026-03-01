@@ -14,7 +14,7 @@ from ..git_operations import (
     upload_release_asset,
 )
 from ..zenodo_operations import ZenodoPublisher, ZenodoError
-from ..archive_operation import archive, compute_md5, compute_sha256
+from ..archive_operation import archive, compute_file_hash, compute_hashes
 from ..gpg_operations import sign_files
 from .. import output
 from ._common import setup_pipeline
@@ -143,18 +143,19 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
 
     if config.gpg_sign:
         signatures = sign_files(
-            archived_files, compute_md5, compute_sha256,
+            archived_files,
             gpg_uid=config.gpg_uid,
             overwrite=config.gpg_overwrite,
             extra_args=config.gpg_extra_args,
         )
+        compute_hashes(signatures)
         archived_files.extend(signatures)
 
     output.step_ok("Archived files:")
     for entry in archived_files:
         output.detail(f"• {entry['file_path'].name}")
-        output.detail(f"  MD5: {entry['md5']}")
-        output.detail(f"  SHA256: {entry['sha256']}")
+        for algo, h in entry["hashes"].items():
+            output.detail(f"  {algo}: {h['value']}")
         output.detail(f"  persist: {entry['persist']}")
 
 
@@ -229,7 +230,7 @@ def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
     )
 
     # Compare with existing asset on the release
-    local_sha = f"sha256:{compute_sha256(info_path)}"
+    local_sha = compute_file_hash(info_path, "sha256")["formatted_value"]
     remote_sha = get_release_asset_digest(
         config.project_root, tag_name, info_path.name,
     )

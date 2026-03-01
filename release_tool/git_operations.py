@@ -594,7 +594,7 @@ def build_zenodo_info_json(
         "doi": doi_url,
         "record_url": record_url,
         "files": [
-            {"key": e["file_path"].name, "md5": e["md5"], "sha256": e["sha256"]}
+            {"key": e["file_path"].name, **{algo: h["value"] for algo, h in e["hashes"].items()}}
             for e in archived_files
             if not e.get("is_signature")
         ],

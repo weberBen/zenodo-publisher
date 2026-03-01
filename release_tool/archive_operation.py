@@ -50,22 +50,14 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
 
 
 
-def compute_md5(file_path: Path) -> str:
-    """Compute MD5 checksum of a file."""
-    return compute_file_hash(file_path, 'md5')
-
-
-def compute_sha256(file_path: Path) -> str:
-    """Compute SHA256 checksum of a file."""
-    return compute_file_hash(file_path, 'sha256')
-
-def compute_file_hash(file_path: Path, algorithm: str) -> str:
-    """Compute hash of a file using the given hashlib algorithm."""
+def compute_file_hash(file_path: Path, algorithm: str) -> dict:
+    """Compute hash of a file. Returns {"value": hex, "formatted_value": "algo:hex"}."""
     h = hashlib.new(algorithm)
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return h.hexdigest()
+    hex_value = h.hexdigest()
+    return {"value": hex_value, "formatted_value": f"{algorithm}:{hex_value}"}
 
 
 def process_project_archive(zip_path, filename, tree_algos=None, archive_format="zip",
@@ -100,31 +92,38 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
     return zip_path, "zip", tree_hashes
 
 
-def _compute_hashes(results, algorithms=None):
+def compute_hashes(results, algorithms=None):
     """Compute all required hashes for each archived entry.
 
     Always computes md5 and sha256. Adds any extra algorithms from config.
-    For tree algorithms on project entries, extracts the zip and uses git tree hash.
+    For tree algorithms on project entries, expects pre-computed values in entry dict.
     For tree algorithms on non-project entries, falls back to the corresponding hashlib algo.
+
+    Stores results as entry["hashes"] dict of {algo: {value, formatted_value}}.
     """
     all_algos = {"md5", "sha256"} | set(algorithms or [])
     tree_algos = {a for a in all_algos if a in TREE_ALGORITHMS}
     file_algos = all_algos - tree_algos
 
     for entry in results:
-        for algo in file_algos:
-            entry[algo] = compute_file_hash(entry["file_path"], algo)
+        hashes = {}
 
-    if tree_algos:
-        for entry in results:
+        for algo in file_algos:
+            hashes[algo] = compute_file_hash(entry["file_path"], algo)
+
+        for algo in tree_algos:
             if entry["type"] == "project":
                 # tree hashes must be pre-computed by caller (single extraction)
-                for algo in tree_algos:
-                    if algo not in entry:
-                        raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
+                if algo not in entry:
+                    raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
+                value = entry.pop(algo)
+                hashes[algo] = {"value": value, "formatted_value": f"{algo}:{value}"}
             else:
-                for algo in tree_algos:
-                    entry[algo] = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algo])
+                # hashlib algo (e.g. sha1) but label with tree algo name
+                raw = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algo])
+                hashes[algo] = {"value": raw["value"], "formatted_value": f"{algo}:{raw['value']}"}
+
+        entry["hashes"] = hashes
 
 
 def _compute_identifiers(config, results) -> list | None:
@@ -147,7 +146,7 @@ def _compute_identifiers(config, results) -> list | None:
 
     identifiers = []
     for algorithm in config.zenodo_identifier_hash_algorithms:
-        file_hashes = [entry[algorithm] for entry in matching_entries]
+        file_hashes = [entry["hashes"][algorithm]["value"] for entry in matching_entries]
 
         if len(file_hashes) == 1:
             identifier_hash = file_hashes[0]
@@ -241,7 +240,7 @@ def _postprocess(config, results):
         project_entry["extension"] = final_format
         project_entry.update(tree_hashes)
 
-    _compute_hashes(results, hash_algos)
+    compute_hashes(results, hash_algos)
 
     identifiers = None
     if config.zenodo_identifier_hash and config.zenodo_identifier_types:
