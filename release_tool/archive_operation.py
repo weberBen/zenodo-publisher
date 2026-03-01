@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from .git_operations import archive_zip_project, extract_zip, compute_tree_hash
-from .config_schema import TREE_ALGORITHMS
+from .config_transform_common import TREE_ALGORITHMS
 from . import output
 
 

@@ -3,10 +3,10 @@
 import argparse
 import os
 import sys
-from pathlib import Path
 
-from .config import Config, find_project_root, load_env, NotInitializedError
-from .config_schema import OPTIONS, COMMON_FLAG_NAMES, ARCHIVE_CLI_OPTIONS
+from .config_env import ConfigError
+from .config_release import ReleaseConfig
+from .config_archive import ArchiveConfig
 
 
 # ---------------------------------------------------------------------------
@@ -14,59 +14,69 @@ from .config_schema import OPTIONS, COMMON_FLAG_NAMES, ARCHIVE_CLI_OPTIONS
 # ---------------------------------------------------------------------------
 
 def _add_flag(parser, flag, opt_type, default, help_text, *,
-              required=False, metavar=None):
+              required=False, dest=None, choices=None):
     """Add a single flag to *parser*."""
+    kwargs = {}
+    if dest:
+        # short name mapping to long name arg
+        kwargs["dest"] = dest
+
     if opt_type == "store_true":
         parser.add_argument(
-            flag, action="store_true", default=default, help=help_text)
+            flag, action="store_true", default=default, help=help_text,
+            **kwargs)
     elif opt_type == "bool":
         parser.add_argument(
             flag, action=argparse.BooleanOptionalAction,
             default=None, help=help_text,
-        )
+            **kwargs)
     else:
-        kwargs = {"type": str, "default": default, "help": help_text}
+        kw = {"type": str, "default": default, "help": help_text, **kwargs}
         if required:
-            kwargs["required"] = True
-        if metavar:
-            kwargs["metavar"] = metavar
-        parser.add_argument(flag, **kwargs)
+            kw["required"] = True
+        if choices:
+            kw["choices"] = choices
+        parser.add_argument(flag, **kw)
 
 
-def _add_common_flags(parser: argparse.ArgumentParser) -> None:
-    """Add flags shared by all subcommands (--work-dir, --debug/--no-debug)."""
-    parser.add_argument(
-        "--work-dir", type=str, default=None,
-        help="Working directory (default: current directory)",
-    )
-    for opt in OPTIONS:
-        if opt.name not in COMMON_FLAG_NAMES or not opt.cli:
-            continue
-        flag = f"--{opt.name.replace('_', '-')}"
-        _add_flag(parser, flag, opt.type, None, opt.help)
+def _add_options(parser: argparse.ArgumentParser, config_cls) -> None:
+    """Add all ConfigOptions from a config class to the parser.
 
+    Uses config_cls._cli_aliases for short names,
+    config_cls._required to mark flags as required.
+    """
+    aliases = config_cls._cli_aliases
+    required = config_cls._required
 
-def _add_release_flags(parser: argparse.ArgumentParser) -> None:
-    """Add all schema-driven release flags to *parser*."""
-    for opt in OPTIONS:
-        if not opt.cli or opt.name in COMMON_FLAG_NAMES:
+    for opt in config_cls._options:
+        if not opt.cli:
             continue
 
-        flag = f"--{opt.name.replace('_', '-')}"
+        if opt.name in aliases:
+            flag = f"--{aliases[opt.name]}"
+            dest = opt.name
+        else:
+            flag = f"--{opt.name.replace('_', '-')}"
+            dest = None
 
         help_text = opt.help
         if opt.default not in (None, "", [], True, False):
             help_text += f" (default: {opt.default})"
 
-        _add_flag(parser, flag, opt.type, None, help_text)
+        _add_flag(parser, flag, opt.type, None, help_text,
+                  required=(opt.name in required), dest=dest,
+                  choices=opt.choices)
 
 
-def _add_archive_flags(parser: argparse.ArgumentParser) -> None:
-    """Add schema-driven archive flags to *parser*."""
-    for opt in ARCHIVE_CLI_OPTIONS:
-        flag = f"--{opt.name.replace('_', '-')}"
-        _add_flag(parser, flag, opt.type, opt.default, opt.help,
-                  required=opt.required, metavar=opt.metavar)
+def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
+    """Add --work-dir + all config options to a subparser."""
+    # --work-dir is not a ConfigOption: it's consumed before config construction
+    # (chdir must happen before find_project_root).
+    parser.add_argument(
+        "--work-dir", type=str, default=None,
+        help="Working directory (default: current directory)",
+    )
+    _add_options(parser, config_cls)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,8 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     # --- zp release --------------------------------------------------------
     release_p = subparsers.add_parser(
         "release", help="Run the full release pipeline")
-    _add_common_flags(release_p)
-    _add_release_flags(release_p)
+    _setup_subparser(release_p, ReleaseConfig)
     release_p.set_defaults(func=cmd_release)
 
     # --- zp archive --------------------------------------------------------
@@ -97,8 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Zenodo, use the exact same project name as configured on Zenodo."
         ),
     )
-    _add_common_flags(archive_p)
-    _add_archive_flags(archive_p)
+    _setup_subparser(archive_p, ArchiveConfig)
     archive_p.set_defaults(func=cmd_archive)
 
     return parser
@@ -113,136 +121,47 @@ def setup_work_dir(args):
         os.chdir(args.work_dir)
 
 
-def setup_env(args, cli_override=True):
-    project_root = None
-    errors = []
-
-    try:
-        project_root = find_project_root()
-    except Exception as e:
-        errors.append(str(e))
-        return (None, None), errors
-
-    try:
-        env_vars = load_env(project_root)
-    except (RuntimeError, NotInitializedError) as e:
-        errors.append(str(e))
-        return (project_root, None), errors
-
-    cli_overrides = {}
-    if cli_override:
-        for opt in OPTIONS:
-            if not opt.cli:
-                continue
-            val = getattr(args, opt.name, None)
-            if val is not None:
-                cli_overrides[opt.name] = val
-
-    if not env_vars:
-        errors.append("Invalid env file loading")
-        return (project_root, None), errors
-
-    try:
-        config = Config(project_root, env_vars, cli_overrides)
-    except Exception as e:
-        errors.append(str(e))
-        return (project_root, None), errors
-
-    return (project_root, config), errors
-
-
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
 
 def cmd_release(args):
     """Run the full release pipeline."""
-    (project_root, config), errors = setup_env(args, cli_override=True)
-    if errors:
-        print(f"\n\u274c {chr(10).join(errors)}", file=sys.stderr)
+    setup_work_dir(args)
+    try:
+        config = ReleaseConfig.from_args(args)
+    except ConfigError as e:
+        if args.debug:
+            raise
+        print(f"\n\u274c {e}", file=sys.stderr)
+        return
+
+    if not config.is_zp_project:
+        env_path = (config.project_root / ".zenodo.env") if config.project_root else ".zenodo.env"
+        print(
+            f"\n\u274c Project not initialized for Zenodo publisher.\n"
+            f"Missing: {env_path}",
+            file=sys.stderr,
+        )
         return
 
     from .pipeline import run_release
-    run_release(config, debug=config.debug)
+    run_release(config)
 
 
 def cmd_archive(args):
     """Create a git archive at a given tag and print checksums."""
-    tag_name = args.tag
-    output_dir = Path(args.output_dir) if args.output_dir else None
-    remote_url = args.remote
-    no_cache = args.no_cache
-    debug = args.debug
-
-    # --- Resolve project context ---
-    (project_root, config), errors = setup_env(args, cli_override=False)
-
-    if remote_url:
-        project_name = args.project_name
-        hash_algos = []
-    else:
-        if not project_root:
-            print(f"\n\u274c {chr(10).join(errors)}", file=sys.stderr)
-            return
-
-        project_name = args.project_name
-        if not project_name and config:
-            project_name = config.project_name
-        if not project_name:
-            project_name = project_root.name
-
-        hash_algos = list(config.zenodo_identifier_hash_algorithms or []) if config else []
-
-    if not project_name:
-        print(
-            "\n\u274c --project-name is required when using --remote outside a git repository",
-            file=sys.stderr,
-        )
+    setup_work_dir(args)
+    try:
+        config = ArchiveConfig.from_args(args)
+    except ConfigError as e:
+        if args.debug:
+            raise
+        print(f"\n\u274c {e}", file=sys.stderr)
         return
-
-    # --- Resolve archive format: CLI --format > config > default "zip" ---
-    archive_format = getattr(args, "format", None)
-    if not archive_format and config:
-        archive_format = getattr(config, "archive_format", "zip")
-    if not archive_format:
-        archive_format = "zip"
-
-    valid_formats = {"zip", "tar", "tar.gz"}
-    if archive_format not in valid_formats:
-        print(
-            f"\n\u274c Invalid format '{archive_format}'. "
-            f"Must be one of: {', '.join(sorted(valid_formats))}",
-            file=sys.stderr,
-        )
-        return
-
-    # --- Resolve --hash: merge with existing hash_algos ---
-    cli_hash = getattr(args, "hash", None)
-    if cli_hash:
-        extra = [h.strip() for h in cli_hash.split(",") if h.strip()]
-        hash_algos += [a for a in extra if a not in hash_algos]
-
-    # --- Resolve tar/gzip args: CLI > config > empty ---
-    def _resolve_args(cli_attr, config_attr):
-        cli_val = getattr(args, cli_attr, None)
-        if cli_val:
-            return [a.strip() for a in cli_val.split(",") if a.strip()]
-        if config:
-            return list(getattr(config, config_attr, None) or [])
-        return []
-
-    tar_args = _resolve_args("tar_extra_args", "archive_tar_extra_args")
-    gzip_args = _resolve_args("gzip_extra_args", "archive_gzip_extra_args")
 
     from .pipeline import run_archive
-    run_archive(
-        project_root, config, tag_name, project_name,
-        output_dir, remote_url, no_cache, hash_algos,
-        archive_format=archive_format,
-        tar_args=tar_args,
-        gzip_args=gzip_args,
-        debug=debug,
-    )
+    run_archive(config)
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +172,6 @@ def main():
     """CLI entry point: dispatch to subcommand or show help."""
     parser = build_parser()
     args = parser.parse_args()
-
-    # Handle --work-dir once, before dispatching to any subcommand.
-    setup_work_dir(args)
 
     if hasattr(args, "func"):
         args.func(args)

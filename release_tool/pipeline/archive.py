@@ -11,39 +11,19 @@ from ..git_operations import (
     extract_zip, compute_tree_hash, pack_tar,
 )
 from ..archive_operation import compute_file_hash
-from ..config_schema import TREE_ALGORITHMS
+from ..config_transform_common import TREE_ALGORITHMS
 from .. import output
 from ._common import setup_pipeline
 
 
-def run_archive(
-    project_root: Optional[Path],
-    config,
-    tag_name: str,
-    project_name: str,
-    output_dir: Optional[Path],
-    remote_url: Optional[str],
-    no_cache: bool,
-    hash_algos: list[str],
-    archive_format: str = "zip",
-    tar_args: list[str] | None = None,
-    gzip_args: list[str] | None = None,
-    debug=False,
-) -> None:
+def run_archive(config) -> None:
     """Run the archive pipeline with error handling."""
     try:
-        _run_archive(
-            project_root, config, tag_name, project_name,
-            output_dir, remote_url, no_cache, hash_algos,
-            archive_format=archive_format,
-            tar_args=tar_args,
-            gzip_args=gzip_args,
-            debug=debug,
-        )
+        _run_archive(config)
     except KeyboardInterrupt:
         output.info("\nExited.")
     except Exception as e:
-        if debug:
+        if config.debug:
             raise
         output.fatal("Error during archive:")
         output.error(str(e))
@@ -68,6 +48,7 @@ def _step_archive(
 
     if no_cache:
         origin_url = get_remote_url(project_root)
+        output.info(f"Cloning from {origin_url}")
         return archive_zip_remote_project(
             origin_url, tag_name, project_name, output_dir=output_dir)
 
@@ -109,7 +90,7 @@ def _step_tar(
     compress_gz = archive_format == "tar.gz"
     ext = "tar.gz" if compress_gz else "tar"
     tar_path = zip_path.parent / f"{result.archive_name}.{ext}"
-    
+
     env = {**os.environ, "LC_ALL": "C", "TZ": "UTC", "SOURCE_DATE_EPOCH": "0"}
     pack_tar(
         content_dir, tar_path,
@@ -122,7 +103,7 @@ def _step_tar(
 
     result.file_path = tar_path
     result.format = archive_format
-    
+
     return result
 
 
@@ -148,35 +129,27 @@ def _step_display(
 # Entry points
 # ---------------------------------------------------------------------------
 
-def _run_archive(
-    project_root: Optional[Path],
-    config,
-    tag_name: str,
-    project_name: str,
-    output_dir: Optional[Path],
-    remote_url: Optional[str],
-    no_cache: bool,
-    hash_algos: list[str],
-    archive_format: str = "zip",
-    tar_args: list[str] | None = None,
-    gzip_args: list[str] | None = None,
-    debug: bool = False,
-) -> None:
+def _run_archive(config) -> None:
     """Main archive pipeline."""
-    if config:
-        setup_pipeline(config.project_name, config.debug, config.project_root)
-    else:
-        setup_pipeline(project_name, debug=debug)
+    setup_pipeline(config.project_name, config.debug, config.project_root)
+
+    # Resolve hash algos: config + CLI --hash
+    hash_algos = list(config.zenodo_identifier_hash_algorithms or [])
+    cli_hash = getattr(config, "hash", None)
+    if cli_hash:
+        extra = [h.strip() for h in cli_hash.split(",") if h.strip()]
+        hash_algos += [a for a in extra if a not in hash_algos]
 
     # Build algo lists
     base = ['md5', 'sha256']
     all_algos = base + [a for a in hash_algos if a not in base]
     tree_algos = {a: TREE_ALGORITHMS[a] for a in all_algos if a in TREE_ALGORITHMS}
-    need_extract = bool(tree_algos) or archive_format != "zip"
+    need_extract = bool(tree_algos) or config.archive_format != "zip"
 
     # archive → zip
     result = _step_archive(
-        project_root, tag_name, project_name, output_dir, remote_url, no_cache)
+        config.project_root, config.tag, config.project_name,
+        config.output_dir, config.remote, config.no_cache)
 
     # extract → tree → tar (single extraction)
     tree_hashes = {}
@@ -185,10 +158,10 @@ def _run_archive(
             content_dir = extract_zip(result.file_path, Path(tmp_dir))
             if tree_algos:
                 tree_hashes = _step_tree(content_dir, tree_algos)
-            if archive_format in ("tar", "tar.gz"):
-                result = _step_tar(result, content_dir, archive_format,
-                                   tar_args=tar_args,
-                                   gzip_args=gzip_args)
+            if config.archive_format in ("tar", "tar.gz"):
+                result = _step_tar(result, content_dir, config.archive_format,
+                                   tar_args=config.archive_tar_extra_args,
+                                   gzip_args=config.archive_gzip_extra_args)
 
     # display
     _step_display(result, all_algos, tree_hashes)
