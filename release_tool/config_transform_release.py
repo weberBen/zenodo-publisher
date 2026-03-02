@@ -5,6 +5,18 @@ from .config_schema import dedup_args
 _GPG_DEFAULT_ARGS = ["--armor"]
 _MAKE_DEFAULT_ARGS = []
 
+COMMIT_FIELD_MAP = {
+    "sha": "ZP_COMMIT_SHA",
+    "date_epoch": "ZP_COMMIT_DATE_EPOCH",
+    "subject": "ZP_COMMIT_SUBJECT",
+    "author_name": "ZP_COMMIT_AUTHOR_NAME",
+    "author_email": "ZP_COMMIT_AUTHOR_EMAIL",
+    "branch": "ZP_BRANCH",
+    "origin": "ZP_ORIGIN_URL",
+    "tag_sha": "ZP_TAG_SHA",
+}
+
+
 def _parse_main_file(value, project_root):
     """Split 'main.pdf' into ('main', 'pdf')."""
     parts = value.split(".")

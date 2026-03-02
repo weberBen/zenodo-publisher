@@ -1,5 +1,6 @@
 """Main release logic."""
 
+import json
 from ..latex_build import compile
 from ..git_operations import (
     check_on_main_branch,
@@ -9,12 +10,15 @@ from ..git_operations import (
     create_github_release,
     verify_release_on_latest_commit,
     get_last_commit_info,
+    get_tag_info,
     get_release_asset_digest,
-    build_zenodo_info_json,
     upload_release_asset,
 )
 from ..zenodo_operations import ZenodoPublisher, ZenodoError
-from ..archive_operation import archive, compute_file_hash, compute_hashes
+from ..archive_operation import (
+    archive, compute_file_hash, compute_hashes,
+    generate_manifest, manifest_to_file,
+)
 from ..gpg_operations import sign_files
 from .. import output
 from ._common import setup_pipeline
@@ -121,6 +125,8 @@ def _step_commit_info(config):
     output.info_ok(f"Commit subject: {commit_env['ZP_COMMIT_SUBJECT']}")
     output.info_ok(f"Author: {commit_env['ZP_COMMIT_AUTHOR_NAME']} <{commit_env['ZP_COMMIT_AUTHOR_EMAIL']}>")
     output.info_ok(f"Committer: {commit_env['ZP_COMMIT_COMMITTER_NAME']} <{commit_env['ZP_COMMIT_COMMITTER_EMAIL']}>")
+    output.info_ok(f"Branch: {commit_env['ZP_BRANCH']}")
+    output.info_ok(f"Origin: {commit_env['ZP_ORIGIN_URL']}")
 
     return commit_env
 
@@ -137,19 +143,9 @@ def _step_compile(config, hint, validator, env_vars=None):
     compile(config.compile_dir, config.make_args, env_vars=env_vars)
 
 
-def _step_archive(config, tag_name) -> tuple[list, list | None]:
-    """Create archives and optionally GPG-sign them. Returns (archived_files, identifiers)."""
-    archived_files, identifiers = archive(config, tag_name)
-
-    if config.gpg_sign:
-        signatures = sign_files(
-            archived_files,
-            gpg_uid=config.gpg_uid,
-            overwrite=config.gpg_overwrite,
-            extra_args=config.gpg_extra_args,
-        )
-        compute_hashes(signatures, config.hash_algorithms)
-        archived_files.extend(signatures)
+def _step_archive(config, tag_name) -> list:
+    """Create archives and compute checksums. Returns archived_files."""
+    archived_files = archive(config, tag_name)
 
     output.step_ok("Archived files:")
     for entry in archived_files:
@@ -158,17 +154,85 @@ def _step_archive(config, tag_name) -> tuple[list, list | None]:
             output.detail(f"  {algo}: {h['value']}")
         output.detail(f"  persist: {entry['persist']}")
 
-
-    if identifiers:
-        types_label = '+'.join(set(config.zenodo_identifier_types))
-        output.detail(f"\n-> Identifiers ({types_label} *{identifiers[0]['description']})")
-        for ident in identifiers:
-            output.detail(f"\t{ident['formatted_value']}")
-
-    return archived_files, identifiers
+    return archived_files
 
 
-def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator) -> dict | None:
+def _step_manifest(config, tag_name, archived_files, commit_env) -> tuple[dict, dict | None]:
+    """Generate manifest, compute its identifier hash, optionally GPG-sign it.
+
+    Returns (manifest dict, identifier dict or None).
+    The manifest file + optional signature are appended to archived_files.
+    """
+    if not config.manifest:
+        return None, None
+
+    output.step("📋 Generating manifest...")
+
+    # Load optional metadata fields from .zenodo.json
+    metadata = _load_manifest_metadata(config)
+
+    manifest = generate_manifest(
+        archived_files, tag_name, commit_env,
+        commit_fields=config.manifest_commit_fields, metadata=metadata,
+    )
+    manifest_path = manifest_to_file(manifest)
+    output.detail(f"Manifest: {manifest_path}")
+
+    # Hash the manifest → Zenodo identifier
+    algo = config.manifest_identifier_hash
+    identifier = compute_file_hash(manifest_path, algo)
+    output.detail(f"Identifier: {identifier['formatted_value']}")
+
+    # GPG sign the manifest (not individual archives)
+    if config.gpg_sign:
+        signatures = sign_files(
+            [{"file_path": manifest_path, "filename": "manifest", "persist": False}],
+            gpg_uid=config.gpg_uid,
+            overwrite=config.gpg_overwrite,
+            extra_args=config.gpg_extra_args,
+        )
+        compute_hashes(signatures, config.hash_algorithms)
+        archived_files.extend(signatures)
+
+    # Add manifest itself to the upload list
+    manifest_entry = {
+        "file_path": manifest_path,
+        "is_preview": False,
+        "filename": "manifest",
+        "extension": "json",
+        "type": "manifest",
+        "persist": False,
+        "is_signature": False,
+    }
+    compute_hashes([manifest_entry], config.hash_algorithms)
+    archived_files.append(manifest_entry)
+
+    output.step_ok("Manifest generated")
+    return manifest, identifier
+
+
+def _load_manifest_metadata(config) -> dict | None:
+    """Extract metadata fields from .zenodo.json for inclusion in manifest."""
+    fields = config.manifest_metadata_fields
+    if not fields:
+        return None
+
+    zenodo_json = config.project_root / ".zenodo.json"
+    if not zenodo_json.exists():
+        return None
+
+    with open(zenodo_json) as f:
+        data = json.load(f)
+    source = data.get("metadata", data)
+
+    metadata = {}
+    for field in fields:
+        if field in source:
+            metadata[field] = source[field]
+    return metadata or None
+
+
+def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator) -> dict | None:
     """Check Zenodo state and publish if needed. Returns record_info dict or None."""
     if not config.has_zenodo_config():
         output.step_warn("No publisher set")
@@ -197,7 +261,7 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
 
     try:
         record_info = publisher.publish_new_version(
-            archived_files, tag_name, identifiers=identifiers,
+            archived_files, tag_name, identifier=identifier,
         )
         output.detail(f"Zenodo DOI: {record_info['doi']}")
         output.step_ok(f"Publication {tag_name} completed successfully!")
@@ -210,49 +274,38 @@ def _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
         return record_info
 
 
-def _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
-                                  record_info, hint, validator):
-    """Generate and upload zenodo_publication_info.json to the GitHub release."""
-    if not config.zenodo_info_to_release:
+def _step_manifest_to_release(config, tag_name, manifest, manifest_path,
+                               record_info, hint, validator):
+    """Inject Zenodo info into manifest and upload to GitHub release."""
+    if not config.manifest_to_release:
         return
-    if not config.has_zenodo_config():
-        return
-
-    if not record_info or not record_info.get("doi") or not record_info.get("record_url"):
-        output.step_warn("No Zenodo DOI/URL available, skipping info file")
+    if manifest is None:
         return
 
-    output.step("Generating zenodo publication info file...")
-    # Build the JSON file
-    info_path = build_zenodo_info_json(
-        record_info["doi"], record_info["record_url"], archived_files,
-        identifiers=identifiers, debug=config.debug,
-    )
+    output.step("Uploading manifest to release...")
 
-    # Compare with existing asset on the release
-    local_sha = compute_file_hash(info_path, "sha256")["formatted_value"]
+    local_sha = compute_file_hash(manifest_path, "sha256")["formatted_value"]
     remote_sha = get_release_asset_digest(
-        config.project_root, tag_name, info_path.name,
+        config.project_root, tag_name, manifest_path.name,
     )
 
-    output.detail(f"Zenodo publication info file: {info_path}")
+    output.detail(f"Manifest: {manifest_path}")
     output.detail(f"Hash {local_sha}")
 
     if remote_sha and local_sha == remote_sha:
-        output.step_ok("Zenodo info file already up to date on release")
+        output.step_ok("Manifest already up to date on release")
         return
 
     if remote_sha:
-        output.step_warn(f"Zenodo info file differs from release asset")
+        output.step_warn("Manifest differs from release asset")
         output.detail(f"Remote: {ellipse_hash(remote_sha)}")
         output.detail(f"Local: {ellipse_hash(local_sha)}")
-        if not _confirm("Overwrite existing zenodo info on release ?", hint, validator, config.project_name):
-            output.warn("Zenodo info not updated on release")
+        if not _confirm("Overwrite existing manifest on release ?", hint, validator, config.project_name):
+            output.warn("Manifest not updated on release")
             return
 
-    output.detail(f"Uploading zenodo publication info to release '{tag_name}'...")
-    upload_release_asset(config.project_root, tag_name, info_path, clobber=bool(remote_sha))
-    output.step_ok("Zenodo publication info added to release")
+    upload_release_asset(config.project_root, tag_name, manifest_path, clobber=bool(remote_sha))
+    output.step_ok("Manifest uploaded to release")
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +338,11 @@ def _run_release(config) -> None:
     # Release check/creation
     tag_name = _step_release(config)
 
-    # Commit info (timestand, hash)
+    # Commit info
     commit_env = _step_commit_info(config)
-    commit_env = {
-        **commit_env,
-        "ZP_BRANCH": config.main_branch,
-        "ZP_COMMIT_TAG": tag_name,
-    }
+    commit_env["ZP_COMMIT_TAG"] = tag_name
+    tag_sha = get_tag_info(config.project_root, tag_name)
+    commit_env["ZP_TAG_SHA"] = tag_sha
 
     # Compile
     _step_compile(config, hint, validator, env_vars=commit_env)
@@ -300,12 +351,18 @@ def _run_release(config) -> None:
     _step_git_check(config)
     verify_release_on_latest_commit(config.project_root, tag_name)
 
-    # Archive + sign
-    archived_files, identifiers = _step_archive(config, tag_name)
+    # Archive
+    archived_files = _step_archive(config, tag_name)
 
-    # Zenodo publish
-    record_info = _step_zenodo(config, tag_name, archived_files, identifiers, hint, validator)
+    # Manifest (generates manifest, signs it if gpg_sign, appends to archived_files)
+    manifest, identifier = _step_manifest(config, tag_name, archived_files, commit_env)
 
-    # Zenodo info to release
-    _step_zenodo_info_to_release(config, tag_name, archived_files, identifiers,
-                                  record_info, hint, validator)
+    # Zenodo publish (archives + manifest + signature)
+    record_info = _step_zenodo(config, tag_name, archived_files, identifier, hint, validator)
+
+    # Upload manifest to release (with Zenodo info injected)
+    manifest_path = next(
+        (e["file_path"] for e in archived_files if e.get("type") == "manifest"), None
+    )
+    _step_manifest_to_release(config, tag_name, manifest, manifest_path,
+                               record_info, hint, validator)

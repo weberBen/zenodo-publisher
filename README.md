@@ -184,14 +184,16 @@ If run inside a ZP project that has `HASH_ALGORITHMS` configured in `.zenodo.env
 | `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current UTC date | Publication date (format ISO YYYY-MM-DD) |
-| `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
-| `ZENODO_IDENTIFIER_HASH` | No | `False` | Add hash identifiers in Zenodo metadata (alternate identifiers) |
-| `ZENODO_IDENTIFIER_TYPES` | No | - | File types to include in identifier hash (e.g. `pdf`, `project`, `pdf,project`). If multiple, hashes are sorted, concatenated and re-hashed |
-| `HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`). Any `hashlib` algorithm |
+| `MANIFEST` | No | `True` | Generate a manifest JSON listing all archives with hashes, commit info, and optional metadata |
+| `MANIFEST_IDENTIFIER_HASH` | No | `sha256` | Algorithm to hash the manifest for Zenodo alternate identifier |
+| `MANIFEST_COMMIT_FIELDS` | No | `sha,date_epoch` | Commit fields in manifest: `sha`, `date_epoch`, `subject`, `author_name`, `author_email`, `branch`, `origin` |
+| `MANIFEST_METADATA_FIELDS` | No | - | Metadata fields from `.zenodo.json` to include in manifest (e.g. `title,creators`) |
+| `MANIFEST_TO_RELEASE` | No | `True` | Upload manifest to GitHub release (with Zenodo info injected after publication) |
+| `HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for file checksums in the manifest (comma-separated, e.g. `md5,sha256,tree256`). Any `hashlib` algorithm plus `tree`/`tree256` |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
 | `ZENODO_FORCE_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
-| `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
+| `GPG_SIGN` | No | `False` | Enable GPG signing of the manifest before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |
 | `GPG_EXTRA_ARGS` | No | `--armor` | Extra args passed to gpg (comma-separated). E.g. use `--no-armor` for binary `.sig` |
@@ -230,11 +232,13 @@ The script passes the following environment variables to `make deploy`, containi
 | `ZP_COMMIT_SHA` | Full SHA hash of the commit |
 | `ZP_COMMIT_TAG` | Tag name (set by the pipeline to the release tag) |
 | `ZP_COMMIT_SUBJECT` | Commit message subject line |
-| `ZP_BRANCH` | Branch name (set by the pipeline to the main branch) |
 | `ZP_COMMIT_COMMITTER_NAME` | Name of the committer |
 | `ZP_COMMIT_COMMITTER_EMAIL` | Email of the committer |
 | `ZP_COMMIT_AUTHOR_NAME` | Name of the author |
 | `ZP_COMMIT_AUTHOR_EMAIL` | Email of the author |
+| `ZP_BRANCH` | Current branch name |
+| `ZP_ORIGIN_URL` | Remote origin URL |
+| `ZP_TAG_SHA` | Tag object SHA (differs from commit SHA for annotated tags) |
 
 All variables are prefixed with `ZP_` to avoid collisions with git's own environment variables (e.g. `GIT_AUTHOR_NAME`).
 
@@ -287,11 +291,36 @@ Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.git
 - Archive format is controlled by `ARCHIVE_FORMAT`: `zip` (default), `tar`, or `tar.gz`
 - TAR/TAR.GZ archives are built with [reproducible parameters](#archive-reproducibility) for deterministic output
 
-### 5b. GPG Signing (optional)
-- If `GPG_SIGN=True`, signs each archived file with a detached GPG signature
-- Verifies each signature after creation
-- Signature files (`.asc`/`.sig`) follow the same persist/temp rules as the signed files
+### 5b. Manifest
+
+When `MANIFEST=True` (default), the pipeline generates a **manifest.json** file in [JCS (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON format. The manifest provides a single, verifiable record of everything published:
+
+- **Version info**: tag label, tag object SHA, and annotation (if annotated tag)
+- **Commit info**: configurable via `MANIFEST_COMMIT_FIELDS` (default: `sha,date_epoch`)
+- **File checksums**: for each archived file (signature files are excluded)
+- **Optional metadata**: fields from `.zenodo.json` via `MANIFEST_METADATA_FIELDS`
+
+The manifest is hashed (default: SHA-256) and this hash becomes the Zenodo alternate identifier for the record. If `MANIFEST_TO_RELEASE=True`, the manifest is also uploaded as a GitHub release asset.
+
+The canonical JSON format (JCS) ensures deterministic serialization: the same manifest content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
+
+### 5c. GPG Signing (optional)
+- If `GPG_SIGN=True`, signs the **manifest** with a detached GPG signature (not individual archives)
+- Verifies the signature after creation
+- Signature files (`.asc`/`.sig`) are uploaded alongside the manifest but excluded from the manifest itself
 - Signature files are excluded from Zenodo MD5 comparison (timestamps make them non-reproducible)
+
+### 5d. Recommended hash algorithms
+
+The `HASH_ALGORITHMS` option controls which checksums are computed for each file listed in the manifest. The recommended configuration is:
+
+```bash
+HASH_ALGORITHMS=md5,sha256,tree256
+```
+
+- **`md5`**: matches Zenodo's default file checksum, allowing comparison between local files and the Zenodo record without re-downloading
+- **`sha256`**: cryptographically secure hash for integrity verification
+- **`tree256`**: git tree hash (SHA-256) that depends only on file content, not the archive format. This provides a reproducible content proof that ZIP or TAR archives may not guarantee on their own (see [Content identification with tree hash](#content-identification-with-tree-hash))
 
 ### 7. Zenodo Checks
 - Verifies the version doesn't already exist on Zenodo
@@ -396,9 +425,7 @@ Available tree hash algorithms:
 # In zp archive:
 zp archive --tag v1.0.0 --hash tree,tree256
 
-# In .zenodo.env for release pipeline identifiers:
-ZENODO_IDENTIFIER_HASH=True
-ZENODO_IDENTIFIER_TYPES=project
+# In .zenodo.env for release pipeline:
 HASH_ALGORITHMS=tree,tree256,sha256
 ```
 
@@ -406,7 +433,7 @@ HASH_ALGORITHMS=tree,tree256,sha256
 
 **Symlink caveat:** Git stores symlinks as-is on Linux/macOS, but on Windows they may be resolved to regular files depending on git and OS configuration. If your project contains symlinks and you need cross-platform reproducibility, be aware that tree hashes may differ between platforms.
 
-**Non-archive files (e.g. PDF):** Files that are not git archives (like compiled PDFs) cannot have a tree hash. For these files, the tool falls back to the corresponding `hashlib` algorithm: `sha1` for `tree`, `sha256` for `tree256`. This allows mixed-type identifiers (e.g. `ZENODO_IDENTIFIER_TYPES=pdf,project`) where each file uses the most appropriate hashing method.
+**Non-archive files (e.g. PDF):** Files that are not git archives (like compiled PDFs) cannot have a tree hash. For these files, the tool falls back to the corresponding `hashlib` algorithm: `sha1` for `tree`, `sha256` for `tree256`.
 
 ## Limitations
 

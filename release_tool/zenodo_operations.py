@@ -221,7 +221,7 @@ class ZenodoPublisher:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _load_metadata_overrides(self, identifiers: list | None = None) -> dict | None:
+    def _load_metadata_overrides(self, identifier: dict | None = None) -> dict | None:
         """Load metadata overrides from .zenodo.json at the project root.
 
         Expected format (InvenioRDM metadata):
@@ -229,7 +229,7 @@ class ZenodoPublisher:
 
         Raises ZenodoError if:
         - 'version' is present (must be set by the pipeline via git tag)
-        - identifiers collide with pipeline-generated hash identifiers
+        - identifiers collide with pipeline-generated manifest identifier
         """
         zenodo_json = self.config.project_root / ".zenodo.json"
         if not zenodo_json.exists():
@@ -258,31 +258,31 @@ class ZenodoPublisher:
                 f"(config value '{self._publication_date or 'today UTC'}' will be ignored)"
             )
 
-        # identifiers: check for collisions with pipeline hash identifiers
-        if "identifiers" in overrides and identifiers:
-            hash_prefixes = {ident["type"] for ident in identifiers}
+        # identifiers: check for collisions with manifest identifier
+        if "identifiers" in overrides and identifier:
+            prefix = identifier["type"]
             collisions = [
                 i for i in overrides["identifiers"]
-                if any(i.get("identifier", "").startswith(f"{p}:") for p in hash_prefixes)
+                if i.get("identifier", "").startswith(f"{prefix}:")
             ]
             if collisions:
                 collision_values = [c["identifier"] for c in collisions]
                 raise ZenodoError(
-                    f".zenodo.json identifiers conflict with pipeline-generated hash identifiers: "
+                    f".zenodo.json identifiers conflict with manifest identifier: "
                     f"{collision_values}. Remove them from .zenodo.json to continue."
                 )
 
         return overrides if overrides else None
 
     def _update_metadata(self, draft_record, publication_date, version: str,
-                         identifiers: list | None = None,
+                         identifier: dict | None = None,
                          metadata_overrides: dict | None = None) -> None:
         """
         Update the metadata of the cached draft.
 
         Args:
             version: Version string
-            identifiers: Optional list of identifier dicts to add as alternate identifiers
+            identifier: Optional single identifier dict (manifest hash) with type/formatted_value
             metadata_overrides: Optional dict of metadata fields from .zenodo.json
         """
         if metadata_overrides:
@@ -295,14 +295,12 @@ class ZenodoPublisher:
         draft_record.data["metadata"]["version"] = version
         draft_record.data["metadata"]["publication_date"] = publication_date
 
-        if identifiers:
+        if identifier:
             existing = draft_record.data["metadata"].get("identifiers", [])
-            # Remove previous identifiers for each hash type we're adding
-            remove_prefixes = {ident["type"] for ident in identifiers}
+            prefix = identifier["type"]
             existing = [i for i in existing
-                        if not any(i.get("identifier", "").startswith(f"{p}:") for p in remove_prefixes)]
-            for ident in identifiers:
-                existing.append({"scheme": "other", "identifier": ident["formatted_value"]})
+                        if not i.get("identifier", "").startswith(f"{prefix}:")]
+            existing.append({"scheme": "other", "identifier": identifier["formatted_value"]})
             draft_record.data["metadata"]["identifiers"] = existing
 
         draft_record.update()
@@ -311,15 +309,15 @@ class ZenodoPublisher:
         self,
         archived_files: list,
         tag_name: str,
-        identifiers: list | None = None,
+        identifier: dict | None = None,
     ) -> dict:
         """
         Publish a new version on Zenodo.
 
         Args:
-            archived_files: List of tuples (file_path, md5_checksum) to upload
+            archived_files: List of entry dicts to upload
             tag_name: Tag name (used as version)
-            identifiers: Optional list of identifier dicts
+            identifier: Optional single identifier dict (manifest hash)
 
         Returns:
             Record info dict with 'doi' and 'record_url'
@@ -337,7 +335,7 @@ class ZenodoPublisher:
         output.detail(f"Publication date: {publication_date}")
 
         try:
-            
+
             output.detail("Creating new draft version...")
             existing_draft_id = self._get_exsiting_draft_id()
             if existing_draft_id is not None:
@@ -345,17 +343,17 @@ class ZenodoPublisher:
                 self._discard_draft_version(existing_draft_id)
             else:
                 output.detail_ok("No existing draft detected")
-            
+
             draft_record = self._create_new_draft_version(last_record)
 
             # verification
             if (
                 (not self._is_draft(draft_record.data["id"]))
-                or 
+                or
                 (draft_record.data["id"] == last_record.data["id"])
             ):
                 raise ZenodoError("Cannot create draft new version...")
-            
+
             # Upload files
             output.detail("Uploading files...")
             self._upload_files(
@@ -365,9 +363,9 @@ class ZenodoPublisher:
 
             # Update metadata
             output.detail(f"Updating metadata (version: {tag_name})...")
-            metadata_overrides = self._load_metadata_overrides(identifiers=identifiers)
+            metadata_overrides = self._load_metadata_overrides(identifier=identifier)
             self._update_metadata(draft_record, publication_date, tag_name,
-                                  identifiers=identifiers,
+                                  identifier=identifier,
                                   metadata_overrides=metadata_overrides)
             output.detail_ok("Metadata updated")
 

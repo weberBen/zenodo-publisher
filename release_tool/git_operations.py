@@ -203,6 +203,15 @@ def get_commit_of_tag(project_root: Path, tag: str) -> str:
     return run_git_command(["rev-list", "-n", "1", tag], project_root)
 
 
+def get_tag_info(project_root: Path, tag: str) -> str:
+    """Get tag object SHA.
+
+    For annotated tags, sha is the tag object hash and annotation is the message.
+    For lightweight tags, sha equals the commit hash and annotation is empty.
+    """
+    # Tag object SHA (differs from commit SHA for annotated tags)
+    return run_git_command(["rev-parse", tag], project_root)
+
 def get_commit(project_root: Path, commit: str = "HEAD")  -> str:
     """Get the commit hash."""
     return run_git_command(["rev-parse", commit], project_root)
@@ -213,7 +222,7 @@ def get_latest_commit(project_root: Path) -> str:
 
 
 def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
-    """Get timestamp (epoch), SHA, committer name and email of a commit.
+    """Get commit metadata, current branch, and remote origin URL.
 
     Args:
         project_root: Path to project root
@@ -225,6 +234,9 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
     )
     sha, timestamp, c_name, c_email, a_name, a_email, subject = result.split("\n", 6)
 
+    branch = get_current_branch(project_root)
+    origin_url = get_remote_url(project_root)
+
     return {
         "ZP_COMMIT_DATE_EPOCH": timestamp,
         "ZP_COMMIT_SHA": sha,
@@ -233,6 +245,8 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
         "ZP_COMMIT_COMMITTER_EMAIL": c_email,
         "ZP_COMMIT_AUTHOR_NAME": a_name,
         "ZP_COMMIT_AUTHOR_EMAIL": a_email,
+        "ZP_BRANCH": branch,
+        "ZP_ORIGIN_URL": origin_url,
     }
 
 def get_last_commit_info(project_root: Path):
@@ -579,35 +593,6 @@ def get_release_asset_digest(
         pass
     return None
 
-
-def build_zenodo_info_json(
-    doi: str,
-    record_url: str,
-    archived_files: list,
-    identifiers: list | None = None,
-    debug: bool = False,
-) -> Path:
-    """Build zenodo_publication_info.json in a temp directory and return its path."""
-    doi_url = f"https://doi.org/{doi}"
-
-    info = {
-        "doi": doi_url,
-        "record_url": record_url,
-        "files": [
-            {"key": e["file_path"].name, **{algo: h["value"] for algo, h in e["hashes"].items()}}
-            for e in archived_files
-            if not e.get("is_signature")
-        ],
-    }
-    if identifiers:
-        info["identifiers"] = identifiers
-
-    info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
-    with open(info_path, "w") as f:
-        json.dump(info, f, indent=2)
-        f.write("\n")
-
-    return info_path
 
 
 def upload_release_asset(

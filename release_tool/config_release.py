@@ -45,16 +45,23 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  help="Zenodo API base URL"),
     ConfigOption("publication_date", "PUBLICATION_DATE", type="optional_str",
                  help="Publication date (YYYY-MM-DD), defaults to today UTC"),
-    ConfigOption("zenodo_info_to_release", "ZENODO_INFO_TO_RELEASE",
-                 type="bool", default=False,
-                 help="Add Zenodo info JSON to GitHub release"),
-    ConfigOption("zenodo_identifier_hash", "ZENODO_IDENTIFIER_HASH",
-                 type="bool", default=False,
-                 help="Add SHA256 hash as alternate identifier in Zenodo metadata"),
-    ConfigOption("zenodo_identifier_types", "ZENODO_IDENTIFIER_TYPES",
+    # Manifest
+    ConfigOption("manifest", "MANIFEST", type="bool", default=True,
+                 help="Generate manifest JSON listing all archives with hashes"),
+    ConfigOption("manifest_identifier_hash", "MANIFEST_IDENTIFIER_HASH",
+                 default="sha256",
+                 help="Algorithm to hash the manifest for Zenodo alternate identifier"),
+    ConfigOption("manifest_metadata_fields", "MANIFEST_METADATA_FIELDS",
                  type="list", default="",
-                 help="File types to include in identifier hash (e.g. pdf,project). "
-                      "If multiple, hashes are concatenated"),
+                 help="Metadata fields from .zenodo.json to include in manifest "
+                      "(e.g. title,creators)"),
+    ConfigOption("manifest_commit_fields", "MANIFEST_COMMIT_FIELDS",
+                 type="list", default="sha,date_epoch",
+                 help="Commit fields in manifest: sha,date_epoch,subject,"
+                      "author_name,author_email,branch,origin"),
+    ConfigOption("manifest_to_release", "MANIFEST_TO_RELEASE",
+                 type="bool", default=True,
+                 help="Upload manifest to GitHub release"),
 
     # Archive options
     ConfigOption("archive_types", "ARCHIVE_TYPES", type="list",

@@ -1,11 +1,14 @@
+import json
 import os
 import shutil
 import hashlib
 import tempfile
+import jcs
 from pathlib import Path
 
 from .git_operations import archive_zip_project, extract_zip, compute_tree_hash, pack_tar
 from .config_transform_common import TREE_ALGORITHMS
+from .config_transform_release import COMMIT_FIELD_MAP
 from . import output
 
 
@@ -48,7 +51,12 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
 
     return new_file, filename, extension
 
-
+def format_hash_info(algorithm, hex_value):
+    return {
+        "type": algorithm,
+        "value": hex_value,
+        "formatted_value": f"{algorithm}:{hex_value}"
+    }
 
 def compute_file_hash(file_path: Path, algorithm: str) -> dict:
     """Compute hash of a file. Returns {"value": hex, "formatted_value": "algo:hex"}."""
@@ -57,7 +65,8 @@ def compute_file_hash(file_path: Path, algorithm: str) -> dict:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     hex_value = h.hexdigest()
-    return {"value": hex_value, "formatted_value": f"{algorithm}:{hex_value}"}
+    
+    return format_hash_info(algorithm, hex_value)
 
 
 def process_project_archive(zip_path, filename, tree_algos=None, archive_format="zip",
@@ -117,64 +126,24 @@ def compute_hashes(results, algorithms=None):
                 if algo not in entry:
                     raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
                 value = entry.pop(algo)
-                hashes[algo] = {"value": value, "formatted_value": f"{algo}:{value}"}
+                hashes[algo] = format_hash_info(algo, value)
             else:
                 # hashlib algo (e.g. sha1) but label with tree algo name
                 raw = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algo])
-                hashes[algo] = {"value": raw["value"], "formatted_value": f"{algo}:{raw['value']}"}
+                hashes[algo] = format_hash_info(algo, raw['value'])
 
         entry["hashes"] = hashes
 
 
-def _compute_identifiers(config, results) -> list | None:
-    """Build identifier dicts from pre-computed hashes.
-
-    For each algorithm, if multiple files match, their hashes are sorted and concatenated,
-    then hashed again to produce a single deterministic value.
-
-    All hashes must already be present in each entry dict (computed by _compute_hashes).
+def archive(config, tag_name: str) -> list:
     """
-    id_types = set(config.zenodo_identifier_types)
-
-    matching_entries = [
-        entry for entry in results
-        if (entry["extension"] in id_types) or (entry["type"] in id_types)
-    ]
-
-    if not matching_entries:
-        return None
-
-    identifiers = []
-    for algorithm in config.hash_algorithms:
-        file_hashes = [entry["hashes"][algorithm]["value"] for entry in matching_entries]
-
-        if len(file_hashes) == 1:
-            identifier_hash = file_hashes[0]
-        else:
-            hashlib_algo = TREE_ALGORITHMS.get(algorithm, algorithm)
-            combined = "".join(sorted(file_hashes))
-            identifier_hash = hashlib.new(hashlib_algo, combined.encode()).hexdigest()
-
-        identifiers.append({
-            "value": identifier_hash,
-            "formatted_value": f"{algorithm}:{identifier_hash}",
-            "type": algorithm,
-            "files": file_hashes,
-            "description": "sorted by hash value",
-        })
-
-    return identifiers
-
-
-def archive(config, tag_name: str) -> tuple[list, list | None]:
-    """
-    Create archives, compute checksums, and optionally compute identifier hashes.
+    Create archives and compute checksums.
 
     Uses config.archive_types to determine what to archive (pdf, project).
     Uses config.persist_types to determine what to persist to archive_dir.
 
     Returns:
-        Tuple of (archived_files list, identifiers list or None)
+        List of archived file entries
     """
     results = []
 
@@ -215,17 +184,14 @@ def archive(config, tag_name: str) -> tuple[list, list | None]:
 
         results.append(entry)
 
-    identifiers = _postprocess(config, results)
+    _postprocess(config, results)
 
-    return results, identifiers
+    return results
 
 
 def _postprocess(config, results):
-    """Process project archive (tree hashes, TAR), compute all hashes, build identifiers."""
-    hash_algos = config.hash_algorithms if (
-        config.zenodo_identifier_hash and config.zenodo_identifier_types
-    ) else []
-
+    """Process project archive (tree hashes, TAR) and compute all hashes."""
+    hash_algos = list(config.hash_algorithms or [])
     tree_algos = [a for a in hash_algos if a in TREE_ALGORITHMS]
     project_entry = next((e for e in results if e["type"] == "project"), None)
 
@@ -242,8 +208,70 @@ def _postprocess(config, results):
 
     compute_hashes(results, hash_algos)
 
-    identifiers = None
-    if config.zenodo_identifier_hash and config.zenodo_identifier_types:
-        identifiers = _compute_identifiers(config, results)
 
-    return identifiers
+def generate_manifest(archived_files, version, commit_info,
+                      commit_fields=None, metadata=None) -> dict:
+    """Generate a manifest dict listing all archives with their hashes.
+
+    Args:
+        archived_files: List of entry dicts (with hashes computed).
+        version: Tag name / version string.
+        commit_info: Dict with ZP_* keys from the pipeline.
+        commit_fields: List of field names to include (keys of COMMIT_FIELD_MAP).
+                       Defaults to ["sha", "date_epoch"].
+        metadata: Optional dict of metadata fields to include.
+
+    Returns:
+        Manifest dict.
+    """
+    if commit_fields is None:
+        commit_fields = ["sha", "date_epoch"]
+
+    commit = {}
+    for field in commit_fields:
+        zp_key = COMMIT_FIELD_MAP.get(field)
+        if zp_key and zp_key in commit_info:
+            commit[field] = commit_info[zp_key]
+
+    version_info = {"label": version}
+    if commit_info.get("ZP_TAG_SHA"):
+        version_info["sha"] = commit_info["ZP_TAG_SHA"]
+
+    manifest = {
+        "version": version_info,
+        "commit": commit,
+        "files": [
+            {
+                "key": e["file_path"].name,
+                **{algo: h["value"] for algo, h in e["hashes"].items()},
+            }
+            for e in archived_files
+            if not e.get("is_signature")
+        ],
+    }
+
+    if metadata:
+        manifest["metadata"] = metadata
+
+    return manifest
+
+def manifest_to_file(manifest: dict, output_dir: Path = None) -> Path:
+    """Write manifest dict to a canonical JSON file (JCS / RFC 8785).
+
+    Args:
+        manifest: Manifest dict to serialize.
+        output_dir: Directory for the file (defaults to system temp dir).
+
+    Returns:
+        Path to the written file.
+    """
+    if output_dir is None:
+        output_dir = Path(tempfile.gettempdir())
+
+    output_file = output_dir / "manifest.json"
+    canonical = jcs.canonicalize(manifest)
+
+    with open(output_file, "wb") as f:
+        f.write(canonical)
+
+    return output_file
