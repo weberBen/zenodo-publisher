@@ -1,6 +1,9 @@
 """Main release logic."""
 
 import json
+import tempfile
+from pathlib import Path
+
 from ..latex_build import compile
 from ..git_operations import (
     check_on_main_branch,
@@ -19,6 +22,7 @@ from ..archive_operation import (
     archive, compute_file_hash, compute_hashes,
     generate_manifest, manifest_to_file,
 )
+from ..file_utils import persist_files
 from ..gpg_operations import sign_files
 from .. import output
 from ._common import setup_pipeline
@@ -143,9 +147,9 @@ def _step_compile(config, hint, validator, env_vars=None):
     compile(config.compile_dir, config.make_args, env_vars=env_vars)
 
 
-def _step_archive(config, tag_name) -> list:
+def _step_archive(config, tag_name, output_dir) -> list:
     """Create archives and compute checksums. Returns archived_files."""
-    archived_files = archive(config, tag_name)
+    archived_files = archive(config, tag_name, output_dir)
 
     output.step_ok("Archived files:")
     for entry in archived_files:
@@ -157,7 +161,7 @@ def _step_archive(config, tag_name) -> list:
     return archived_files
 
 
-def _step_manifest(config, tag_name, archived_files, commit_env) -> tuple[dict, dict | None]:
+def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> tuple[dict, dict | None]:
     """Generate manifest, compute its identifier hash, optionally GPG-sign it.
 
     Returns (manifest dict, identifier dict or None).
@@ -175,7 +179,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env) -> tuple[dict, 
         archived_files, tag_name, commit_env,
         commit_fields=config.manifest_commit_fields, metadata=metadata,
     )
-    manifest_path = manifest_to_file(manifest)
+    manifest_path = manifest_to_file(manifest, tag_name, output_dir)
     output.detail(f"Manifest: {manifest_path}")
 
     # Hash the manifest → Zenodo identifier
@@ -187,10 +191,13 @@ def _step_manifest(config, tag_name, archived_files, commit_env) -> tuple[dict, 
     if config.gpg_sign:
         signatures = sign_files(
             [{"file_path": manifest_path, "filename": "manifest", "persist": False}],
+            output_dir,
             gpg_uid=config.gpg_uid,
             overwrite=config.gpg_overwrite,
             extra_args=config.gpg_extra_args,
         )
+        for sig in signatures:
+            sig["persist"] = "sig" in config.persist_types
         compute_hashes(signatures, config.hash_algorithms)
         archived_files.extend(signatures)
 
@@ -201,7 +208,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env) -> tuple[dict, 
         "filename": "manifest",
         "extension": "json",
         "type": "manifest",
-        "persist": False,
+        "persist": "manifest" in config.persist_types,
         "is_signature": False,
     }
     compute_hashes([manifest_entry], config.hash_algorithms)
@@ -351,18 +358,25 @@ def _run_release(config) -> None:
     _step_git_check(config)
     verify_release_on_latest_commit(config.project_root, tag_name)
 
-    # Archive
-    archived_files = _step_archive(config, tag_name)
+    # Working directory for all generated files
+    with tempfile.TemporaryDirectory() as tmp:
+        output_dir = Path(tmp)
 
-    # Manifest (generates manifest, signs it if gpg_sign, appends to archived_files)
-    manifest, identifier = _step_manifest(config, tag_name, archived_files, commit_env)
+        # Archive
+        archived_files = _step_archive(config, tag_name, output_dir)
 
-    # Zenodo publish (archives + manifest + signature)
-    record_info = _step_zenodo(config, tag_name, archived_files, identifier, hint, validator)
+        # Manifest (generates manifest, signs it if gpg_sign, appends to archived_files)
+        manifest, identifier = _step_manifest(config, tag_name, archived_files, commit_env, output_dir)
 
-    # Upload manifest to release (with Zenodo info injected)
-    manifest_path = next(
-        (e["file_path"] for e in archived_files if e.get("type") == "manifest"), None
-    )
-    _step_manifest_to_release(config, tag_name, manifest, manifest_path,
-                               record_info, hint, validator)
+        # Zenodo publish (archives + manifest + signature)
+        record_info = _step_zenodo(config, tag_name, archived_files, identifier, hint, validator)
+
+        # Upload manifest to release (with Zenodo info injected)
+        manifest_path = next(
+            (e["file_path"] for e in archived_files if e.get("type") == "manifest"), None
+        )
+        _step_manifest_to_release(config, tag_name, manifest, manifest_path,
+                                    record_info, hint, validator)
+
+        # Persist files to archive_dir/tag_name
+        persist_files(archived_files, config.archive_dir, tag_name)

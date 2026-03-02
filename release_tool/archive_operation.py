@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import hashlib
-import tempfile
 import jcs
 from pathlib import Path
 
@@ -12,17 +11,17 @@ from .config_transform_release import COMMIT_FIELD_MAP
 from . import output
 
 
-def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
+def archive_preview_file(config, tag_name: str, output_dir: Path) -> Path:
     """
     Copy main.pdf to {base_name}-{tag_name}.{extension}.
 
     Args:
         config: Configuration object
         tag_name: Tag name (version)
-        persist: If True, save to archive_dir; if False, create temp file
+        output_dir: Directory to write the copy to
 
     Returns:
-        Path to the preview file
+        Tuple of (file_path, filename, extension)
 
     Raises:
         FileNotFoundError: If file doesn't exist
@@ -39,11 +38,7 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
     filename = f"{config.project_name}-{tag_name}"
     extension = config.main_file_extension
     new_name = f"{filename}.{extension}"
-
-    if persist and config.archive_dir:
-        new_file = config.archive_dir / new_name
-    else:
-        new_file = Path(tempfile.gettempdir()) / new_name
+    new_file = output_dir / new_name
 
     output.info(f"📝 Copying preview file: {main_file.name} → {new_file}")
     shutil.copy(main_file, new_file)
@@ -73,6 +68,9 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
                             tar_args=None, gzip_args=None):
     """Extract zip once for tree hashes and/or TAR conversion.
 
+    Extracts into the zip's parent directory (reusing the same tmp dir)
+    to avoid creating a second temporary directory.
+
     Returns (final_path, final_format, tree_hashes) where tree_hashes is {algo: hash}.
     """
     tree_algos = tree_algos or []
@@ -82,8 +80,10 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
     if not tree_algos and not need_tar:
         return zip_path, "zip", tree_hashes
 
-    with tempfile.TemporaryDirectory() as tmp:
-        content_dir = extract_zip(zip_path, Path(tmp))
+    extract_dir = zip_path.parent / "_content"
+    extract_dir.mkdir()
+    try:
+        content_dir = extract_zip(zip_path, extract_dir)
 
         for algo in tree_algos:
             tree_hashes[algo] = compute_tree_hash(content_dir, TREE_ALGORITHMS[algo])
@@ -97,8 +97,11 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
                      tar_args=tar_args, gzip_args=gzip_args, env=env)
             zip_path.unlink()
             return tar_path, archive_format, tree_hashes
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
 
     return zip_path, "zip", tree_hashes
+
 
 
 def compute_hashes(results, algorithms=None):
@@ -135,12 +138,14 @@ def compute_hashes(results, algorithms=None):
         entry["hashes"] = hashes
 
 
-def archive(config, tag_name: str) -> list:
+def archive(config, tag_name: str, output_dir: Path) -> list:
     """
     Create archives and compute checksums.
 
-    Uses config.archive_types to determine what to archive (pdf, project).
-    Uses config.persist_types to determine what to persist to archive_dir.
+    Args:
+        config: Configuration object
+        tag_name: Tag name (version)
+        output_dir: Directory for all output files
 
     Returns:
         List of archived file entries
@@ -148,41 +153,33 @@ def archive(config, tag_name: str) -> list:
     results = []
 
     if config.main_file_extension in config.archive_types:
-        persist_file = config.main_file_extension in config.persist_types
-        file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
-        is_preview = (config.main_file_extension == extension)
+        file_path, filename, extension = archive_preview_file(config, tag_name, output_dir)
         results.append({
             "file_path": file_path,
-            "is_preview": is_preview,
+            "is_preview": (config.main_file_extension == extension),
             "filename": filename,
             "extension": extension,
             "type": "main_file",
-            "persist": persist_file,
+            "persist": config.main_file_extension in config.persist_types,
             "is_signature": False,
         })
 
     if "project" in config.archive_types:
-        persist_file = "project" in config.persist_types
         result = archive_zip_project(
             config.project_root,
             tag_name,
             config.project_name,
-            archive_dir=config.archive_dir,
-            persist=persist_file,
+            output_dir,
         )
-        file_path = result.file_path
-        is_preview = (config.main_file_extension == result.format)
-        entry = {
-            "file_path": file_path,
-            "is_preview": is_preview,
+        results.append({
+            "file_path": result.file_path,
+            "is_preview": (config.main_file_extension == result.format),
             "filename": result.archive_name,
             "extension": result.format,
             "type": "project",
-            "persist": persist_file,
+            "persist": "project" in config.persist_types,
             "is_signature": False,
-        }
-
-        results.append(entry)
+        })
 
     _postprocess(config, results)
 
@@ -258,20 +255,17 @@ def generate_manifest(archived_files, version, commit_info,
 
     return manifest
 
-def manifest_to_file(manifest: dict, output_dir: Path = None) -> Path:
+def manifest_to_file(manifest: dict, tag_name, output_dir: Path) -> Path:
     """Write manifest dict to a canonical JSON file (JCS / RFC 8785).
 
     Args:
         manifest: Manifest dict to serialize.
-        output_dir: Directory for the file (defaults to system temp dir).
+        output_dir: Directory for the file.
 
     Returns:
         Path to the written file.
     """
-    if output_dir is None:
-        output_dir = Path(tempfile.gettempdir())
-
-    output_file = output_dir / "manifest.json"
+    output_file = output_dir / f"manifest-{tag_name}.json"
     canonical = jcs.canonicalize(manifest)
 
     with open(output_file, "wb") as f:

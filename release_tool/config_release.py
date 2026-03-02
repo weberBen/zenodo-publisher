@@ -68,8 +68,9 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("archive_types", "ARCHIVE_TYPES", type="list",
                  default="project",
                  help="Comma-separated archive types (pdf, project)"),
-    ConfigOption("persist_types", "PERSIST_TYPES", type="list", default="",
-                 help="Comma-separated types to persist to archive dir"),
+    ConfigOption("persist_types", "PERSIST_TYPES", type="list", default="manifest",
+                 help="Types to persist to archive dir, special types: 'project' (project archive), 'manifest', 'sig' (signature files) "
+                      "(pdf, md, txt, ...)"),
     ConfigOption("archive_dir", "ARCHIVE_DIR", type="optional_str",
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),

@@ -90,7 +90,7 @@ def get_gpg_key_info(gpg_uid: str = None) -> dict:
     }
 
 
-def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> Path:
+def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> Path:
     """
     Sign a file with GPG (detached signature) using python-gnupg.
 
@@ -98,6 +98,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
 
     Args:
         file_path: Path to the file to sign
+        output_dir: Directory to write the signature file
         gpg_uid: UID of the GPG key to use, or None to use system default
         overwrite: If True, overwrite existing signature files without prompting
         extra_args: Arguments passed to gpg (--armor included by default)
@@ -111,7 +112,7 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
     extra_args = extra_args or []
     armor = "--armor" in extra_args
     sig_ext = ".asc" if armor else ".sig"
-    sig_path = file_path.parent / f"{file_path.name}{sig_ext}"
+    sig_path = output_dir / f"{file_path.name}{sig_ext}"
 
     if sig_path.exists() and not overwrite:
         raise RuntimeError(
@@ -145,15 +146,15 @@ def gpg_sign_file(file_path: Path, gpg_uid: str = None, overwrite: bool = False,
     return sig_path
 
 
-def sign_files(archived_files: list, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
+def sign_files(archived_files: list, output_dir: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
     """
     Sign all archived files with GPG and return signature entries.
 
-    Signature files follow the same persist/temp rules as the files they sign.
     Returned entries have no "hashes" — the caller should use compute_hashes().
 
     Args:
         archived_files: List of entry dicts with file_path, filename, persist, etc.
+        output_dir: Directory to write signature files
         gpg_uid: UID of the GPG key to use, or None to use system default
         overwrite: If True, overwrite existing signature files without prompting
         extra_args: Arguments passed to gpg (--armor included by default)
@@ -178,11 +179,7 @@ def sign_files(archived_files: list, gpg_uid: str = None, overwrite: bool = Fals
     sig_ext = "asc" if armor else "sig"
     signatures = []
     for entry in archived_files:
-        # Signature is created next to the signed file (same parent dir),
-        # so it inherits the same temp/persist location implicitly,
-        # since each file are either in archived directory or
-        # tmp directory to preserve filename structure of files.
-        sig_path = gpg_sign_file(entry["file_path"], gpg_uid, overwrite=overwrite, extra_args=extra_args)
+        sig_path = gpg_sign_file(entry["file_path"], output_dir, gpg_uid, overwrite=overwrite, extra_args=extra_args)
         sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
         # Carry over the persist flag from the signed file
         signatures.append({

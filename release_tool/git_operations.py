@@ -400,18 +400,19 @@ def archive_zip_project(
     project_root: Path,
     tag_name: str,
     project_name: str,
-    archive_dir: Optional[Path] = None,
-    persist: bool = False,
+    output_dir: Path,
 ) -> ArchiveResult:
     """
     Create a zip archive of the project at the given tag.
+
+    Always creates the archive in a temporary directory. The caller is
+    responsible for moving the file to a persistent location if needed.
 
     Args:
         project_root: Path to project root
         tag_name: Git tag to archive
         project_name: Project name for the archive
-        archive_dir: Directory to save the archive (required if persist=True)
-        persist: If True, save to archive_dir; if False, create temp file
+        output_dir: Directory for the output zip file
 
     Returns:
         ArchiveResult with file path and metadata
@@ -420,11 +421,7 @@ def archive_zip_project(
         GitError: If archive creation fails
     """
     archive_name = f"{project_name}-{tag_name}"
-
-    if persist and archive_dir:
-        output_file = archive_dir / f"{archive_name}.zip"
-    else:
-        output_file = Path(tempfile.mkdtemp()) / f"{archive_name}.zip"
+    output_file = output_dir / f"{archive_name}.zip"
 
     run_git_command(
         ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), tag_name],
@@ -439,7 +436,7 @@ def archive_zip_remote_project(
     repo_url: str,
     tag_name: str,
     project_name: str,
-    output_dir: Optional[Path] = None,
+    output_dir: Path,
 ) -> ArchiveResult:
     """
     Create a zip archive from a remote git repository at the given tag.
@@ -451,7 +448,7 @@ def archive_zip_remote_project(
         repo_url: Git remote URL (HTTPS or SSH)
         tag_name: Git tag to archive
         project_name: Project name for the archive prefix
-        output_dir: Directory for the output file (default: temp dir)
+        output_dir: Directory for the output zip file
 
     Returns:
         ArchiveResult with file path and metadata
@@ -461,14 +458,10 @@ def archive_zip_remote_project(
     """
 
     archive_name = f"{project_name}-{tag_name}"
+    output_file = output_dir / f"{archive_name}.zip"
 
     tmp_dir = Path(tempfile.mkdtemp())
     tmp_repo = tmp_dir / "tmp_repo"
-
-    if output_dir:
-        output_file = Path(output_dir) / f"{archive_name}.zip"
-    else:
-        output_file = Path(tempfile.mkdtemp()) / f"{archive_name}.zip"
 
     try:
         refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
