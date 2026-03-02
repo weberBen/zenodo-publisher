@@ -3,11 +3,14 @@
 from pathlib import Path
 from typing import Any
 
+import hashlib
+
 from .config_schema import ConfigOption
 from .config_transform_common import (
+    TREE_ALGORITHMS,
     _resolve_project_name,
     _build_tar_args,
-    _build_gzip_args
+    _build_gzip_args,
 )
 from .config_env import (
     ConfigError,
@@ -52,6 +55,17 @@ COMMON_OPTIONS: list[ConfigOption] = [
 # ---------------------------------------------------------------------------
 # CommonConfig base class
 # ---------------------------------------------------------------------------
+
+def validate_hash_algorithm(algo: str) -> bool:
+    """Check if an algorithm is supported (hashlib or tree alias)."""
+    if algo in TREE_ALGORITHMS:
+        return True
+    try:
+        hashlib.new(algo)
+        return True
+    except ValueError:
+        return False
+
 
 class CommonConfig:
     """Base configuration class.
@@ -108,7 +122,20 @@ class CommonConfig:
             else:
                 setattr(self, opt.name, value)
 
+        self._validate()
+
+    def _validate(self) -> None:
         self._validate_required()
+        self._validate_hash_algorithms()
+    
+    def _validate_hash_algorithms(self) -> None:
+        """Check that all configured hash algorithms are supported."""
+        algos = getattr(self, "hash_algorithms", None) or []
+        invalid = [a for a in algos if not validate_hash_algorithm(a)]
+        if invalid:
+            raise ConfigError(
+                f"Unsupported HASH_ALGORITHMS: {', '.join(invalid)}"
+            )
 
     def _validate_required(self) -> None:
         """Check that all required options have non-None values."""

@@ -3,13 +3,14 @@
 from .config_schema import ConfigOption
 from .config_transform_common import _resolve_optional_path
 from .config_transform_release import (
+    COMMIT_FIELD_MAP,
     _parse_main_file,
     _resolve_compile_dir,
     _strip_or_none,
     _build_gpg_args,
     _dedup_make_args,
 )
-from .config_common import COMMON_OPTIONS, CommonConfig
+from .config_common import COMMON_OPTIONS, CommonConfig, validate_hash_algorithm
 from .config_env import ConfigError
 
 
@@ -115,9 +116,32 @@ def validate_project_root(config) -> None:
     if not project_root.exists():
         raise ConfigError(f"Invalid project root {project_root}")
 
+def validate_manifest_commit_fields(config) -> None:
+    """Check that manifest_commit_fields are valid COMMIT_FIELD_MAP keys."""
+    fields = config.manifest_commit_fields
+    if not fields:
+        return
+    invalid = [f for f in fields if f not in COMMIT_FIELD_MAP]
+    if invalid:
+        valid = ", ".join(sorted(COMMIT_FIELD_MAP))
+        raise ConfigError(
+            f"Unknown MANIFEST_COMMIT_FIELDS: {', '.join(invalid)}. "
+            f"Valid fields: {valid}"
+        )
+
+def validate_manifest_identifier_hash(config) -> None:
+    """Check that manifest_identifier_hash is a supported hashlib algorithm."""
+    algo = config.manifest_identifier_hash
+    if algo and not validate_hash_algorithm(algo):
+        raise ConfigError(
+            f"Unsupported MANIFEST_IDENTIFIER_HASH: {algo}"
+        )
+
 def validate(config):
     validate_project_root(config)
     validate_compile_dir(config)
+    validate_manifest_commit_fields(config)
+    validate_manifest_identifier_hash(config)
 
 # ---------------------------------------------------------------------------
 # ReleaseConfig
