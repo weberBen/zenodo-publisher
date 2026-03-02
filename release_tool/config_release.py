@@ -3,12 +3,13 @@
 from .config_schema import ConfigOption
 from .config_transform_common import _resolve_optional_path
 from .config_transform_release import (
-    COMMIT_FIELD_MAP,
+    PERSIST_SPECIAL_TYPES,
     _parse_main_file,
     _resolve_compile_dir,
     _strip_or_none,
     _build_gpg_args,
     _dedup_make_args,
+    _validate_commit_fields,
 )
 from .config_common import COMMON_OPTIONS, CommonConfig, validate_hash_algorithm
 from .config_env import ConfigError
@@ -58,6 +59,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                       "(e.g. title,creators)"),
     ConfigOption("manifest_commit_fields", "MANIFEST_COMMIT_FIELDS",
                  type="list", default="sha,date_epoch",
+                 validate=_validate_commit_fields,
                  help="Commit fields in manifest: sha,date_epoch,subject,"
                       "author_name,author_email,branch,origin"),
     ConfigOption("manifest_to_release", "MANIFEST_TO_RELEASE",
@@ -69,8 +71,8 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  default="project",
                  help="Comma-separated archive types (pdf, project)"),
     ConfigOption("persist_types", "PERSIST_TYPES", type="list", default="manifest",
-                 help="Types to persist to archive dir, special types: 'project' (project archive), 'manifest', 'sig' (signature files) "
-                      "(pdf, md, txt, ...)"),
+                 help="Types to persist to archive dir: *extension"
+                      + ", ".join(PERSIST_SPECIAL_TYPES)),
     ConfigOption("archive_dir", "ARCHIVE_DIR", type="optional_str",
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),
@@ -117,19 +119,6 @@ def validate_project_root(config) -> None:
     if not project_root.exists():
         raise ConfigError(f"Invalid project root {project_root}")
 
-def validate_manifest_commit_fields(config) -> None:
-    """Check that manifest_commit_fields are valid COMMIT_FIELD_MAP keys."""
-    fields = config.manifest_commit_fields
-    if not fields:
-        return
-    invalid = [f for f in fields if f not in COMMIT_FIELD_MAP]
-    if invalid:
-        valid = ", ".join(sorted(COMMIT_FIELD_MAP))
-        raise ConfigError(
-            f"Unknown MANIFEST_COMMIT_FIELDS: {', '.join(invalid)}. "
-            f"Valid fields: {valid}"
-        )
-
 def validate_manifest_identifier_hash(config) -> None:
     """Check that manifest_identifier_hash is a supported hashlib algorithm."""
     algo = config.manifest_identifier_hash
@@ -141,7 +130,6 @@ def validate_manifest_identifier_hash(config) -> None:
 def validate(config):
     validate_project_root(config)
     validate_compile_dir(config)
-    validate_manifest_commit_fields(config)
     validate_manifest_identifier_hash(config)
 
 # ---------------------------------------------------------------------------

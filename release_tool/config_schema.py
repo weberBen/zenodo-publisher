@@ -20,6 +20,7 @@ class ConfigOption:
     transform: Callable | None = None   # (value, project_root) -> value
     extra_attrs: list[str] = field(default_factory=list)
     choices: list[str] | None = None
+    validate: Callable | None = None    # (value) -> None, raises on error
 
 
 def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:

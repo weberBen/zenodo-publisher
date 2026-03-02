@@ -122,6 +122,9 @@ class CommonConfig:
             else:
                 setattr(self, opt.name, value)
 
+            if opt.validate:
+                opt.validate(getattr(self, opt.name))
+
         self._validate()
 
     def _validate(self) -> None:

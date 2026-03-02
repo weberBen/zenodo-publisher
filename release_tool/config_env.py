@@ -115,6 +115,14 @@ def validate_choices(opt: ConfigOption, value: Any) -> None:
     """Check that value is in opt.choices if defined."""
     if value is None or opt.choices is None:
         return
+    if isinstance(value, list):
+        invalid = [v for v in value if v not in opt.choices]
+        if invalid:
+            raise InvalidValueError(
+                f"'{opt.env_key or opt.name}' contains invalid values: "
+                f"{', '.join(invalid)}. Must be one of {opt.choices}"
+            )
+        return
     if value not in opt.choices:
         raise InvalidValueError(
             f"'{opt.env_key or opt.name}' must be one of {opt.choices}, got '{value}'"
