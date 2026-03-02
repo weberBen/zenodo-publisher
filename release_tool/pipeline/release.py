@@ -282,7 +282,7 @@ def _step_manifest_to_release(config, tag_name, manifest, manifest_path,
     if manifest is None:
         return
 
-    output.step("Uploading manifest to release...")
+    output.step("Checking manifest to release...")
 
     local_sha = compute_file_hash(manifest_path, "sha256")["formatted_value"]
     remote_sha = get_release_asset_digest(
