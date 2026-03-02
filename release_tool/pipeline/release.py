@@ -13,7 +13,6 @@ from ..git_operations import (
     create_github_release,
     verify_release_on_latest_commit,
     get_last_commit_info,
-    get_tag_info,
     get_release_asset_digest,
     upload_release_asset,
 )
@@ -122,8 +121,8 @@ def _step_release(config) -> str:
     output.step_ok(f"Release {new_tag} created successfully!")
     return new_tag
 
-def _step_commit_info(config):
-    commit_env = get_last_commit_info(config.project_root)
+def _step_commit_info(config, tag_name):
+    commit_env = get_last_commit_info(config.project_root, tag_name=tag_name)
     output.info_ok(f"Commit SHA: {commit_env['ZP_COMMIT_SHA']}")
     output.info_ok(f"Commit timestamp: {commit_env['ZP_COMMIT_DATE_EPOCH']}")
     output.info_ok(f"Commit subject: {commit_env['ZP_COMMIT_SUBJECT']}")
@@ -346,10 +345,7 @@ def _run_release(config) -> None:
     tag_name = _step_release(config)
 
     # Commit info
-    commit_env = _step_commit_info(config)
-    commit_env["ZP_COMMIT_TAG"] = tag_name
-    tag_sha = get_tag_info(config.project_root, tag_name)
-    commit_env["ZP_TAG_SHA"] = tag_sha
+    commit_env = _step_commit_info(config, tag_name)
 
     # Compile
     _step_compile(config, hint, validator, env_vars=commit_env)

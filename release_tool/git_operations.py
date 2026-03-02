@@ -203,6 +203,11 @@ def get_commit_of_tag(project_root: Path, tag: str) -> str:
     return run_git_command(["rev-list", "-n", "1", tag], project_root)
 
 
+def fetch_tag(project_root: Path, tag: str) -> None:
+    """Fetch a single tag from origin into the local repo."""
+    run_git_command(["fetch", "origin", "tag", tag], project_root)
+
+
 def get_tag_info(project_root: Path, tag: str) -> str:
     """Get tag object SHA.
 
@@ -221,7 +226,7 @@ def get_latest_commit(project_root: Path) -> str:
     return get_commit(project_root, commit="HEAD")
 
 
-def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
+def get_commit_info(project_root: Path, commit: str = "HEAD", tag_name=None) -> dict:
     """Get commit metadata, current branch, and remote origin URL.
 
     Args:
@@ -237,7 +242,7 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
     branch = get_current_branch(project_root)
     origin_url = get_remote_url(project_root)
 
-    return {
+    result = {
         "ZP_COMMIT_DATE_EPOCH": timestamp,
         "ZP_COMMIT_SHA": sha,
         "ZP_COMMIT_SUBJECT": subject,
@@ -248,9 +253,17 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
         "ZP_BRANCH": branch,
         "ZP_ORIGIN_URL": origin_url,
     }
+    
+    if tag_name:
+        result["ZP_COMMIT_TAG"] = tag_name
+        fetch_tag(project_root, tag_name)
+        tag_sha = get_tag_info(project_root, tag_name)
+        result["ZP_TAG_SHA"] = tag_sha
+    
+    return result
 
-def get_last_commit_info(project_root: Path):
-    return get_commit_info(project_root, commit="HEAD")
+def get_last_commit_info(project_root: Path, tag_name=None):
+    return get_commit_info(project_root, commit="HEAD", tag_name=tag_name)
 
 def get_remote_latest_commit(project_root: Path, main_branch: str) -> str:
     """Get the latest commit hash from the remote main branch."""
@@ -316,7 +329,7 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         f"Tag '{tag_name}' already exists but doesn't point to the latest remote commit\n"
         f"Tag points to: {tag_commit}\n"
         f"Latest remote commit (origin/{main_branch}): {remote_latest}\n"
-        f"Please use a different tag name or delete the existing tag"
+        f"Please use a different tag name"
     )
 
 
