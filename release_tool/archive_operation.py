@@ -224,17 +224,20 @@ def generate_manifest(archived_files, version, commit_info,
     Returns:
         Manifest dict.
     """
-    if commit_fields is None:
-        commit_fields = ["sha", "date_epoch"]
-
+    
     commit = {}
+    has_tag_sha = False
+    
     for field in commit_fields:
         zp_key = COMMIT_FIELD_MAP.get(field)
+        if zp_key == "ZP_TAG_SHA":
+            has_tag_sha = True
+            continue
         if zp_key and zp_key in commit_info:
             commit[field] = commit_info[zp_key]
 
     version_info = {"label": version}
-    if commit_info.get("ZP_TAG_SHA"):
+    if has_tag_sha:
         version_info["sha"] = commit_info["ZP_TAG_SHA"]
 
     manifest = {
