@@ -522,5 +522,22 @@ To reproduce the exact same archive as the one on Zenodo, use the **exact same p
 
 This applies to `zp archive`, `zp archive --no-cache`, and `zp archive --remote`.
 
+### GPG signature verification fails on the manifest
+
+The GPG signature is **not** on the manifest file itself : it signs the manifest's **identifier hash**. The identifier is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a text file, and that file is what gets signed.
+
+To verify the signature:
+
+1. The identifier file (`identifier-*.txt`) and its signature (`identifier-*.txt.asc` or `.sig`) are persisted alongside the manifest when `sig` and `identifier` is in `PERSIST_TYPES`.
+2. Verify directly: `gpg --verify identifier-v1.0.0.txt.asc identifier-v1.0.0.txt`
+
+If you want to verify from scratch (without the persisted identifier file):
+
+1. Compute the manifest hash: for example `sha256sum manifest-v1.0.0.json` (or whichever algorithm is configured in `MANIFEST_IDENTIFIER_HASH`)
+2. Write `algorithm:hex_value` into a file **with no trailing newline**: `printf 'sha256:abc123...' > identifier.txt` or `echo -n 'sha256:abc123...' > identifier.txt` (note that only using `echo` without `-n` add an extra line break thus result in a different hash)
+3. Verify: `gpg --verify identifier-v1.0.0.txt.asc identifier.txt`
+
+The content must match **byte-for-byte** : any extra newline, whitespace or formating (other than `ascii`) will cause verification to fail.
+
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`

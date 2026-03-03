@@ -6,7 +6,7 @@ from .config_env import InvalidValueError
 _GPG_DEFAULT_ARGS = ["--armor"]
 _MAKE_DEFAULT_ARGS = []
 
-PERSIST_SPECIAL_TYPES = ["project", "manifest", "sig"]
+PERSIST_SPECIAL_TYPES = ["project", "manifest", "sig", "identifier"]
 
 COMMIT_FIELD_MAP = {
     "sha": "ZP_COMMIT_SHA",

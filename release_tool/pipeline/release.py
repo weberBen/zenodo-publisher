@@ -190,7 +190,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
         archived_files, tag_name, commit_env,
         commit_fields=config.manifest_commit_fields, metadata=metadata,
     )
-    manifest_path = manifest_to_file(manifest, tag_name, output_dir)
+    manifest_path = manifest_to_file(config, manifest, output_dir)
     output.detail(f"Manifest: {manifest_path}")
 
     # Hash the manifest → Zenodo identifier
@@ -201,7 +201,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
     # GPG sign the identifier (not the manifest file itself)
     if config.gpg_sign:
         identifier_path = output_dir / f"identifier{config.project_name_template[-1]}.txt"
-        identifier_path.write_text(identifier["formatted_value"])
+        identifier_path.write_text(identifier["formatted_value"], encoding="ascii")
 
         signatures = sign_files(
             [{"file_path": identifier_path, "filename": "manifest", "persist": False}],
@@ -214,6 +214,19 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
         
         compute_hashes(signatures, config.hash_algorithms)
         archived_files.extend(signatures)
+
+        # Persist identifier file alongside signature for verification
+        identifier_entry = {
+            "file_path": identifier_path,
+            "is_preview": False,
+            "filename": "identifier",
+            "extension": "txt",
+            "type": "identifier",
+            "persist": "identifier" in config.persist_types,
+            "is_signature": False,
+        }
+        compute_hashes([identifier_entry], config.hash_algorithms)
+        archived_files.append(identifier_entry)
 
     # Add manifest itself to the upload list
     manifest_entry = {
