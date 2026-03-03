@@ -11,13 +11,12 @@ from .config_transform_release import COMMIT_FIELD_MAP
 from . import output
 
 
-def archive_preview_file(config, tag_name: str, output_dir: Path) -> Path:
+def archive_preview_file(config, output_dir: Path) -> Path:
     """
-    Copy main.pdf to {base_name}-{tag_name}.{extension}.
+    Copy main file to {project_name}.{extension}.
 
     Args:
-        config: Configuration object
-        tag_name: Tag name (version)
+        config: Configuration object (project_name must be set)
         output_dir: Directory to write the copy to
 
     Returns:
@@ -35,7 +34,7 @@ def archive_preview_file(config, tag_name: str, output_dir: Path) -> Path:
             f"Make sure compilation completed successfully"
         )
 
-    filename = f"{config.project_name}-{tag_name}"
+    filename = config.project_name
     extension = config.main_file_extension
     new_name = f"{filename}.{extension}"
     new_file = output_dir / new_name
@@ -153,7 +152,7 @@ def archive(config, tag_name: str, output_dir: Path) -> list:
     results = []
 
     if config.main_file_extension in config.archive_types:
-        file_path, filename, extension = archive_preview_file(config, tag_name, output_dir)
+        file_path, filename, extension = archive_preview_file(config, output_dir)
         results.append({
             "file_path": file_path,
             "is_preview": (config.main_file_extension == extension),

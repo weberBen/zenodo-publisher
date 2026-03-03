@@ -411,8 +411,6 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
             f"Latest commit: {latest_commit}"
         )
 
-    output.info_ok(f"Release '{tag_name}' points to the latest commit")
-
 def get_git_ref(project_root, tag_name):    
     return get_commit_of_tag(project_root, tag_name)
             
@@ -440,17 +438,16 @@ def archive_zip_project(
     Raises:
         GitError: If archive creation fails
     """
-    archive_name = f"{project_name}-{tag_name}"
-    output_file = output_dir / f"{archive_name}.zip"
+    output_file = output_dir / f"{project_name}.zip"
 
     git_ref = get_git_ref(project_root, tag_name)
     run_git_command(
-        ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), git_ref],
+        ["archive", "--format=zip", f"--prefix={project_name}/", "-o", str(output_file), git_ref],
         project_root
     )
 
     output.info_ok(f"Created archive: {output_file}")
-    return ArchiveResult(file_path=output_file, archive_name=archive_name, format="zip")
+    return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
 
 
 def archive_zip_remote_project(
@@ -468,7 +465,7 @@ def archive_zip_remote_project(
     Args:
         repo_url: Git remote URL (HTTPS or SSH)
         tag_name: Git tag to archive (used for naming)
-        project_name: Project name for the archive prefix
+        project_name: Full formatted project name for the archive
         output_dir: Directory for the output zip file
     Returns:
         ArchiveResult with file path and metadata
@@ -477,8 +474,7 @@ def archive_zip_remote_project(
         GitError: If any git operation fails
     """
 
-    archive_name = f"{project_name}-{tag_name}"
-    output_file = output_dir / f"{archive_name}.zip"
+    output_file = output_dir / f"{project_name}.zip"
 
     tmp_dir = Path(tempfile.mkdtemp())
     tmp_repo = tmp_dir / "tmp_repo"
@@ -492,12 +488,12 @@ def archive_zip_remote_project(
 
         git_ref = get_git_ref(tmp_repo, tag_name)
         run_git_command(
-            ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), git_ref],
+            ["archive", "--format=zip", f"--prefix={project_name}/", "-o", str(output_file), git_ref],
             cwd=tmp_repo,
         )
 
         output.info_ok(f"Created archive: {output_file}")
-        return ArchiveResult(file_path=output_file, archive_name=archive_name, format="zip")
+        return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

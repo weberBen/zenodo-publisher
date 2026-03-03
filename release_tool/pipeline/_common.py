@@ -15,3 +15,4 @@ def setup_pipeline(project_name, debug=False, project_root=None):
         output.warn(f"No local project root detected")
     
     output.info_ok(f"Project name: {project_name}")
+    output.step_ok("Project configuration checked")

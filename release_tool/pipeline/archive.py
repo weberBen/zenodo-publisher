@@ -8,7 +8,7 @@ from typing import Optional
 from ..git_operations import (
     ArchiveResult,
     archive_zip_project, archive_zip_remote_project,
-    get_remote_url, GitError,
+    get_remote_url, get_commit_of_tag, GitError,
 )
 from ..archive_operation import compute_file_hash, process_project_archive
 from ..config_transform_common import TREE_ALGORITHMS
@@ -87,7 +87,15 @@ def _step_display(
 
 def _run_archive(config) -> None:
     """Main archive pipeline."""
-    setup_pipeline(config.project_name, config.debug, config.project_root)
+    setup_pipeline(config.project_name_prefix, config.debug, config.project_root)
+
+    # Resolve project name template
+    template_context = {"tag_name": config.tag}
+    if config.project_root:
+        template_context["sha_commit"] = get_commit_of_tag(
+            config.project_root, config.tag)
+    config.project_name = config.project_name_formatted(template_context)
+    output.info_ok(f"Formatted project name: {config.project_name}")
 
     # Resolve hash algos: config + CLI --hash
     hash_algos = list(config.hash_algorithms or [])

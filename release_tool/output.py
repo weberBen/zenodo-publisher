@@ -45,17 +45,20 @@ def setup(project_name: str = "", debug: bool = False):
 
 def step(msg: str):
     """Step header: '\\n(project) 🔍 Checking git...'"""
-    logger.info(f"\n{_label} {msg}")
+    logger.info(f"{_label} {msg}")
 
 
-def step_ok(msg: str):
+def step_ok(msg: str, silent=False):
     """Step success: '(project) ✅ Done!'"""
-    logger.info(f"{_label} ✅ {msg}")
+    if not silent:
+        logger.info(f"{_label} ✅ {msg}\n")
+    else:
+        logger.info(f"{msg}")
 
 
 def step_warn(msg: str):
     """Step warning: '\\n(project) ⚠️ Skipping...'"""
-    logger.warning(f"\n{_label} ⚠️ {msg}")
+    logger.warning(f"\n{_label} ⚠️ {msg}\n")
 
 
 # --- Info level (no label, top-level messages in sub-modules) ---

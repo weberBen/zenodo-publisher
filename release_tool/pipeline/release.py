@@ -67,6 +67,7 @@ def _step_git_check(config):
     check_on_main_branch(config.project_root, config.main_branch)
     output.step_ok(f"On {config.main_branch} branch")
     check_up_to_date(config.project_root, config.main_branch)
+    output.step_ok(f"Project is up to date with git repo")
 
 
 def _step_release(config) -> str:
@@ -77,6 +78,7 @@ def _step_release(config) -> str:
         tag_name = latest_release["tagName"]
         output.info_ok(f"Latest commit already has a release: {tag_name}")
         output.info_ok("Nothing to do for release.")
+        output.step_ok(f"Project is up to date with git release")
         return tag_name
 
     # Display previous release info
@@ -122,6 +124,7 @@ def _step_release(config) -> str:
     return new_tag
 
 def _step_commit_info(config, tag_name):
+    output.step(f"Retrieve commit info")
     commit_env = get_last_commit_info(config.project_root, tag_name=tag_name)
     output.info_ok(f"Commit SHA: {commit_env['ZP_COMMIT_SHA']}")
     output.info_ok(f"Commit timestamp: {commit_env['ZP_COMMIT_DATE_EPOCH']}")
@@ -130,8 +133,18 @@ def _step_commit_info(config, tag_name):
     output.info_ok(f"Committer: {commit_env['ZP_COMMIT_COMMITTER_NAME']} <{commit_env['ZP_COMMIT_COMMITTER_EMAIL']}>")
     output.info_ok(f"Branch: {commit_env['ZP_BRANCH']}")
     output.info_ok(f"Origin: {commit_env['ZP_ORIGIN_URL']}")
+    output.step_ok("", silent=True)
 
     return commit_env
+
+def _step_project_name(config, tag_name, commit_env):
+    # Resolve project name template now that tag_name and sha are known
+    output.step(f"Resolving project name")
+    config.project_name = config.project_name_formatted({
+        "tag_name": tag_name,
+        "sha_commit": commit_env["ZP_COMMIT_SHA"],
+    })
+    output.step_ok(f"Formatted project name: {config.project_name}")
 
 def _step_compile(config, hint, validator, env_vars=None):
     """Compile project via make (with user prompt)."""
@@ -144,18 +157,23 @@ def _step_compile(config, hint, validator, env_vars=None):
 
     output.step("📋 Starting build process...")
     compile(config.compile_dir, config.make_args, env_vars=env_vars)
+    output.step_ok("Compilation ended")
 
 
 def _step_archive(config, tag_name, output_dir) -> list:
     """Create archives and compute checksums. Returns archived_files."""
+    output.step("Archiving files....")
+    
     archived_files = archive(config, tag_name, output_dir)
 
-    output.step_ok("Archived files:")
+    output.info("Archived files:")
     for entry in archived_files:
         output.detail(f"• {entry['file_path'].name}")
         for algo, h in entry["hashes"].items():
             output.detail(f"  {algo}: {h['value']}")
         output.detail(f"  persist: {entry['persist']}")
+    
+    output.step_ok("File archived")
 
     return archived_files
 
@@ -333,7 +351,7 @@ def run_release(config) -> None:
 
 def _run_release(config) -> None:
     """Main release pipeline."""
-    setup_pipeline(config.project_name, config.debug, config.project_root)
+    setup_pipeline(config.project_name_prefix, config.debug, config.project_root)
     hint, validator = _make_validator(config.prompt_validation_level)
 
     output.info_ok(f"Main branch: {config.main_branch}")
@@ -346,6 +364,9 @@ def _run_release(config) -> None:
 
     # Commit info
     commit_env = _step_commit_info(config, tag_name)
+
+    # resolve project name
+    _step_project_name(config, tag_name, commit_env)
 
     # Compile
     _step_compile(config, hint, validator, env_vars=commit_env)

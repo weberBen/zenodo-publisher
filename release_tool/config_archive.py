@@ -39,12 +39,13 @@ def validate_archive_context(config) -> None:
         raise ConfigError(
             "Cannot find project root (no .git directory found)"
         )
-    if not config.project_name:
+    if not config.project_name_prefix:
         if config.project_root:
-            config.project_name = config.project_root.name
+            config.project_name_prefix = config.project_root.name
         else:
             raise ConfigError(
-                "--project-name is required when using --remote outside a git repository"
+                "--project-name-prefix is required when using --remote "
+                "outside a git repository"
             )
 
 

@@ -8,7 +8,9 @@ import hashlib
 from .config_schema import ConfigOption
 from .config_transform_common import (
     TREE_ALGORITHMS,
-    _resolve_project_name,
+    PROJECT_NAME_TEMPLATE_VARS,
+    _resolve_project_name_prefix,
+    _validate_project_name_suffix,
     _build_tar_args,
     _build_gzip_args,
 )
@@ -27,9 +29,16 @@ from .config_env import (
 # ---------------------------------------------------------------------------
 
 COMMON_OPTIONS: list[ConfigOption] = [
-    ConfigOption("project_name", "PROJECT_NAME", default="",
-                 transform=_resolve_project_name,
-                 help="Project name for display and file naming (defaults to root dir name)"),
+    ConfigOption("project_name_prefix", "PROJECT_NAME_PREFIX", default="",
+                 transform=_resolve_project_name_prefix,
+                 help="Project name prefix for display and file naming "
+                      "(defaults to root dir name)"),
+    ConfigOption("project_name_suffix", "PROJECT_NAME_SUFFIX",
+                 default="-{tag_name}",
+                 validate=_validate_project_name_suffix,
+                 help="Suffix template for file naming. "
+                      "Available variables: {"
+                      + "}, {".join(PROJECT_NAME_TEMPLATE_VARS) + "}"),
     ConfigOption("main_branch", "MAIN_BRANCH", default="main",
                  help="Git main branch name"),
     ConfigOption("debug", "DEBUG", type="bool", default=False,
@@ -126,6 +135,17 @@ class CommonConfig:
                 opt.validate(getattr(self, opt.name))
 
         self._validate()
+
+    def project_name_formatted(self, context: dict[str, str]) -> str:
+        """Assemble full project name: prefix + resolved suffix.
+
+        Raises KeyError if suffix uses a variable not in context.
+        """
+        suffix = self.project_name_suffix or ""
+        if not suffix:
+            return self.project_name_prefix
+        resolved = suffix.format_map(context)
+        return f"{self.project_name_prefix}{resolved}"
 
     def _validate(self) -> None:
         self._validate_required()
