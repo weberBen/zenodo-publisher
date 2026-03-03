@@ -41,10 +41,10 @@ def _make_validator(level: str):
     return "Enter project name", lambda resp, _name: bool(resp) and resp.lower() == _name
 
 
-def _confirm(message: str, hint: str, validator, project_name: str) -> bool:
+def _confirm(message: str, hint: str, validator, project_root: str) -> bool:
     """Prompt user for confirmation. Returns True if confirmed."""
     response = _prompt(f"{message} [{hint}]")
-    if not validator(response, project_name):
+    if not validator(response, project_root):
         step_abort()
         return False
     return True
@@ -139,7 +139,7 @@ def _step_compile(config, hint, validator, env_vars=None):
         output.step_warn("Skipping project compilation (see config file)")
         return
 
-    if not _confirm("Start building project ?", hint, validator, config.project_name):
+    if not _confirm("Start building project ?", hint, validator, config.project_root):
         raise RuntimeError("Build aborted by user.")
 
     output.step("📋 Starting build process...")
@@ -261,7 +261,7 @@ def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator) 
     if up_to_date:
         output.step_warn("Forcing zenodo update")
 
-    if not _confirm("Publish version ?", hint, validator, config.project_name):
+    if not _confirm("Publish version ?", hint, validator, config.project_root):
         output.warn("No publication made")
         return record_info
 
@@ -306,7 +306,7 @@ def _step_manifest_to_release(config, tag_name, manifest, manifest_path,
         output.step_warn("Manifest differs from release asset")
         output.detail(f"Remote: {ellipse_hash(remote_sha)}")
         output.detail(f"Local: {ellipse_hash(local_sha)}")
-        if not _confirm("Overwrite existing manifest on release ?", hint, validator, config.project_name):
+        if not _confirm("Overwrite existing manifest on release ?", hint, validator, config.project_root):
             output.warn("Manifest not updated on release")
             return
 
