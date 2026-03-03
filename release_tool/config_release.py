@@ -34,7 +34,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  help="Extra args passed to make (e.g. -j4,VERBOSE=1)"),
 
     # Zenodo configuration
-    ConfigOption("publisher_type", "PUBLISHER_TYPE", type="optional_str",
+    ConfigOption("publisher_type", "PUBLISHER_TYPE",
                  choices=["zenodo"],
                  help="Publisher type (zenodo)"),
     ConfigOption("zenodo_token", "ZENODO_TOKEN", default="",
@@ -45,7 +45,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("zenodo_api_url", "ZENODO_API_URL",
                  default="https://zenodo.org/api",
                  help="Zenodo API base URL"),
-    ConfigOption("publication_date", "PUBLICATION_DATE", type="optional_str",
+    ConfigOption("publication_date", "PUBLICATION_DATE", nullable=True,
                  help="Publication date (YYYY-MM-DD), defaults to today UTC"),
     # Manifest
     ConfigOption("manifest", "MANIFEST", type="bool", default=True,
@@ -74,24 +74,24 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("persist_types", "PERSIST_TYPES", type="list", default="manifest",
                  help="Types to persist to archive dir: *extension"
                       + ", ".join(PERSIST_SPECIAL_TYPES)),
-    ConfigOption("archive_dir", "ARCHIVE_DIR", type="optional_str",
+    ConfigOption("archive_dir", "ARCHIVE_DIR", nullable=True,
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),
 
     # GPG signing
     ConfigOption("gpg_sign", "GPG_SIGN", type="bool", default=False,
                  help="Enable GPG signing of archives"),
-    ConfigOption("gpg_uid", "GPG_UID", type="optional_str",
+    ConfigOption("gpg_uid", "GPG_UID", nullable=True,
                  transform=_strip_or_none,
                  help="GPG key UID (empty = system default)"),
     ConfigOption("gpg_extra_args", "GPG_EXTRA_ARGS", type="list",
                  default=",".join(["--armor"]),
                  transform=_build_gpg_args,
                  help="Extra args passed to gpg (use --no-armor for binary .sig)"),
-    ConfigOption("gpg_sign_support", "GPG_SIGN_TYPE", type="optional_str",
+    ConfigOption("gpg_sign_support", "GPG_SIGN_SUPPORT",
                  choices=["file", "file_hash"],
                  help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),
-    ConfigOption("gpg_sign_support_hash", "GPG_SIGN_TYPE", type="optional_str",
+    ConfigOption("gpg_sign_support_hash", "GPG_SIGN_SUPPORT_HASH", type="optional_str",
                  default="sha256",
                  validate=validate_hash_algorithms,
                  help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),

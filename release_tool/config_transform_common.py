@@ -81,7 +81,7 @@ def validate_hash_algorithms(value) -> bool:
         raise InvalidValueError(
             f"Unsupported hash algorithms: {', '.join(invalid)}"
         )
-            
+
 def _resolve_optional_path(value, project_root):
     """Parse optional path, return None if empty."""
     return Path(value) if value else None

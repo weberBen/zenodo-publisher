@@ -13,10 +13,10 @@ from .config_env import ConfigError
 ARCHIVE_OPTIONS: list[ConfigOption] = [
     ConfigOption("tag", None,
                  help="Git tag to archive"),
-    ConfigOption("output_dir", None, type="optional_str",
+    ConfigOption("output_dir", None, nullable=True,
                  transform=_resolve_optional_path,
                  help="Output directory (default: temporary directory)"),
-    ConfigOption("remote", None, type="optional_str",
+    ConfigOption("remote", None, nullable=True,
                  help="Git remote URL — perform a shallow clone "
                       "instead of using the local repo"),
     ConfigOption("no_cache", None, type="store_true", default=False,

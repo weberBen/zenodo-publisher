@@ -217,14 +217,18 @@ class CommonConfig:
 
     def _coerce(self, opt: ConfigOption, value: Any) -> Any:
         """Coerce string values from env file to proper Python types."""
+        
         if value is None:
+            return None
+        if isinstance(value, str) and value.strip().lower() == "none":
             return None
         if opt.type == "bool" and isinstance(value, str):
             return value.lower() == "true"
         if opt.type == "list" and isinstance(value, str):
             return [t.strip() for t in value.split(",") if t.strip()]
-        if opt.type == "optional_str" and isinstance(value, str):
+        if opt.nullable and isinstance(value, str):
             return value if value.strip() else None
+    
         return value
 
 

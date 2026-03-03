@@ -3,6 +3,12 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+ALLOWED_TYPES = [
+    "str",
+    "bool",
+    "list",
+    "store_true",
+]
 
 @dataclass
 class ConfigOption:
@@ -13,7 +19,7 @@ class ConfigOption:
     """
     name: str                  # Config attribute name: "gpg_sign"
     env_key: str | None        # Env var key: "GPG_SIGN" (None = not in .zenodo.env)
-    type: str = "str"          # "str", "bool", "optional_str", "list", "store_true"
+    type: str = "str"          # "str", "bool", "list", "store_true"
     default: Any = None
     cli: bool = True           # False to hide from CLI (e.g. ZENODO_TOKEN)
     help: str = ""
@@ -21,6 +27,11 @@ class ConfigOption:
     extra_attrs: list[str] = field(default_factory=list)
     choices: list[str] | None = None
     validate: Callable | None = None    # (value) -> None, raises on error
+    nullable: bool = False
+    
+    def __post_init__(self):
+        if self.type not in ALLOWED_TYPES:
+            raise Exception(f"Invalid option type.\nSupported: {','.join(ALLOWED_TYPES)}")
 
 
 def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:
