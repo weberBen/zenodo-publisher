@@ -170,6 +170,7 @@ def archive(config, tag_name: str, output_dir: Path) -> list:
             tag_name,
             config.project_name,
             output_dir,
+            config.archive_ref,
         )
         results.append({
             "file_path": result.file_path,

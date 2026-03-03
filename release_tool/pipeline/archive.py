@@ -7,7 +7,8 @@ from typing import Optional
 
 from ..git_operations import (
     ArchiveResult,
-    archive_zip_project, archive_zip_remote_project, get_remote_url, GitError,
+    archive_zip_project, archive_zip_remote_project,
+    get_remote_url, GitError,
 )
 from ..archive_operation import compute_file_hash, process_project_archive
 from ..config_transform_common import TREE_ALGORITHMS
@@ -39,21 +40,22 @@ def _step_archive(
     remote_url: Optional[str],
     no_cache: bool,
     output_dir: Path,
+    archive_ref: str,
 ) -> ArchiveResult:
     """Create a ZIP archive from local repo or remote. Returns ArchiveResult."""
     if remote_url:
         return archive_zip_remote_project(
-            remote_url, tag_name, project_name, output_dir)
+            remote_url, tag_name, project_name, output_dir, archive_ref)
 
     if no_cache:
         origin_url = get_remote_url(project_root)
         output.info(f"Cloning from {origin_url}")
         return archive_zip_remote_project(
-            origin_url, tag_name, project_name, output_dir)
+            origin_url, tag_name, project_name, output_dir, archive_ref)
 
     try:
         return archive_zip_project(
-            project_root, tag_name, project_name, output_dir,
+            project_root, tag_name, project_name, output_dir, archive_ref,
         )
     except GitError:
         output.warn(
@@ -108,7 +110,7 @@ def _run_archive(config) -> None:
         # archive → zip
         result = _step_archive(
             config.project_root, config.tag, config.project_name,
-            config.remote, config.no_cache, output_dir)
+            config.remote, config.no_cache, output_dir, config.archive_ref)
 
         # extract → tree → tar (single extraction via shared function)
         final_path, final_format, tree_hashes = process_project_archive(
