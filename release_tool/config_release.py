@@ -11,7 +11,7 @@ from .config_transform_release import (
     _dedup_make_args,
     _validate_commit_fields,
 )
-from .config_common import COMMON_OPTIONS, CommonConfig, validate_hash_algorithm
+from .config_common import COMMON_OPTIONS, CommonConfig, validate_hash_algorithms
 from .config_env import ConfigError
 
 
@@ -52,6 +52,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  help="Generate manifest JSON listing all archives with hashes"),
     ConfigOption("manifest_identifier_hash", "MANIFEST_IDENTIFIER_HASH",
                  default="sha256",
+                 validate=validate_hash_algorithms,
                  help="Algorithm to hash the manifest for Zenodo alternate identifier"),
     ConfigOption("manifest_metadata_fields", "MANIFEST_METADATA_FIELDS",
                  type="list", default="",
@@ -87,6 +88,13 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  default=",".join(["--armor"]),
                  transform=_build_gpg_args,
                  help="Extra args passed to gpg (use --no-armor for binary .sig)"),
+    ConfigOption("gpg_sign_support", "GPG_SIGN_TYPE", type="optional_str",
+                 choices=["file", "file_hash"],
+                 help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),
+    ConfigOption("gpg_sign_support_hash", "GPG_SIGN_TYPE", type="optional_str",
+                 default="sha256",
+                 validate=validate_hash_algorithms,
+                 help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),
 
     # Runtime options
     ConfigOption("prompt_validation_level", "PROMPT_VALIDATION_LEVEL",
@@ -121,18 +129,9 @@ def validate_project_root(config) -> None:
     if not project_root.exists():
         raise ConfigError(f"Invalid project root {project_root}")
 
-def validate_manifest_identifier_hash(config) -> None:
-    """Check that manifest_identifier_hash is a supported hashlib algorithm."""
-    algo = config.manifest_identifier_hash
-    if algo and not validate_hash_algorithm(algo):
-        raise ConfigError(
-            f"Unsupported MANIFEST_IDENTIFIER_HASH: {algo}"
-        )
-
 def validate(config):
     validate_project_root(config)
     validate_compile_dir(config)
-    validate_manifest_identifier_hash(config)
 
 # ---------------------------------------------------------------------------
 # ReleaseConfig

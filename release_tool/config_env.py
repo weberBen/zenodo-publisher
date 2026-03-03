@@ -107,7 +107,7 @@ def validate_type(opt: ConfigOption, value: Any) -> None:
     if opt.type == "bool" and isinstance(value, str):
         if value.lower() not in ("true", "false"):
             raise InvalidValueError(
-                f"'{opt.env_key or opt.name}' must be 'true' or 'false', got '{value}'"
+                f"must be 'true' or 'false', got '{value}'"
             )
 
 
@@ -119,11 +119,11 @@ def validate_choices(opt: ConfigOption, value: Any) -> None:
         invalid = [v for v in value if v not in opt.choices]
         if invalid:
             raise InvalidValueError(
-                f"'{opt.env_key or opt.name}' contains invalid values: "
+                f"contains invalid values: "
                 f"{', '.join(invalid)}. Must be one of {opt.choices}"
             )
         return
     if value not in opt.choices:
         raise InvalidValueError(
-            f"'{opt.env_key or opt.name}' must be one of {opt.choices}, got '{value}'"
+            f"must be one of {opt.choices}, got '{value}'"
         )

@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import hashlib
+
 from .config_schema import dedup_args
 from .config_env import InvalidValueError
 
@@ -37,7 +39,7 @@ def _validate_project_name_suffix(value):
         return
     if "." in value:
         raise InvalidValueError(
-            f"'.' deliminator are not allowed in project name suffix"
+            f"'.' deliminator are not allowed"
         )
     
     found_vars = _TEMPLATE_VAR_RE.findall(value)
@@ -47,11 +49,39 @@ def _validate_project_name_suffix(value):
     if invalid:
         valid = ", ".join(PROJECT_NAME_TEMPLATE_VARS)
         raise InvalidValueError(
-            f"Unknown template variable(s) in PROJECT_NAME_SUFFIX: "
+            f"Unknown template variable(s): "
             f"{', '.join(invalid)}. Allowed variables: {valid}"
         )
 
+def is_iterable_of_strings(obj):
+    try:
+        return all(isinstance(item, str) for item in obj)
+    except TypeError:
+        return False
+   
+def _validate_hash_algorithm(value) -> bool:
+    """Check if an algorithm is supported (hashlib or tree alias)."""
+    if value in TREE_ALGORITHMS:
+        return True
+    try:
+        hashlib.new(value)
+        return True
+    except ValueError:
+        return False
 
+def validate_hash_algorithms(value) -> bool:
+    """Check that all configured hash algorithms are supported."""
+    if type(value) is str:
+        value = [value]
+    if not is_iterable_of_strings(value):
+        raise InvalidValueError("not a list of hash algo names")
+    
+    invalid = [a for a in value if not _validate_hash_algorithm(a)]
+    if invalid:
+        raise InvalidValueError(
+            f"Unsupported hash algorithms: {', '.join(invalid)}"
+        )
+            
 def _resolve_optional_path(value, project_root):
     """Parse optional path, return None if empty."""
     return Path(value) if value else None
@@ -63,7 +93,7 @@ def _build_tar_args(value, project_root):
     if result != TAR_DEFAULT_ARGS:
         import warnings
         warnings.warn(
-            "Custom tar args detected — this may affect archive reproducibility",
+            "Custom tar args detected. This may affect archive reproducibility",
             stacklevel=2,
         )
     return result
@@ -75,7 +105,7 @@ def _build_gzip_args(value, project_root):
     if result != GZIP_DEFAULT_ARGS:
         import warnings
         warnings.warn(
-            "Custom gzip args detected — this may affect archive reproducibility",
+            "Custom gzip args detected. This may affect archive reproducibility",
             stacklevel=2,
         )
     return result

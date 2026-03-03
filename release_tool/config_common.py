@@ -3,14 +3,13 @@
 from pathlib import Path
 from typing import Any
 
-import hashlib
-
 from .config_schema import ConfigOption
 from .config_transform_common import (
     TREE_ALGORITHMS,
     PROJECT_NAME_TEMPLATE_VARS,
     _resolve_project_name_prefix,
     _validate_project_name_suffix,
+    validate_hash_algorithms,
     _build_tar_args,
     _build_gzip_args,
 )
@@ -54,9 +53,9 @@ COMMON_OPTIONS: list[ConfigOption] = [
                  type="list", default="",
                  transform=_build_gzip_args,
                  help="Extra args for gzip (override defaults via dedup_args)"),
-    ConfigOption("hash_algorithms",
-                 "HASH_ALGORITHMS",
+    ConfigOption("hash_algorithms", "HASH_ALGORITHMS",
                  type="list", default="sha256",
+                 validate=validate_hash_algorithms,
                  help="Hash algorithms (e.g. sha256,md5,tree). Uses hashlib or git tree hash"),
 ]
 
@@ -64,16 +63,6 @@ COMMON_OPTIONS: list[ConfigOption] = [
 # ---------------------------------------------------------------------------
 # CommonConfig base class
 # ---------------------------------------------------------------------------
-
-def validate_hash_algorithm(algo: str) -> bool:
-    """Check if an algorithm is supported (hashlib or tree alias)."""
-    if algo in TREE_ALGORITHMS:
-        return True
-    try:
-        hashlib.new(algo)
-        return True
-    except ValueError:
-        return False
 
 
 class CommonConfig:
@@ -111,6 +100,8 @@ class CommonConfig:
         )
         cli_overrides = cli_overrides or {}
 
+        debug = getattr(self, 'debug', False)
+        
         if env_vars:
             validate_env_keys(env_vars, CommonConfig._all_env_keys)
 
@@ -132,8 +123,22 @@ class CommonConfig:
                 setattr(self, opt.name, value)
 
             if opt.validate:
-                opt.validate(getattr(self, opt.name))
-
+                try:
+                    validated = opt.validate(getattr(self, opt.name))
+                    if validated == False: #True, None -> valide | False, exception -> invalid
+                        raise Exception("")
+                except Exception as e:
+                    if debug:
+                        raise e
+                    
+                    error_msg = f"Invalid argument for '{opt.env_key or opt.name}'"
+                    exception_msg = str(e)
+                    
+                    if exception_msg:
+                        error_msg += f"\n{exception_msg}"
+                        
+                    raise ConfigError(error_msg)
+        
         self._validate()
 
     def project_name_template(self, context: dict[str, str]) -> str:
@@ -155,16 +160,6 @@ class CommonConfig:
 
     def _validate(self) -> None:
         self._validate_required()
-        self._validate_hash_algorithms()
-    
-    def _validate_hash_algorithms(self) -> None:
-        """Check that all configured hash algorithms are supported."""
-        algos = getattr(self, "hash_algorithms", None) or []
-        invalid = [a for a in algos if not validate_hash_algorithm(a)]
-        if invalid:
-            raise ConfigError(
-                f"Unsupported HASH_ALGORITHMS: {', '.join(invalid)}"
-            )
 
     def _validate_required(self) -> None:
         """Check that all required options have non-None values."""
