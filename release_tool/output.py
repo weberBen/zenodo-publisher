@@ -14,7 +14,12 @@ Levels:
 import logging
 import sys
 from dataclasses import dataclass
-import termios
+import os
+
+if os.name == "posix":  # Linux, macOS, BSD...
+    import termios
+else:  # Windows
+    import msvcrt
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
@@ -119,12 +124,11 @@ def cmd(args: list[str]):
 # --- User input ---
 
 def _flush_stdin():
-    """Discard any pending input in stdin (e.g. extra Enter presses)."""
-    try:
+    if os.name == "posix":
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    except (termios.error, ValueError):
-        pass
-
+    else:
+        while msvcrt.kbhit():
+            msvcrt.getch()
 
 def prompt(msg: str) -> str:
     """Prompt the user for input, flushing any buffered keystrokes first."""
