@@ -198,16 +198,20 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
     identifier = compute_file_hash(manifest_path, algo)
     output.detail(f"Identifier: {identifier['formatted_value']}")
 
-    # GPG sign the manifest (not individual archives)
+    # GPG sign the identifier (not the manifest file itself)
     if config.gpg_sign:
+        identifier_path = output_dir / f"identifier-{tag_name}.txt"
+        identifier_path.write_text(identifier["formatted_value"])
+
         signatures = sign_files(
-            [{"file_path": manifest_path, "filename": "manifest", "persist": False}],
+            [{"file_path": identifier_path, "filename": "manifest", "persist": False}],
             output_dir,
             gpg_uid=config.gpg_uid,
             extra_args=config.gpg_extra_args,
         )
         for sig in signatures:
             sig["persist"] = "sig" in config.persist_types
+        
         compute_hashes(signatures, config.hash_algorithms)
         archived_files.extend(signatures)
 
