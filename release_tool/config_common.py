@@ -136,7 +136,7 @@ class CommonConfig:
 
         self._validate()
 
-    def project_name_formatted(self, context: dict[str, str]) -> str:
+    def project_name_template(self, context: dict[str, str]) -> str:
         """Assemble full project name: prefix + resolved suffix.
 
         Raises KeyError if suffix uses a variable not in context.
@@ -145,7 +145,13 @@ class CommonConfig:
         if not suffix:
             return self.project_name_prefix
         resolved = suffix.format_map(context)
-        return f"{self.project_name_prefix}{resolved}"
+        
+        return f"{self.project_name_prefix}", f"{resolved}"
+    
+    def generate_project_name(self, context: dict[str, str]) -> str:
+        prefix, suffix = self.project_name_template(context)
+        self.project_name = f"{prefix}{suffix}"
+        self.project_name_template = [prefix, "", suffix] # prefix, delimiter, suffix
 
     def _validate(self) -> None:
         self._validate_required()

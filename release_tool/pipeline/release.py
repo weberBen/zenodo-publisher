@@ -134,7 +134,7 @@ def _step_commit_info(config, tag_name):
 def _step_project_name(config, tag_name, commit_env):
     # Resolve project name template now that tag_name and sha are known
     output.step(f"Resolving project name")
-    config.project_name = config.project_name_formatted({
+    config.generate_project_name({
         "tag_name": tag_name,
         "sha_commit": commit_env["ZP_COMMIT_SHA"],
     })
@@ -200,7 +200,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
 
     # GPG sign the identifier (not the manifest file itself)
     if config.gpg_sign:
-        identifier_path = output_dir / f"identifier-{tag_name}.txt"
+        identifier_path = output_dir / f"identifier{config.project_name_template[-1]}.txt"
         identifier_path.write_text(identifier["formatted_value"])
 
         signatures = sign_files(

@@ -254,7 +254,7 @@ def generate_manifest(archived_files, version, commit_info,
 
     return manifest
 
-def manifest_to_file(manifest: dict, tag_name, output_dir: Path) -> Path:
+def manifest_to_file(config, manifest: dict, output_dir: Path) -> Path:
     """Write manifest dict to a canonical JSON file (JCS / RFC 8785).
 
     Args:
@@ -264,7 +264,7 @@ def manifest_to_file(manifest: dict, tag_name, output_dir: Path) -> Path:
     Returns:
         Path to the written file.
     """
-    output_file = output_dir / f"manifest-{tag_name}.json"
+    output_file = output_dir / f"manifest{config.project_name_template[-1]}.json"
     canonical = jcs.canonicalize(manifest)
 
     with open(output_file, "wb") as f:

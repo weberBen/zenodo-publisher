@@ -94,7 +94,7 @@ def _run_archive(config) -> None:
     if config.project_root:
         template_context["sha_commit"] = get_commit_of_tag(
             config.project_root, config.tag)
-    config.project_name = config.project_name_formatted(template_context)
+    config.generate_project_name(template_context)
     output.info_ok(f"Formatted project name: {config.project_name}")
 
     # Resolve hash algos: config + CLI --hash
