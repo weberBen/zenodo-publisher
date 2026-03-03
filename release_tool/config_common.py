@@ -106,38 +106,36 @@ class CommonConfig:
             validate_env_keys(env_vars, CommonConfig._all_env_keys)
 
         for opt in self._options:
-            raw = self._resolve_value(opt, env_vars, cli_overrides)
-            validate_type(opt, raw)
-            value = self._coerce(opt, raw)
-            validate_choices(opt, value)
+            try:
+                raw = self._resolve_value(opt, env_vars, cli_overrides)
+                validate_type(opt, raw)
+                value = self._coerce(opt, raw)
+                validate_choices(opt, value)
 
-            if opt.transform:
-                result = opt.transform(value, project_root)
-                if opt.extra_attrs:
-                    setattr(self, opt.name, result[0])
-                    for i, attr_name in enumerate(opt.extra_attrs):
-                        setattr(self, attr_name, result[i + 1])
+                if opt.transform:
+                    result = opt.transform(value, project_root)
+                    if opt.extra_attrs:
+                        setattr(self, opt.name, result[0])
+                        for i, attr_name in enumerate(opt.extra_attrs):
+                            setattr(self, attr_name, result[i + 1])
+                    else:
+                        setattr(self, opt.name, result)
                 else:
-                    setattr(self, opt.name, result)
-            else:
-                setattr(self, opt.name, value)
+                    setattr(self, opt.name, value)
 
-            if opt.validate:
-                try:
-                    validated = opt.validate(getattr(self, opt.name))
-                    if validated == False: #True, None -> valide | False, exception -> invalid
-                        raise Exception("")
-                except Exception as e:
-                    if debug:
-                        raise e
-                    
-                    error_msg = f"Invalid argument for '{opt.env_key or opt.name}'"
-                    exception_msg = str(e)
-                    
-                    if exception_msg:
-                        error_msg += f"\n{exception_msg}"
-                        
-                    raise ConfigError(error_msg)
+                if opt.validate:
+                        validated = opt.validate(getattr(self, opt.name))
+                        if validated == False: #True, None -> valide | False, exception -> invalid
+                            raise Exception("")
+            except Exception as e:
+                if debug:
+                    raise e
+                
+                error_msg = f"Invalid argument for '{opt.env_key or opt.name}'"
+                exception_msg = str(e)
+                if exception_msg:
+                    error_msg += f"\n{exception_msg}"
+                raise ConfigError(error_msg)
         
         self._validate()
 
@@ -217,7 +215,8 @@ class CommonConfig:
 
     def _coerce(self, opt: ConfigOption, value: Any) -> Any:
         """Coerce string values from env file to proper Python types."""
-        
+        if opt.parse:
+            return opt.parse(opt, value)
         if value is None:
             return None
         if isinstance(value, str) and value.strip().lower() == "none":
@@ -228,7 +227,12 @@ class CommonConfig:
             return [t.strip() for t in value.split(",") if t.strip()]
         if opt.nullable and isinstance(value, str):
             return value if value.strip() else None
-    
+        if (opt.type == "str" and isinstance(value, str) and "," in value):
+            raise ConfigError(
+                f"contains ',' but type is 'str' "
+                f"(expected 'list'?). Use a custom parse to allow commas."
+            )
+
         return value
 
 

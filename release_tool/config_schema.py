@@ -26,12 +26,13 @@ class ConfigOption:
     transform: Callable | None = None   # (value, project_root) -> value
     extra_attrs: list[str] = field(default_factory=list)
     choices: list[str] | None = None
+    parse: Callable | None = None       # (value) -> coerced value (replaces default _coerce)
     validate: Callable | None = None    # (value) -> None, raises on error
     nullable: bool = False
     
     def __post_init__(self):
         if self.type not in ALLOWED_TYPES:
-            raise Exception(f"Invalid option type.\nSupported: {','.join(ALLOWED_TYPES)}")
+            raise Exception(f"Invalid option type '{self.type}'.\nSupported: {','.join(ALLOWED_TYPES)}")
 
 
 def dedup_args(default_args: list[str], user_args: list[str]) -> list[str]:

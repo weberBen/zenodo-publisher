@@ -91,7 +91,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("gpg_sign_support", "GPG_SIGN_SUPPORT",
                  choices=["file", "file_hash"],
                  help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),
-    ConfigOption("gpg_sign_support_hash", "GPG_SIGN_SUPPORT_HASH", type="optional_str",
+    ConfigOption("gpg_sign_support_hash", "GPG_SIGN_SUPPORT_HASH",
                  default="sha256",
                  validate=validate_hash_algorithms,
                  help="Precise the gpg support for signature (e.g. sign the file, sign the hash's file, ...) "),
