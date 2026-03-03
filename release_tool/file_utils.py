@@ -37,6 +37,10 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
         for e in existing:
             output.detail(f"  • {e['file_path'].name}")
 
+    confirm = output.ConfirmPrompt(
+        [output.YES, output.NO, output.YES_ALL, output.NO_ALL],
+        level="light",
+    )
     apply_all = None  # None = ask each time, True = overwrite all, False = skip all
     for entry in to_persist:
         src = entry["file_path"]
@@ -46,17 +50,15 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
             if apply_all is not None:
                 overwrite = apply_all
             else:
-                response = input(f"  Overwrite {dst.name}? [y/n/yall/nall]: ").strip().lower()
-                if response in ("yall", "yesall", "yes all", "yes-all"):
+                result = confirm.ask(f"Overwrite {dst.name}?")
+                if result.name == "yall":
                     overwrite = True
                     apply_all = True
-                elif response in ("nall", "noall", "no all", "no-all"):
+                elif result.name == "nall":
                     overwrite = False
                     apply_all = False
-                elif response in ("n", "no"):
-                    overwrite = False
                 else:
-                    overwrite = response in ("y", "yes", "")
+                    overwrite = result.is_accept
 
             if not overwrite:
                 output.detail(f"Skipped {dst.name}")

@@ -90,9 +90,13 @@ RELEASE_OPTIONS: list[ConfigOption] = [
 
     # Runtime options
     ConfigOption("prompt_validation_level", "PROMPT_VALIDATION_LEVEL",
-                 default="strict",
-                 choices=["strict", "light"],
-                 help="Prompt validation level: strict or light"),
+                 default="light",
+                 choices=["danger", "light", "normal", "secure"],
+                 help="Prompt validation level: "
+                      "danger (Enter to confirm), "
+                      "light (y/yes), "
+                      "normal (yes/no in full), "
+                      "secure (type project root name)"),
     ConfigOption("zenodo_force_update", "ZENODO_FORCE_UPDATE",
                  type="bool", default=False,
                  help="Force Zenodo update even if up to date"),

@@ -13,6 +13,8 @@ Levels:
 
 import logging
 import sys
+from dataclasses import dataclass
+import termios
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
@@ -112,3 +114,133 @@ def debug(msg: str):
 def cmd(args: list[str]):
     """Log a subprocess command (debug only): '  $ git status'"""
     logger.debug(f"  $ {' '.join(args)}")
+
+
+# --- User input ---
+
+def _flush_stdin():
+    """Discard any pending input in stdin (e.g. extra Enter presses)."""
+    try:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except (termios.error, ValueError):
+        pass
+
+
+def prompt(msg: str) -> str:
+    """Prompt the user for input, flushing any buffered keystrokes first."""
+    _flush_stdin()
+    return input(f"{msg}: ").strip()
+
+
+# --- Confirmation prompt ---
+
+@dataclass(frozen=True)
+class PromptOption:
+    """A single option for a confirmation prompt."""
+    name: str         # returned value: "yes", "no", "yall", "nall"
+    complete: str     # long form: "yes", "no", "yes all", "no all"
+    light: str        # short form: "y", "n", "yall", "nall"
+    is_accept: bool   # True for affirmative options
+
+
+YES     = PromptOption("yes",  "yes",     "y",    True)
+NO      = PromptOption("no",   "no",      "n",    False)
+YES_ALL = PromptOption("yall", "yes all", "yall", True)
+NO_ALL  = PromptOption("nall", "no all",  "nall", False)
+ENTER   = PromptOption("enter", "",  "", True)
+
+
+class ConfirmPrompt:
+    """Reusable confirmation prompt with configurable validation level.
+
+    Args:
+        options: List of PromptOption instances available for this prompt.
+        level: Accepted form level — "danger", "light", or "complete".
+            - danger: enter_confirms implied, any input accepted.
+            - light: both light and complete forms accepted.
+            - complete: only complete forms accepted.
+        enter_confirms: If True, empty input returns the first accept option.
+        double_confirm: If True, after enter/shortcut confirm, ask "are you sure?".
+        secure_value: If set, typing this exact string counts as accept.
+    """
+
+    def __init__(
+        self,
+        options: list[PromptOption],
+        level: str = "light",
+        enter_confirms: bool = False,
+        double_confirm: bool = False,
+        secure_value: str | None = None,
+    ):
+        self.options = options
+        self.level = level
+        
+        self.enter_confirms = enter_confirms or level == "danger"
+        if self.enter_confirms:
+            self.options.append(ENTER)
+        
+        self.double_confirm = double_confirm
+        
+        self.secure_value = secure_value
+        if self.secure_value:
+            self.options = [PromptOption("secure_value", secure_value,  secure_value, True)]
+        
+        self._accepted = self._build_accepted()
+
+    def _build_accepted(self) -> dict[str, PromptOption]:
+        """Build mapping of accepted input strings to their PromptOption."""
+        accepted = {}
+        for opt in self.options:
+            if self.level in ["danger", "light"]:
+                # Any input accepted, map both forms
+                accepted[opt.light.lower()] = opt
+                accepted[opt.complete.lower()] = opt
+            else:
+                accepted[opt.complete.lower()] = opt
+        
+        return accepted
+
+    @property
+    def hint(self) -> str:
+        """Auto-generated hint string from active forms."""
+        if self.secure_value:
+            return self.secure_value
+        if self.enter_confirms and not self.double_confirm:
+            return "Enter"
+        parts = []
+        for opt in self.options:
+            if self.level == "complete":
+                parts.append(opt.complete)
+            else:
+                parts.append(opt.light)
+        return "/".join(parts)
+
+    def _ask(self, message: str, accepted: dict) -> PromptOption:
+        match = None
+        while match is None:
+            response = prompt(message)
+            
+            # Empty input
+            if not response:
+                response = ""
+            
+            # Match against accepted forms
+            match = accepted.get(response.lower())
+            if not match and response:
+                return NO
+        
+        return match
+    
+    def ask(self, message: str) -> PromptOption:
+        """Prompt the user until a valid option is entered.
+
+        Returns:
+            The matched PromptOption.
+        """
+        
+        match = self._ask(f"{message} [{self.hint}]", self._accepted)
+        
+        if self.double_confirm:
+            match = self.ask("Are you sure? [y/n/Enter]", {YES, NO, ENTER})
+        
+        return match

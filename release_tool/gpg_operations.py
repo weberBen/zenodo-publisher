@@ -166,16 +166,21 @@ def sign_files(archived_files: list, output_dir: Path, gpg_uid: str = None, over
     armor = "--armor" in extra_args
     key_info = get_gpg_key_info(gpg_uid)
     fmt_label = "ASCII-armored (.asc)" if armor else "binary (.sig)"
+    
     output.info("🔏 Signing files with GPG key:")
     output.detail(f"Key ID:  {key_info['key_id']}")
     output.detail(f"Main UID:  {key_info['default-uid']}")
+    
     for uid in key_info['uids']:
         if uid != key_info['default-uid']:
             output.detail(f"Other UID: {uid}")
     output.detail(f"Format:  {fmt_label}")
-    response = input("  Use this key? [y/n]: ").strip().lower()
-    if response not in ("y", "yes", ""):
+    
+    prompt_level = "danger" if not overwrite else "light"
+    confirm = output.ConfirmPrompt([output.YES, output.NO], level=prompt_level)
+    if not confirm.ask("Use this key?").is_accept:
         raise RuntimeError("GPG signing aborted by user.")
+    
     sig_ext = "asc" if armor else "sig"
     signatures = []
     for entry in archived_files:
@@ -190,4 +195,5 @@ def sign_files(archived_files: list, output_dir: Path, gpg_uid: str = None, over
             "is_signature": True,
             "type": "signature",
         })
+    
     return signatures

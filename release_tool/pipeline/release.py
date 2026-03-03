@@ -31,27 +31,21 @@ from ._common import setup_pipeline
 # ---------------------------------------------------------------------------
 
 def _prompt(msg: str) -> str:
-    return input(f"{msg}: ").strip()
+    return output.prompt(msg)
 
 
-def _make_validator(level: str):
-    """Return (hint_text, validator_fn) based on prompt validation level."""
-    if level == "light":
-        return "y/n", lambda resp, _name: not resp or resp.lower() in ("y", "yes")
-    return "Enter project name", lambda resp, _name: bool(resp) and resp.lower() == _name
+def _build_confirm(config) -> output.ConfirmPrompt:
+    """Build a ConfirmPrompt from config's prompt_validation_level."""
+    level_map = {"danger": "danger", "light": "light",
+                 "normal": "complete", "secure": "complete"}
+    return output.ConfirmPrompt(
+        [output.YES, output.NO],
+        level=level_map[config.prompt_validation_level],
+        enter_confirms=(config.prompt_validation_level == "danger"),
+        secure_value=(config.project_root.name
+                      if config.prompt_validation_level == "secure" else None),
+    )
 
-
-def _confirm(message: str, hint: str, validator, project_root: str) -> bool:
-    """Prompt user for confirmation. Returns True if confirmed."""
-    response = _prompt(f"{message} [{hint}]")
-    if not validator(response, project_root):
-        step_abort()
-        return False
-    return True
-
-
-def step_abort():
-    output.step_warn("Exit process.")
 
 def ellipse_hash(hash_str, visible_char=8):
     hash_str = hash_str.split(":")[-1]
@@ -146,13 +140,13 @@ def _step_project_name(config, tag_name, commit_env):
     })
     output.step_ok(f"Formatted project name: {config.project_name}")
 
-def _step_compile(config, hint, validator, env_vars=None):
+def _step_compile(config, confirm, env_vars=None):
     """Compile project via make (with user prompt)."""
     if not config.compile:
         output.step_warn("Skipping project compilation (see config file)")
         return
 
-    if not _confirm("Start building project ?", hint, validator, config.project_root):
+    if not confirm.ask("Start building project ?").is_accept:
         raise RuntimeError("Build aborted by user.")
 
     output.step("📋 Starting build process...")
@@ -255,7 +249,7 @@ def _load_manifest_metadata(config) -> dict | None:
     return metadata or None
 
 
-def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator) -> dict | None:
+def _step_zenodo(config, tag_name, archived_files, identifier, confirm) -> dict | None:
     """Check Zenodo state and publish if needed. Returns record_info dict or None."""
     if not config.has_zenodo_config():
         output.step_warn("No publisher set")
@@ -278,7 +272,7 @@ def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator) 
     if up_to_date:
         output.step_warn("Forcing zenodo update")
 
-    if not _confirm("Publish version ?", hint, validator, config.project_root):
+    if not confirm.ask("Publish version ?").is_accept:
         output.warn("No publication made")
         return record_info
 
@@ -298,7 +292,7 @@ def _step_zenodo(config, tag_name, archived_files, identifier, hint, validator) 
 
 
 def _step_manifest_to_release(config, tag_name, manifest, manifest_path,
-                               record_info, hint, validator):
+                               record_info, confirm):
     """Inject Zenodo info into manifest and upload to GitHub release."""
     if not config.manifest_to_release:
         return
@@ -323,13 +317,12 @@ def _step_manifest_to_release(config, tag_name, manifest, manifest_path,
         output.step_warn("Manifest differs from release asset")
         output.detail(f"Remote: {ellipse_hash(remote_sha)}")
         output.detail(f"Local: {ellipse_hash(local_sha)}")
-        if not _confirm("Overwrite existing manifest on release ?", hint, validator, config.project_root):
+        if not confirm.ask("Overwrite existing manifest on release ?").is_accept:
             output.warn("Manifest not updated on release")
             return
 
     upload_release_asset(config.project_root, tag_name, manifest_path, clobber=bool(remote_sha))
     output.step_ok("Manifest uploaded to release")
-
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -351,7 +344,7 @@ def run_release(config) -> None:
 def _run_release(config) -> None:
     """Main release pipeline."""
     setup_pipeline(config.project_name_prefix, config.debug, config.project_root)
-    hint, validator = _make_validator(config.prompt_validation_level)
+    confirm = _build_confirm(config)
 
     output.info_ok(f"Main branch: {config.main_branch}")
 
@@ -368,7 +361,7 @@ def _run_release(config) -> None:
     _step_project_name(config, tag_name, commit_env)
 
     # Compile
-    _step_compile(config, hint, validator, env_vars=commit_env)
+    _step_compile(config, confirm, env_vars=commit_env)
 
     # Re-check git + release still valid after compilation
     _step_git_check(config)
@@ -385,14 +378,14 @@ def _run_release(config) -> None:
         manifest, identifier = _step_manifest(config, tag_name, archived_files, commit_env, output_dir)
 
         # Zenodo publish (archives + manifest + signature)
-        record_info = _step_zenodo(config, tag_name, archived_files, identifier, hint, validator)
+        record_info = _step_zenodo(config, tag_name, archived_files, identifier, confirm)
 
         # Upload manifest to release (with Zenodo info injected)
         manifest_path = next(
             (e["file_path"] for e in archived_files if e.get("type") == "manifest"), None
         )
         _step_manifest_to_release(config, tag_name, manifest, manifest_path,
-                                    record_info, hint, validator)
+                                    record_info, confirm)
 
         # Persist files to archive_dir/tag_name
         persist_files(archived_files, config.archive_dir, tag_name)
