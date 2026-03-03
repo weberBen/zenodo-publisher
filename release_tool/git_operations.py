@@ -199,8 +199,12 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
 
 
 def get_commit_of_tag(project_root: Path, tag: str) -> str:
-    """Get the commit hash that a tag points to."""
-    return run_git_command(["rev-list", "-n", "1", tag], project_root)
+    """Get the commit hash that a tag points to.
+    
+    Works for both lightweight and annotated tags : the ^{commit} suffix
+    explicitly dereferences annotated tag objects to their underlying commit.
+    """
+    return run_git_command(["rev-parse", f"{tag}^{{commit}}"], project_root)
 
 
 def fetch_tag(project_root: Path, tag: str) -> None:
