@@ -158,6 +158,8 @@ zp archive --tag v1.0.0 --project-name MyProject --remote https://github.com/use
 
 If run inside a ZP project that has `HASH_ALGORITHMS` configured in `.zenodo.env`, the command also prints the identifier hashes for each configured algorithm.
 
+> **Standalone script:** For a lightweight alternative that doesn't require the full tool, the [`remote_repo_to_archive.sh`](./examples/remote_repo_to_archive.sh) script fetches a git archive (ZIP) from any remote repository at a given tag or commit, without cloning the full history.
+
 ## Project Setup
 
 ### 1. Create `.zenodo.env` in your project root
@@ -218,7 +220,7 @@ The script calls `make deploy` in the directory specified by `COMPILE_DIR`. Your
 deploy: cleanall all
 ```
 
-See `Makefile.example` for a complete template.
+See [`Makefile.example`](./examples/Makefile.example) for a complete template.
 For latex project , we recommand doing a deep clean (including the pdf) on the deploy action to handle possible outdated version artifact.
 But if your base compile time is too long, you can skip the clean, which will use your already compiled file.
 You can also disable the compile `COMPILE=False` but be aware that in case of missing compiled file, the script will raise exception.
@@ -372,7 +374,7 @@ Example `.zenodo.json`:
 }
 ```
 
-See [`.zenodo.json.example`](./.zenodo.json.example) for a more complete template.
+See [`.zenodo.json.example`](./examples/zenodo.json.example) for a more complete template.
 
 > **Note:** This is not the legacy `.zenodo.json` format used by Zenodo's GitHub integration. It uses the InvenioRDM metadata structure directly (e.g. `person_or_org` instead of `name`, `rights` instead of `license`, `resource_type.id` instead of `upload_type`).
 
@@ -469,6 +471,8 @@ HASH_ALGORITHMS=tree,tree256,sha256
 
 **Non-archive files (e.g. PDF):** Files that are not git archives (like compiled PDFs) cannot have a tree hash. For these files, the tool falls back to the corresponding `hashlib` algorithm: `sha1` for `tree`, `sha256` for `tree256`.
 
+**Standalone script:** The [`archive_to_tree_hash.sh`](./examples/archive_to_tree_hash.sh) script lets you compute the git tree hash of any archive (ZIP, TAR, TAR.GZ, ...) outside of the pipeline. This is useful for independently verifying the tree hash of an archive downloaded from Zenodo or GitHub.
+
 ## Limitations
 
 ### Edge cases
@@ -523,7 +527,7 @@ This tool uses the **new InvenioRDM metadata format**, not the legacy `.zenodo.j
 - `"access_right": "open"` → not needed (set via `access` at the record level, not in metadata)
 - `"keywords": [...]` → use `"subjects": [{ "subject": "..." }]`
 
-See the [InvenioRDM metadata reference](https://inveniordm.docs.cern.ch/reference/metadata/) for the full schema, or the [example file](zenodo.json.example).
+See the [InvenioRDM metadata reference](https://inveniordm.docs.cern.ch/reference/metadata/) for the full schema, or the [example file](./examples/zenodo.json.example).
 
 ### Archive checksums differ from Zenodo
 
