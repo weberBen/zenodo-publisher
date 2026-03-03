@@ -210,7 +210,6 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir) -> 
             [{"file_path": manifest_path, "filename": "manifest", "persist": False}],
             output_dir,
             gpg_uid=config.gpg_uid,
-            overwrite=config.gpg_overwrite,
             extra_args=config.gpg_extra_args,
         )
         for sig in signatures:

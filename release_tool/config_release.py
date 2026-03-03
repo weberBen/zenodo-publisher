@@ -83,8 +83,6 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("gpg_uid", "GPG_UID", type="optional_str",
                  transform=_strip_or_none,
                  help="GPG key UID (empty = system default)"),
-    ConfigOption("gpg_overwrite", "GPG_OVERWRITE", type="bool", default=False,
-                 help="Overwrite existing GPG signature files"),
     ConfigOption("gpg_extra_args", "GPG_EXTRA_ARGS", type="list",
                  default=",".join(["--armor"]),
                  transform=_build_gpg_args,
