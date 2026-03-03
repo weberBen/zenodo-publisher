@@ -180,7 +180,6 @@ If run inside a ZP project that has `HASH_ALGORITHMS` configured in `.zenodo.env
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
 | `ZENODO_API_URL` | No | `https://zenodo.org/api` | Use `https://sandbox.zenodo.org/api` for testing |
 | `ARCHIVE_FORMAT` | No | `zip` | Archive format: `zip`, `tar`, or `tar.gz`. Use `tar`/`tar.gz` for [reproducible archives](#archive-reproducibility) |
-| `ARCHIVE_REF` | No | `commit` | Git ref for `git archive`: `commit` (SHA, [more reproducible](#git-reference-and-archive-reproducibility)) or `tag` name |
 | `ARCHIVE_TAR_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for tar, comma-separated (override [default reproducible args](#archive-reproducibility)) |
 | `ARCHIVE_GZIP_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for gzip, comma-separated (override default `--no-name,--best`) |
 | `ARCHIVE_TYPES` | No | `project` (zip file) | What to archive: `<extension>`, `project`, or `pdf,project` |
@@ -416,36 +415,22 @@ You can override these defaults with `ARCHIVE_TAR_EXTRA_ARGS` and `ARCHIVE_GZIP_
 
 ### Git reference and archive reproducibility
 
-`git archive` embeds metadata about the reference passed to it inside the archive (pax extended headers for TAR, comment field for ZIP). The choice of reference (tag name vs commit SHA) affects the archive bytes and therefore its checksum, even when the file content is identical.
+### Git reference and archive reproducibility
+
+`git archive` embeds the **commit ID** in the archive metadata (pax extended headers for TAR, comment field for ZIP), regardless of the reference passed to it (tag name, commit sha). This means the archive bytes depend solely on the commit being archived (not on the type of reference used).
 
 **How git tags work internally:**
 
-- A **lightweight tag** is simply a pointer to a commit. Its "SHA" is the commit SHA itself. `git archive <lightweight_tag>` produces the same archive as `git archive <commit_sha>`.
-- An **annotated tag** is a separate git object with its own SHA, distinct from the commit it points to. It stores additional metadata: tagger name, date, and message. `git archive <annotated_tag>` embeds this tag object metadata into the archive, producing different bytes than `git archive <commit_sha>`, even though the file tree is identical.
+- A **lightweight tag** is simply a pointer to a commit. Its "SHA" is the commit SHA itself.
+- An **annotated tag** is a separate git object with its own SHA, distinct from the commit it points to. It stores additional metadata: tagger name, date, and message. However, `git archive` dereferences it to the underlying commit before writing the archive.
 
-**Reproducibility implications:**
+`git archive` always embeds the **commit ID** in the archive metadata when passed
+a commit or tag reference, including annotated tags, which are automatically
+dereferenced to their underlying commit
+([git-archive docs](https://git-scm.com/docs/git-archive),
+[git-get-tar-commit-id docs](https://git-scm.com/docs/git-get-tar-commit-id)).
 
-| Scenario | Archive reproducible? |
-|---|---|
-| `git archive <commit_sha>` | Yes : the commit SHA is immutable as long as history is not rewritten |
-| `git archive <lightweight_tag>` | Yes : resolves directly to the commit SHA |
-| `git archive <annotated_tag>` | Depends : if the tag is deleted and recreated (even on the same commit), the new tag object has a different SHA, producing a different archive |
-
-**Configuration:**
-
-```bash
-# Default: archive by commit SHA (recommended for reproducibility)
-ARCHIVE_REF=commit
-
-# Archive by tag name (includes tag metadata for annotated tags)
-ARCHIVE_REF=tag
-```
-
-In both modes, the tag name is still used for the archive filename and internal prefix (`ProjectName-tag/`). Only the git ref passed to `git archive` changes.
-
-Note that the difference between the two only appears fort annotated tags.
-
-> **Recommendation:** Use the default `ARCHIVE_REF=commit`.
+Thus the practical risk of using a tag name instead of a commit SHA is not a byte-level difference, but a **stability of reference** issue: a tag can be force-pushed to point to a different commit at any time, causing a pipeline to silently archive different content.
 
 ### Content identification with tree hash
 

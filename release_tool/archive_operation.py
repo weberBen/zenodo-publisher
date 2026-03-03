@@ -169,8 +169,7 @@ def archive(config, tag_name: str, output_dir: Path) -> list:
             config.project_root,
             tag_name,
             config.project_name,
-            output_dir,
-            config.archive_ref,
+            output_dir
         )
         results.append({
             "file_path": result.file_path,

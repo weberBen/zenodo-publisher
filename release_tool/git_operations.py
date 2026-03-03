@@ -413,19 +413,14 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
 
     output.info_ok(f"Release '{tag_name}' points to the latest commit")
 
-def get_git_ref(project_root, tag_name, archive_ref_type):
-    git_ref = tag_name
-    if archive_ref_type == "commit":
-        git_ref = get_commit_of_tag(project_root, tag_name)
-    
-    return git_ref
+def get_git_ref(project_root, tag_name):    
+    return get_commit_of_tag(project_root, tag_name)
             
 def archive_zip_project(
     project_root: Path,
     tag_name: str,
     project_name: str,
     output_dir: Path,
-    archive_ref: str,
 ) -> ArchiveResult:
     """
     Create a zip archive of the project at the given tag.
@@ -438,7 +433,6 @@ def archive_zip_project(
         tag_name: Git tag to archive (used for naming)
         project_name: Project name for the archive
         output_dir: Directory for the output zip file
-        archive_ref: "commit" to archive by commit SHA, "tag" to archive by tag name.
 
     Returns:
         ArchiveResult with file path and metadata
@@ -449,8 +443,7 @@ def archive_zip_project(
     archive_name = f"{project_name}-{tag_name}"
     output_file = output_dir / f"{archive_name}.zip"
 
-    git_ref = get_git_ref(project_root, tag_name, archive_ref)
-
+    git_ref = get_git_ref(project_root, tag_name)
     run_git_command(
         ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), git_ref],
         project_root
@@ -465,7 +458,6 @@ def archive_zip_remote_project(
     tag_name: str,
     project_name: str,
     output_dir: Path,
-    archive_ref: str,
 ) -> ArchiveResult:
     """
     Create a zip archive from a remote git repository at the given tag.
@@ -478,8 +470,6 @@ def archive_zip_remote_project(
         tag_name: Git tag to archive (used for naming)
         project_name: Project name for the archive prefix
         output_dir: Directory for the output zip file
-        archive_ref: "commit" to archive by commit SHA, "tag" to archive by tag name.
-
     Returns:
         ArchiveResult with file path and metadata
 
@@ -500,8 +490,7 @@ def archive_zip_remote_project(
         run_git_command(["remote", "add", "origin", repo_url], cwd=tmp_repo)
         run_git_command(["fetch", "--depth=1", "origin", refspec], cwd=tmp_repo)
 
-        git_ref = get_git_ref(tmp_repo, tag_name, archive_ref)
-
+        git_ref = get_git_ref(tmp_repo, tag_name)
         run_git_command(
             ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), git_ref],
             cwd=tmp_repo,
