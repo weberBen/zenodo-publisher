@@ -101,14 +101,7 @@ def validate_env_keys(env_vars: dict[str, str], all_env_keys: set[str]) -> None:
 
 
 def validate_type(opt: ConfigOption, value: Any) -> None:
-    """Check that bool values are 'true' or 'false' strings."""
-    if value is None:
-        return
-    if opt.type == "bool" and isinstance(value, str):
-        if value.lower() not in ("true", "false"):
-            raise InvalidValueError(
-                f"must be 'true' or 'false', got '{value}'"
-            )
+    pass
 
 
 def validate_choices(opt: ConfigOption, value: Any) -> None:

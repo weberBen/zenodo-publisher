@@ -212,27 +212,44 @@ class CommonConfig:
         if opt.env_key and opt.env_key in env_vars:
             return env_vars[opt.env_key]
         return opt.default
-
+    
+    @staticmethod
+    def _format_coerce_wrong_type_msg(defined_type, inferred_type, value):
+        msg = f"value '{value}' looks like a '{inferred_type}' "
+        msg += f"but type is '{defined_type}' (expected '{inferred_type}'?)"
+        return msg
+                
     def _coerce(self, opt: ConfigOption, value: Any) -> Any:
         """Coerce string values from env file to proper Python types."""
         if opt.parse:
             return opt.parse(opt, value)
         if value is None:
             return None
-        if isinstance(value, str) and value.strip().lower() == "none":
-            return None
-        if opt.type == "bool" and isinstance(value, str):
-            return value.lower() == "true"
-        if opt.type == "list" and isinstance(value, str):
-            return [t.strip() for t in value.split(",") if t.strip()]
-        if opt.nullable and isinstance(value, str):
-            return value if value.strip() else None
-        if (opt.type == "str" and isinstance(value, str) and "," in value):
-            raise ConfigError(
-                f"contains ',' but type is 'str' "
-                f"(expected 'list'?). Use a custom parse to allow commas."
-            )
+        if not isinstance(value, str): # store_true
+            return value
 
+        if opt.type == "bool":
+            return (value.strip().lower() == "true")
+        if opt.type == "list":
+            return [t.strip() for t in value.split(",") if t.strip()]
+        
+        if opt.type == "str":
+            canonical_value = value.strip().lower()
+            if canonical_value in ["true", "false"]:
+                raise ConfigError(
+                    self._format_coerce_wrong_type_msg(opt.type, "bool", value)
+                )
+            if "," in canonical_value:
+                raise ConfigError(
+                    self._format_coerce_wrong_type_msg(opt.type, "list", value)
+                )
+            if canonical_value in ["none", "null", ""]:
+                if opt.nullable:
+                    return None
+                if canonical_value == "":
+                    return ""
+                raise ConfigError("argument is not nullable")
+                
         return value
 
 
