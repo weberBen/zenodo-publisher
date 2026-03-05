@@ -1,29 +1,29 @@
 """Archive configuration: ArchiveConfig + ARCHIVE_OPTIONS."""
 
-from .config_schema import ConfigOption
-from .config_transform_common import _resolve_optional_path
-from .config_common import COMMON_OPTIONS, CommonConfig
-from .config_env import ConfigError
+from .schema import ConfigOption
+from .transform_common import _resolve_optional_path
+from .common import COMMON_OPTIONS, CommonConfig
+from .env import ConfigError
 
 
 # ---------------------------------------------------------------------------
-# Archive-specific options (CLI-only, no env_key)
+# Archive-specific options (CLI-only, no yaml_path)
 # ---------------------------------------------------------------------------
 
 ARCHIVE_OPTIONS: list[ConfigOption] = [
-    ConfigOption("tag", None,
+    ConfigOption("tag", env_key=None,
                  help="Git tag to archive"),
-    ConfigOption("output_dir", None, nullable=True,
+    ConfigOption("output_dir", env_key=None, nullable=True,
                  transform=_resolve_optional_path,
                  help="Output directory (default: temporary directory)"),
-    ConfigOption("remote", None, nullable=True,
+    ConfigOption("remote", env_key=None, nullable=True,
                  help="Git remote URL — perform a shallow clone "
                       "instead of using the local repo"),
-    ConfigOption("no_cache", None, type="store_true", default=False,
+    ConfigOption("no_cache", env_key=None, type="store_true", default=False,
                  help="Fetch the tag from the remote origin instead of "
                       "using the local repo "
                       "(useful when the tag has not been fetched locally)"),
-    ConfigOption("hash", None,
+    ConfigOption("hash", env_key=None,
                  help="Additional hash algorithms, comma-separated "
                       "(e.g. sha512,tree,tree256)"),
 ]
@@ -63,6 +63,6 @@ class ArchiveConfig(CommonConfig):
         "hash_algorithms": "hash-algo",
     }
 
-    def __init__(self, project_root, env_vars, cli_overrides=None):
-        super().__init__(project_root, env_vars, cli_overrides)
+    def __init__(self, project_root, yaml_config, env_vars, cli_overrides=None):
+        super().__init__(project_root, yaml_config, env_vars, cli_overrides)
         validate_archive_context(self)

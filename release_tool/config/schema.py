@@ -19,6 +19,7 @@ class ConfigOption:
     """
     name: str                  # Config attribute name: "gpg_sign"
     env_key: str | None        # Env var key: "GPG_SIGN" (None = not in .zenodo.env)
+    yaml_path: str | None = None  # Dot-separated YAML path: "compile.dir"
     type: str = "str"          # "str", "bool", "list", "store_true"
     default: Any = None
     cli: bool = True           # False to hide from CLI (e.g. ZENODO_TOKEN)

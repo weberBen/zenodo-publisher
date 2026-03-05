@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Optional
 
-from .config_schema import ConfigOption
+from .schema import ConfigOption
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +28,13 @@ class UnknownEnvKeyError(ConfigError):
 class InvalidValueError(ConfigError):
     """Invalid value for a configuration option."""
     pass
+
+
+# ---------------------------------------------------------------------------
+# Sensitive env keys (kept in .zenodo.env or actual environment)
+# ---------------------------------------------------------------------------
+
+SENSITIVE_ENV_KEYS: set[str] = {"ZENODO_TOKEN", "ZENODO_CONCEPT_DOI"}
 
 
 # ---------------------------------------------------------------------------

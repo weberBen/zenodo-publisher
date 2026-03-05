@@ -5,8 +5,8 @@ from pathlib import Path
 
 import hashlib
 
-from .config_schema import dedup_args
-from .config_env import InvalidValueError
+from .schema import dedup_args
+from .env import InvalidValueError
 
 # for reproductibility
 TAR_DEFAULT_ARGS = [
@@ -22,6 +22,8 @@ TREE_ALGORITHMS = {"tree": "sha1", "tree256": "sha256"}
 
 # Template variables allowed in project_name_suffix
 PROJECT_NAME_TEMPLATE_VARS = ["tag_name", "sha_commit"]
+# Template variables allowed in generated_files pattern paths
+PATTERN_TEMPLATE_VARS = ["compile_dir", "project_root", "project_name"]
 _TEMPLATE_VAR_RE = re.compile(r"\{(\w+)\}")
 
 
@@ -52,6 +54,22 @@ def _validate_project_name_suffix(value):
             f"Unknown template variable(s): "
             f"{', '.join(invalid)}. Allowed variables: {valid}"
         )
+
+def _validate_pattern_template(value):
+    """Check that all {var} placeholders in a pattern path are allowed."""
+    if not value or not isinstance(value, str):
+        return
+    found_vars = _TEMPLATE_VAR_RE.findall(value)
+    if not found_vars:
+        return
+    invalid = [v for v in found_vars if v not in PATTERN_TEMPLATE_VARS]
+    if invalid:
+        valid = ", ".join(PATTERN_TEMPLATE_VARS)
+        raise InvalidValueError(
+            f"Unknown template variable(s) in pattern: "
+            f"{', '.join(invalid)}. Allowed: {valid}"
+        )
+
 
 def is_iterable_of_strings(obj):
     try:

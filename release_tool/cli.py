@@ -4,9 +4,10 @@ import argparse
 import os
 import sys
 
-from .config_env import ConfigError
-from .config_release import ReleaseConfig
-from .config_archive import ArchiveConfig
+from .config.env import ConfigError
+from .config.yaml import CONFIG_FILENAME
+from .config.release import ReleaseConfig
+from .config.archive import ArchiveConfig
 
 
 # ---------------------------------------------------------------------------
@@ -137,10 +138,10 @@ def cmd_release(args):
         return
 
     if not config.is_zp_project:
-        env_path = (config.project_root / ".zenodo.env") if config.project_root else ".zenodo.env"
+        config_path = (config.project_root / CONFIG_FILENAME) if config.project_root else CONFIG_FILENAME
         print(
             f"\n\u274c Project not initialized for Zenodo publisher.\n"
-            f"Missing: {env_path}",
+            f"Missing: {config_path}",
             file=sys.stderr,
         )
         return

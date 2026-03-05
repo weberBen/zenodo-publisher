@@ -11,7 +11,7 @@ from ..git_operations import (
     get_remote_url, get_commit_of_tag, GitError,
 )
 from ..archive_operation import compute_file_hash, process_project_archive
-from ..config_transform_common import TREE_ALGORITHMS
+from ..config.transform_common import TREE_ALGORITHMS
 from .. import output
 from ._common import setup_pipeline
 

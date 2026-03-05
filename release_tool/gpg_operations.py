@@ -6,13 +6,9 @@ import gnupg
 
 from . import output
 
-def _read_gpg_conf_default_key() -> str | None:
-    """
-    Read the default-key directive from ~/.gnupg/gpg.conf (read-only).
 
-    Returns:
-        The default key ID, or None if not configured
-    """
+def _read_gpg_conf_default_key() -> str | None:
+    """Read the default-key directive from ~/.gnupg/gpg.conf (read-only)."""
     gpg_conf = Path.home() / ".gnupg" / "gpg.conf"
     if not gpg_conf.exists():
         return None
@@ -29,7 +25,6 @@ def _read_gpg_conf_default_key() -> str | None:
 
 def _get_gpg_instance() -> gnupg.GPG:
     """Create a python-gnupg GPG instance."""
-    
     # python-gnupg uses a logger named "gnupg" internally to log gpg command
     # lines and status messages (see https://gnupg.readthedocs.io/en/stable/).
     # By attaching our handler previously defined, these messages appear in --debug output without
@@ -38,42 +33,25 @@ def _get_gpg_instance() -> gnupg.GPG:
 
 
 def get_gpg_key_info(gpg_uid: str = None) -> dict:
-    """
-    Query GPG for key details (read-only, no signing operation).
+    """Query GPG for key details (read-only, no signing operation).
+
+    We intentionally avoid dry-run signing (gpg --dry-run --sign) to resolve
+    the default key, because it may prompt the user for their passphrase.
+    At this stage we only need to display key info for confirmation.
 
     Resolution order:
       1. Explicit gpg_uid if provided
       2. default-key from ~/.gnupg/gpg.conf
       3. First secret key in the keyring
-
-    We intentionally avoid dry-run signing (gpg --dry-run --sign) to resolve
-    the default key, because it may prompt the user for their passphrase if
-    the keyring is locked. At this stage we only need to display key info for
-    user confirmation — prompting for a passphrase would look like an actual
-    signing operation (a write action) rather than a read-only lookup, which
-    creates confusion.
-
-    Args:
-        gpg_uid: UID of the GPG key, or None for the default key
-
-    Returns:
-        Dict with keys: key_id, fingerprint, name, email, comment, uids
-
-    Raises:
-        RuntimeError: If GPG query fails or no key is found
     """
     gpg = _get_gpg_instance()
-
-    # Resolve which key to use: explicit uid > gpg.conf default-key > first in keyring
     lookup_uid = gpg_uid or _read_gpg_conf_default_key()
 
     if lookup_uid:
-        # Use keys= parameter to let gpg handle the filtering natively
         keys = gpg.list_keys(True, keys=[lookup_uid])
         if not keys:
             raise RuntimeError(f"No secret key found for '{gpg_uid}'")
     else:
-        # No explicit uid and no default-key in gpg.conf: use first key
         keys = gpg.list_keys(True)
         if not keys:
             raise RuntimeError("No secret GPG keys found in keyring.")
@@ -81,7 +59,7 @@ def get_gpg_key_info(gpg_uid: str = None) -> dict:
     key = keys[0]
     uids = key.get("uids", [])
     default_uid = uids[0] if len(uids) > 0 else ""
-    
+
     return {
         "key_id": key.get("keyid", ""),
         "fingerprint": key.get("fingerprint", ""),
@@ -90,24 +68,11 @@ def get_gpg_key_info(gpg_uid: str = None) -> dict:
     }
 
 
-def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> Path:
-    """
-    Sign a file with GPG (detached signature) using python-gnupg.
+def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None,
+                   overwrite: bool = False, extra_args: list[str] = None) -> Path:
+    """Sign a file with GPG (detached signature).
 
-    Armor mode is controlled by --armor in extra_args (added by default via config).
-
-    Args:
-        file_path: Path to the file to sign
-        output_dir: Directory to write the signature file
-        gpg_uid: UID of the GPG key to use, or None to use system default
-        overwrite: If True, overwrite existing signature files without prompting
-        extra_args: Arguments passed to gpg (--armor included by default)
-
-    Returns:
-        Path to the signature file
-
-    Raises:
-        RuntimeError: If GPG signing fails
+    Returns path to the signature file.
     """
     extra_args = extra_args or []
     armor = "--armor" in extra_args
@@ -117,7 +82,7 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None, overwr
     if sig_path.exists() and not overwrite:
         raise RuntimeError(
             f"Signature file already exists: {sig_path}\n"
-            f"Set GPG_OVERWRITE=True to overwrite."
+            f"Use overwrite option to replace."
         )
 
     output.detail(f"Signing {file_path.name}...")
@@ -126,7 +91,7 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None, overwr
         sig = gpg.sign_file(
             f,
             keyid=gpg_uid,
-            detach=True,  # Let extra_args handle --armor
+            detach=True,
             output=str(sig_path),
             extra_args=extra_args,
         )
@@ -146,54 +111,21 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None, overwr
     return sig_path
 
 
-def sign_files(archived_files: list, output_dir: Path, gpg_uid: str = None, overwrite: bool = False, extra_args: list[str] = None) -> list:
-    """
-    Sign all archived files with GPG and return signature entries.
-
-    Returned entries have no "hashes" — the caller should use compute_hashes().
-
-    Args:
-        archived_files: List of entry dicts with file_path, filename, persist, etc.
-        output_dir: Directory to write signature files
-        gpg_uid: UID of the GPG key to use, or None to use system default
-        overwrite: If True, overwrite existing signature files without prompting
-        extra_args: Arguments passed to gpg (--armor included by default)
-
-    Returns:
-        List of signature entry dicts (without hashes)
-    """
-    extra_args = extra_args or []
+def prompt_gpg_key(gpg_uid: str | None, extra_args: list[str]) -> None:
+    """Display GPG key info and prompt user for confirmation."""
     armor = "--armor" in extra_args
     key_info = get_gpg_key_info(gpg_uid)
     fmt_label = "ASCII-armored (.asc)" if armor else "binary (.sig)"
-    
+
     output.info("🔏 Signing files with GPG key:")
     output.detail(f"Key ID:  {key_info['key_id']}")
     output.detail(f"Main UID:  {key_info['default-uid']}")
-    
+
     for uid in key_info['uids']:
         if uid != key_info['default-uid']:
             output.detail(f"Other UID: {uid}")
     output.detail(f"Format:  {fmt_label}")
-    
-    prompt_level = "danger" if not overwrite else "light"
-    confirm = output.ConfirmPrompt([output.YES, output.NO], level=prompt_level)
+
+    confirm = output.ConfirmPrompt([output.YES, output.NO], level="danger")
     if not confirm.ask("Use this key?").is_accept:
         raise RuntimeError("GPG signing aborted by user.")
-    
-    sig_ext = "asc" if armor else "sig"
-    signatures = []
-    for entry in archived_files:
-        sig_path = gpg_sign_file(entry["file_path"], output_dir, gpg_uid, overwrite=overwrite, extra_args=extra_args)
-        sig_filename = f"{entry['filename']}.{entry['file_path'].suffix.lstrip('.')}.{sig_ext}"
-        # Carry over the persist flag from the signed file
-        signatures.append({
-            "file_path": sig_path,
-            "is_preview": False,
-            "filename": sig_filename,
-            "persist": entry["persist"],
-            "is_signature": True,
-            "type": "signature",
-        })
-    
-    return signatures

@@ -1,0 +1,111 @@
+# Zenodo Publisher Configuration
+# Copy this file to zenodo_config.yaml in your project root
+#
+# Sensitive variables (ZENODO_TOKEN) go in .zenodo.env
+# Everything else is configured here.
+
+# ---------------------------------------------------------------------------
+# Project naming
+# ---------------------------------------------------------------------------
+project_name:
+  prefix: ""              # defaults to root directory name if empty
+  suffix: "-{tag_name}"   # available variables: {tag_name}, {sha_commit}
+
+main_branch: main
+debug: false
+
+# ---------------------------------------------------------------------------
+# Compilation
+# ---------------------------------------------------------------------------
+compile:
+  enabled: true
+  dir: "papers/latex"     # relative to project root, must contain Makefile
+  make_args: []           # extra args passed to make (e.g. [-j4, VERBOSE=1])
+
+# ---------------------------------------------------------------------------
+# Archive settings
+# ---------------------------------------------------------------------------
+archive:
+  format: zip             # zip, tar, or tar.gz
+  dir: null               # persistent archive directory (null = temp)
+  tar_extra_args: []
+  gzip_extra_args: []
+
+hash_algorithms: [sha256] # sha256, md5, sha512, sha1, tree, tree256, etc.
+
+# ---------------------------------------------------------------------------
+# GPG signing (global defaults)
+# ---------------------------------------------------------------------------
+signing:
+  sign: false
+  sign_mode: file_hash    # "file" (sign raw file) or "file_hash" (sign hash)
+  sign_hash_algo: sha256
+  gpg:
+    uid: null             # GPG key UID (null = system default)
+    extra_args: [--armor] # --armor → .asc, remove for binary .sig
+
+# ---------------------------------------------------------------------------
+# Zenodo
+# ---------------------------------------------------------------------------
+zenodo:
+  api_url: "https://zenodo.org/api"
+  concept_doi: ""         # concept DOI (the one that stays the same across versions)
+  publication_date: null   # YYYY-MM-DD, null = today UTC
+  force_update: false
+
+# ---------------------------------------------------------------------------
+# Generated files
+# ---------------------------------------------------------------------------
+# Each key defines a file to include in the release.
+# Special keys: "project" (git archive ZIP) and "manifest" (JSON manifest).
+#
+# Per-file options:
+#   pattern:    glob pattern to match in compile_dir (for PATTERN files)
+#   rename:     rename the file using project_name template (default: false)
+#   sign:       override global signing.sign for this file (default: null = use global)
+#   sign_mode:  override global signing.sign_mode (default: null = use global)
+#   archive:    include this file in the release (default: true)
+#   publishers:
+#     file_destination: [zenodo, github]
+#     sig_destination:  []
+#   identifier:
+#     use_as_alternate_identifier: true
+#     source: file        # "file" or "sig_file"
+#     prefix: ""
+#
+generated_files:
+  # Example: a compiled PDF
+  paper:
+    pattern: "main.pdf"
+    rename: true
+    sign: true
+    sign_mode: file_hash
+    archive: true
+    publishers:
+      file_destination: [zenodo, github]
+      sig_destination: []
+
+  # Git archive of the project (special key)
+  project:
+    publishers:
+      file_destination: [zenodo]
+
+  # JSON manifest (special key)
+  manifest:
+    files: [paper, project]
+    commit_info: [sha, date_epoch]
+    zenodo_metadata: [title, creators]
+    sign: true
+    identifier:
+      use_as_alternate_identifier: true
+      source: file
+      prefix: ""
+
+# ---------------------------------------------------------------------------
+# Prompt validation level
+# ---------------------------------------------------------------------------
+# danger: Enter to confirm
+# light:  y/yes
+# normal: yes/no in full
+# secure: type project root name
+prompt_validation_level: light
