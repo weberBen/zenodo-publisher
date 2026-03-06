@@ -128,7 +128,7 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
             f"Please pull/push the latest changes first"
         )
         
-    output.info_ok(f"Repository is up to date with origin/{main_branch}")
+    output.info_ok("Repository is up to date with origin/{branch}", branch=main_branch, name="repo_up_to_date")
 
 
 def run_gh_command(args: list[str], cwd: Path) -> str:
@@ -317,16 +317,16 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         GitError: If tag exists but doesn't point to the latest remote commit
     """
     if not tag_exists(project_root, tag_name):
-        output.info_ok(f"Tag '{tag_name}' does not exist yet")
+        output.info_ok("Tag '{tag}' does not exist yet", tag=tag_name, name="tag_new")
         return
 
     # Tag exists, check if it points to the latest remote commit
-    output.warn(f"Tag '{tag_name}' already exists, verifying it points to latest commit...")
+    output.warn("Tag '{tag}' already exists, verifying it points to latest commit...", tag=tag_name, name="tag_exists")
     tag_commit = get_commit_of_tag(project_root, tag_name)
     remote_latest = get_remote_latest_commit(project_root, main_branch)
 
     if tag_commit == remote_latest:
-        output.info_ok(f"Tag '{tag_name}' points to the latest remote commit")
+        output.info_ok("Tag '{tag}' points to the latest remote commit", tag=tag_name, name="tag_valid")
         return
 
     raise GitError(
@@ -373,14 +373,14 @@ def create_github_release(
         title: Release title
         notes: Release notes/description
     """
-    output.info(f"🚀 Creating GitHub release '{tag_name}'...")
+    output.info("Creating GitHub release '{tag}'...", tag=tag_name, name="creating_release")
 
     run_gh_command(
         ["release", "create", tag_name, "--title", title, "--notes", notes],
         project_root
     )
 
-    output.info_ok(f"Release '{tag_name}' created and published")
+    output.info_ok("Release '{tag}' created and published", tag=tag_name, name="release_published")
 
 
 def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
@@ -446,7 +446,7 @@ def archive_zip_project(
         project_root
     )
 
-    output.info_ok(f"Created archive: {output_file}")
+    output.info_ok("Created archive: {output_file}", output_file=str(output_file), name="archive_created")
     return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
 
 
@@ -492,7 +492,7 @@ def archive_zip_remote_project(
             cwd=tmp_repo,
         )
 
-        output.info_ok(f"Created archive: {output_file}")
+        output.info_ok("Created archive: {output_file}", output_file=str(output_file), name="archive_created")
         return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -151,7 +151,7 @@ class ZenodoPublisher:
             if af.is_preview:
                 default_preview_file = af.file_path.name
 
-            output.detail(f"Uploading {af.file_path.name}...")
+            output.detail("Uploading {filename}...", filename=af.file_path.name, name="zenodo_uploading")
             with open(af.file_path, "rb") as f:
                 file_content = f.read()
 
@@ -160,7 +160,7 @@ class ZenodoPublisher:
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            output.detail_ok(f"{af.file_path.name} uploaded")
+            output.detail_ok("{filename} uploaded", filename=af.file_path.name, name="zenodo_uploaded")
 
         if default_preview_file:
             draft_record.data["files"]["default_preview"] = default_preview_file
@@ -192,8 +192,11 @@ class ZenodoPublisher:
 
         if "publication_date" in overrides:
             output.warn(
-                f".zenodo.json overrides publication_date to '{overrides['publication_date']}' "
-                f"(config value '{self._publication_date or 'today UTC'}' will be ignored)"
+                ".zenodo.json overrides publication_date to '{override_date}' "
+                "(config value '{config_date}' will be ignored)",
+                override_date=overrides['publication_date'],
+                config_date=self._publication_date or 'today UTC',
+                name="zenodo_date_override",
             )
 
         # Check for identifier collisions
@@ -228,7 +231,7 @@ class ZenodoPublisher:
             metadata_overrides: Dict from .zenodo.json
         """
         if metadata_overrides:
-            output.detail(f"Applying metadata overrides: {list(metadata_overrides.keys())}")
+            output.detail("Applying metadata overrides: {keys}", keys=str(list(metadata_overrides.keys())), name="metadata_overrides")
             if "publication_date" in metadata_overrides:
                 publication_date = metadata_overrides.pop("publication_date")
             draft_record.data["metadata"].update(metadata_overrides)
@@ -269,19 +272,19 @@ class ZenodoPublisher:
             ZenodoError: If publication fails
         """
         output.info("📤 Publishing new version to Zenodo...")
-        output.detail(f"Concept DOI: {self.concept_doi}")
-        output.detail(f"Version: {tag_name}")
+        output.detail("Concept DOI: {doi}", doi=self.concept_doi, name="zenodo_concept_doi")
+        output.detail("Version: {version}", version=tag_name, name="zenodo_version")
 
         publication_date = self.get_publication_date()
         last_record = self._get_last_record()
 
-        output.detail(f"Publication date: {publication_date}")
+        output.detail("Publication date: {date}", date=publication_date, name="zenodo_pub_date")
 
         try:
             output.detail("Creating new draft version...")
             existing_draft_id = self._get_exsiting_draft_id()
             if existing_draft_id is not None:
-                output.warn(f"Detecting existing draft version {existing_draft_id}, discarding...")
+                output.warn("Detecting existing draft version {draft_id}, discarding...", draft_id=existing_draft_id, name="zenodo_draft_discard")
                 self._discard_draft_version(existing_draft_id)
             else:
                 output.detail_ok("No existing draft detected")
@@ -298,7 +301,7 @@ class ZenodoPublisher:
             output.detail("Uploading files...")
             self._upload_files(draft_record, archived_files)
 
-            output.detail(f"Updating metadata (version: {tag_name})...")
+            output.detail("Updating metadata (version: {version})...", version=tag_name, name="zenodo_metadata_update")
             metadata_overrides = self._load_metadata_overrides(identifiers=identifiers)
             self._update_metadata(draft_record, publication_date, tag_name,
                                   identifiers=identifiers,
@@ -310,8 +313,8 @@ class ZenodoPublisher:
             record_info = self._format_record_info(published_record)
 
             output.info_ok("Published to Zenodo!")
-            output.detail(f"DOI: https://doi.org/{record_info['doi']}")
-            output.detail(f"URL: {record_info['record_url']}")
+            output.detail("DOI: https://doi.org/{doi}", doi=record_info['doi'], name="zenodo_published_doi")
+            output.detail("URL: {url}", url=record_info['record_url'], name="zenodo_published_url")
 
             return record_info
 

@@ -3,7 +3,7 @@
 import shutil
 from pathlib import Path
 
-from . import output
+from . import output, prompts
 
 
 def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> None:
@@ -33,14 +33,10 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     # Check which files already exist
     existing = [e for e in to_persist if (persist_dir / e.file_path.name).exists()]
     if existing:
-        output.info(f"Files already exist in {persist_dir}:")
+        output.info("Files already exist in {dir}:", dir=str(persist_dir), name="persist_existing")
         for e in existing:
-            output.detail(f"  • {e.file_path.name}")
+            output.detail("  {filename}", filename=e.file_path.name, name="persist_existing_file")
 
-    confirm = output.ConfirmPrompt(
-        [output.YES, output.NO, output.YES_ALL, output.NO_ALL],
-        level="light",
-    )
     apply_all = None  # None = ask each time, True = overwrite all, False = skip all
     for entry in to_persist:
         src = entry.file_path
@@ -50,7 +46,7 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
             if apply_all is not None:
                 overwrite = apply_all
             else:
-                result = confirm.ask(f"Overwrite {dst.name}?")
+                result = prompts.confirm_persist_overwrite.ask(f"Overwrite {dst.name}?")
                 if result.name == "yall":
                     overwrite = True
                     apply_all = True
@@ -61,9 +57,9 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
                     overwrite = result.is_accept
 
             if not overwrite:
-                output.detail(f"Skipped {dst.name}")
+                output.detail("Skipped {filename}", filename=dst.name, name="persist_skipped")
                 continue
 
         shutil.move(str(src), str(dst))
         entry.file_path = dst
-        output.detail(f"Persisted {dst.name} → {persist_dir}")
+        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(persist_dir), name="persist_done")

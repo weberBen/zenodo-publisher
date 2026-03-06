@@ -48,7 +48,7 @@ def _step_archive(
 
     if no_cache:
         origin_url = get_remote_url(project_root)
-        output.info(f"Cloning from {origin_url}")
+        output.info("Cloning from {origin_url}", origin_url=origin_url, name="clone_remote")
         return archive_zip_remote_project(
             origin_url, tag_name, project_name, output_dir)
 
@@ -72,13 +72,22 @@ def _step_display(
     labels = ["Archive"] + all_algos
     pad = max(len(l) for l in labels)
 
-    output.info(f"\n{'Archive':<{pad}}:  {result.file_path}")
+    hashes = {}
+    output.info("\n{label}:  {archive_path}", label=f"{'Archive':<{pad}}",
+                archive_path=str(result.file_path), name="archive_path")
     for algo in all_algos:
         if algo in tree_hashes:
             h = tree_hashes[algo]
         else:
             h = compute_file_hash(result.file_path, algo)["value"]
-        output.info(f"{algo:<{pad}}:  {h}")
+        hashes[algo] = h
+        output.info("{label}:  {hash}", label=f"{algo:<{pad}}", hash=h, name="archive_hash")
+
+    output.data("archive_result", {
+        "path": str(result.file_path),
+        "format": result.format,
+        "hashes": hashes,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +96,8 @@ def _step_display(
 
 def _run_archive(config) -> None:
     """Main archive pipeline."""
-    setup_pipeline(config.project_name_prefix, config.debug, config.project_root)
+    setup_pipeline(config.project_name_prefix, config.debug, config.project_root,
+                   test_mode=getattr(config, "test_mode", False))
 
     # Resolve project name template
     template_context = {"tag_name": config.tag}
@@ -95,7 +105,8 @@ def _run_archive(config) -> None:
         template_context["sha_commit"] = get_commit_of_tag(
             config.project_root, config.tag)
     config.generate_project_name(template_context)
-    output.info_ok(f"Formatted project name: {config.project_name}")
+    output.data("project_name", config.project_name)
+    output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="formatted_project_name")
 
     # Resolve hash algos: config + CLI --hash
     hash_algos = list(config.hash_algorithms or [])

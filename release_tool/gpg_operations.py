@@ -5,7 +5,7 @@ from pathlib import Path
 import gnupg
 
 from . import output
-
+from . import prompts
 
 def _read_gpg_conf_default_key() -> str | None:
     """Read the default-key directive from ~/.gnupg/gpg.conf (read-only)."""
@@ -85,7 +85,7 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None,
             f"Use overwrite option to replace."
         )
 
-    output.detail(f"Signing {file_path.name}...")
+    output.detail("Signing {filename}...", filename=file_path.name, name="gpg_signing")
     gpg = _get_gpg_instance()
     with open(file_path, "rb") as f:
         sig = gpg.sign_file(
@@ -107,7 +107,9 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None,
             f"expected '{gpg_uid}', got fingerprint '{verified.fingerprint}'"
         )
 
-    output.detail_ok(f"{sig_path.name} created (verified: {verified.fingerprint[-16:]})")
+    output.detail_ok("{sig_name} created (verified: {short_fingerprint})",
+                     sig_name=sig_path.name, short_fingerprint=verified.fingerprint[-16:],
+                     ingerprint=verified.fingerprint, name="gpg_signed")
     return sig_path
 
 
@@ -118,14 +120,13 @@ def prompt_gpg_key(gpg_uid: str | None, extra_args: list[str]) -> None:
     fmt_label = "ASCII-armored (.asc)" if armor else "binary (.sig)"
 
     output.info("🔏 Signing files with GPG key:")
-    output.detail(f"Key ID:  {key_info['key_id']}")
-    output.detail(f"Main UID:  {key_info['default-uid']}")
+    output.detail("Key ID:  {key_id}", key_id=key_info['key_id'], name="gpg_key_id")
+    output.detail("Main UID:  {uid}", uid=key_info['default-uid'], name="gpg_main_uid")
 
     for uid in key_info['uids']:
         if uid != key_info['default-uid']:
-            output.detail(f"Other UID: {uid}")
-    output.detail(f"Format:  {fmt_label}")
+            output.detail("Other UID: {uid}", uid=uid, name="gpg_other_uid")
+    output.detail("Format:  {fmt}", fmt=fmt_label, name="gpg_format")
 
-    confirm = output.ConfirmPrompt([output.YES, output.NO], level="danger")
-    if not confirm.ask("Use this key?").is_accept:
+    if not prompts.confirm_gpg_key.ask("Use this key?").is_accept:
         raise RuntimeError("GPG signing aborted by user.")

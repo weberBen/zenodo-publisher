@@ -25,7 +25,7 @@ def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dic
     if not makefile.exists():
         raise FileNotFoundError(f"Makefile not found at {makefile}")
 
-    output.info(f"📄 Building document in {compile_dir}...")
+    output.info("Building document in {compile_dir}...", compile_dir=str(compile_dir), name="compile_start")
 
     env = {**os.environ, **env_vars} if env_vars else None
 
@@ -38,12 +38,12 @@ def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dic
             text=True,
             env=env,
         )
-        output.info_ok("Compilation successful")
+        output.info_ok("Compilation successful", name="compile_ok")
 
     except subprocess.CalledProcessError as e:
-        output.error("Compilation failed")
+        output.error("Compilation failed", name="compile_error")
         if e.stdout:
-            output.detail(f"Stdout:\n{e.stdout}")
+            output.detail("Stdout:\n{stdout}", stdout=e.stdout, name="compile_stdout")
         if e.stderr:
-            output.detail(f"Stderr:\n{e.stderr}")
+            output.detail("Stderr:\n{stderr}", stderr=e.stderr, name="compile_stderr")
         raise RuntimeError("Compilation failed") from e

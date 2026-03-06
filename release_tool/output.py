@@ -1,19 +1,20 @@
-"""Standardized logging output for the release tool.
+"""Standardized output for the release tool.
 
-All console output should go through these helpers to ensure consistent
-formatting across the pipeline and sub-modules.
+All console output goes through these helpers. Internally, every call produces
+a JSON event dict.  In normal mode the event is formatted for humans; in test
+mode (``--test-mode``) each event is printed as a single NDJSON line on stdout.
 
 Levels:
-    step / step_ok / step_warn  — pipeline step headers (with project label)
-    info / info_ok              — top-level messages in sub-modules (no label)
-    detail / detail_ok          — indented sub-operation messages
-    warn / error                — warnings and errors
-    debug                       — only shown when debug=True
+    step / step_ok / step_warn  -- pipeline step headers (with project label)
+    info / info_ok              -- top-level messages in sub-modules (no label)
+    detail / detail_ok          -- indented sub-operation messages
+    warn / error                -- warnings and errors
+    debug                       -- only shown when debug=True
+    data                        -- structured data for test capture (no human output)
 """
 
-import logging
+import json
 import sys
-from dataclasses import dataclass
 import os
 
 if os.name == "posix":  # Linux, macOS, BSD...
@@ -25,118 +26,283 @@ RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
 
 _label = ""
-logger = logging.getLogger("release_tool")
+_test_mode = False
+_debug = False
 
 
-def setup(project_name: str = "", debug: bool = False):
-    """Configure the logger. Called once at pipeline start."""
-    global _label
+# ---------------------------------------------------------------------------
+# Prompt registry
+# ---------------------------------------------------------------------------
+
+_prompt_registry: dict[str, str] = {}  # name -> "prompt" | "confirm"
+
+
+def _register_prompt(name: str, kind: str):
+    if not name:
+        raise RuntimeError("Prompt must have a name")
+    if name in _prompt_registry:
+        if _prompt_registry[name] == kind:
+            return  # same name+kind = OK (loop re-entry on same prompt)
+        raise RuntimeError(f"Duplicate prompt name '{name}' with different kind")
+    _prompt_registry[name] = kind
+
+
+def get_prompt_registry() -> dict[str, str]:
+    """Return a copy of the prompt registry (name -> kind)."""
+    return dict(_prompt_registry)
+
+
+# ---------------------------------------------------------------------------
+# Test config
+# ---------------------------------------------------------------------------
+
+_test_config: dict | None = None
+
+
+def load_test_config(path: str):
+    """Load test config YAML. Called by CLI when --test-config is provided."""
+    global _test_config
+    import yaml
+    with open(path) as f:
+        _test_config = yaml.safe_load(f) or {}
+
+
+def _get_test_response(name: str):
+    """Get test response for a prompt by name. Raises if not found."""
+    if _test_config is None:
+        raise RuntimeError("No test config loaded but test mode is active")
+    prompts = _test_config.get("prompts", {})
+    if name not in prompts:
+        raise RuntimeError(
+            f"No test response for prompt '{name}' in test config. "
+            f"Available: {list(prompts.keys())}"
+        )
+    return prompts[name]
+
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+def setup(project_name: str = "", debug: bool = False, test_mode: bool = False):
+    """Configure output.  Called once at pipeline start."""
+    global _label, _test_mode, _debug
+    _test_mode = test_mode
+    _debug = debug
     _label = f"({RED_UNDERLINE}{project_name}{RESET})" if project_name else ""
 
-    level = logging.DEBUG if debug else logging.INFO
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(level)
 
-    # python-gnupg uses a logger named "gnupg" internally to log gpg command
-    # lines and status messages (see https://gnupg.readthedocs.io/en/stable/).
-    # By attaching our handler, these messages appear in --debug output without
-    # any explicit logging calls in gpg_operations.py.
-    gnupg_logger = logging.getLogger("gnupg")
-    gnupg_logger.addHandler(handler)
-    gnupg_logger.setLevel(level)
+# ---------------------------------------------------------------------------
+# Core build / emit / format
+# ---------------------------------------------------------------------------
+
+def _build_event(type: str, msg: str, **kwargs) -> dict:
+    """Build a JSON event from type, msg template, and kwargs.
+
+    Reserved kwargs (become top-level event fields):
+        name, code, silent
+
+    All remaining kwargs go into event["data"].
+    """
+    event = {"type": type, "msg": msg}
+    for key in ("name", "code", "silent"):
+        if key in kwargs:
+            event[key] = kwargs.pop(key)
+    if kwargs:
+        event["data"] = kwargs
+    return event
 
 
-# --- Step level (pipeline, with project label) ---
+def _emit(event: dict):
+    """Single entry point: NDJSON in test mode, human formatting otherwise."""
+    data = event.get("data", {})
+    msg = event.get("msg", "")
 
-def step(msg: str):
-    """Step header: '\\n(project) 🔍 Checking git...'"""
-    logger.info(f"{_label} {msg}")
+    # Validate: every {key} in msg must exist in data
+    if data and "{" in msg:
+        try:
+            msg.format(**data)
+        except KeyError as e:
+            raise RuntimeError(
+                f"output template references unknown key {e}: "
+                f"msg={msg!r}, data keys={list(data.keys())}"
+            )
 
-
-def step_ok(msg: str, silent=False):
-    """Step success: '(project) ✅ Done!'"""
-    if not silent:
-        logger.info(f"{_label} ✅ {msg}\n")
+    if _test_mode:
+        print(json.dumps(event, default=str), flush=True)
     else:
-        logger.info(f"{msg}")
+        _format_human(event)
 
 
-def step_warn(msg: str):
-    """Step warning: '\\n(project) ⚠️ Skipping...'"""
-    logger.warning(f"\n{_label} ⚠️ {msg}\n")
+def _format_human(event: dict):
+    """Translate a JSON event into the legacy human-friendly output."""
+    t = event["type"]
+    msg = event.get("msg", "")
+    data = event.get("data", {})
+
+    # Resolve template if data present
+    if data and "{" in msg:
+        msg = msg.format(**data)
+
+    if t == "step":
+        print(f"{_label} {msg}")
+    elif t == "step_ok":
+        if not event.get("silent"):
+            print(f"{_label} \u2705 {msg}\n")
+        else:
+            print(msg)
+    elif t == "step_warn":
+        print(f"\n{_label} \u26a0\ufe0f {msg}\n")
+    elif t == "info":
+        print(msg)
+    elif t == "info_ok":
+        print(f"\u2713 {msg}")
+    elif t == "detail":
+        print(f"  {msg}")
+    elif t == "detail_ok":
+        print(f"  \u2713 {msg}")
+    elif t == "warn":
+        print(f"\u26a0\ufe0f {msg}")
+    elif t == "error":
+        txt = f"\u274c {msg}"
+        exc = event.get("exc")
+        if exc:
+            txt += f"\n{exc}"
+        print(txt)
+    elif t == "fatal":
+        print(f"\n\U0001f480\u274c\U0001f480 {RED_UNDERLINE}{msg}{RESET} \U0001f480\u274c\U0001f480")
+    elif t == "cmd":
+        if _debug:
+            print(f"  $ {msg}")
+    elif t == "debug":
+        if _debug:
+            print(f"  [debug] {msg}")
+    elif t == "data":
+        # Structured data: no human output (visible in --debug)
+        if _debug:
+            print(f"  [data:{event.get('code', '?')}] {json.dumps(event.get('value', ''), default=str)}")
+    elif t in ("prompt", "confirm"):
+        pass  # handled by prompt()/ConfirmPrompt.ask(), not _format_human
+    # unknown types are silently ignored
 
 
-# --- Info level (no label, top-level messages in sub-modules) ---
+# ---------------------------------------------------------------------------
+# Public API -- step level (pipeline, with project label)
+# ---------------------------------------------------------------------------
 
-def info(msg: str):
-    """Plain info message."""
-    logger.info(msg)
-
-
-def info_ok(msg: str):
-    """Info success: '✓ Repository up to date'"""
-    logger.info(f"✓ {msg}")
+def step(msg: str, **kwargs):
+    _emit(_build_event("step", msg, **kwargs))
 
 
-# --- Detail level (indented, sub-operations) ---
-
-def detail(msg: str):
-    """Sub-operation: '  Uploading file.pdf...'"""
-    logger.info(f"  {msg}")
+def step_ok(msg: str, **kwargs):
+    _emit(_build_event("step_ok", msg, **kwargs))
 
 
-def detail_ok(msg: str):
-    """Sub-operation success: '  ✓ file.pdf uploaded'"""
-    logger.info(f"  ✓ {msg}")
+def step_warn(msg: str, **kwargs):
+    _emit(_build_event("step_warn", msg, **kwargs))
 
 
-# --- Warning / Error / Debug ---
+# ---------------------------------------------------------------------------
+# Public API -- info level (no label)
+# ---------------------------------------------------------------------------
 
-def warn(msg: str):
-    """Warning without label: '⚠️ Something wrong'"""
-    logger.warning(f"⚠️ {msg}")
+def info(msg: str, **kwargs):
+    _emit(_build_event("info", msg, **kwargs))
 
 
-def error(msg: str, exc: Exception | None = None):
-    """Error: '❌ Something failed'"""
-    logger.error(f"❌ {msg}")
+def info_ok(msg: str, **kwargs):
+    _emit(_build_event("info_ok", msg, **kwargs))
+
+
+# ---------------------------------------------------------------------------
+# Public API -- detail level (indented)
+# ---------------------------------------------------------------------------
+
+def detail(msg: str, **kwargs):
+    _emit(_build_event("detail", msg, **kwargs))
+
+
+def detail_ok(msg: str, **kwargs):
+    _emit(_build_event("detail_ok", msg, **kwargs))
+
+
+# ---------------------------------------------------------------------------
+# Public API -- warn / error / debug
+# ---------------------------------------------------------------------------
+
+def warn(msg: str, **kwargs):
+    _emit(_build_event("warn", msg, **kwargs))
+
+
+def error(msg: str, exc: Exception | None = None, **kwargs):
+    event = _build_event("error", msg, **kwargs)
     if exc:
-        logger.error(str(exc))
+        event["exc"] = str(exc)
+        event["error_type"] = type(exc).__name__
+    _emit(event)
 
 
-def fatal(msg: str):
-    """Fatal error with decorative framing."""
-    logger.error(f"\n💀❌💀 {RED_UNDERLINE}{msg}{RESET} 💀❌💀")
+def fatal(msg: str, **kwargs):
+    _emit(_build_event("fatal", msg, **kwargs))
 
 
-def debug(msg: str):
-    """Debug (hidden when debug=False): '  [debug] value=42'"""
-    logger.debug(f"  [debug] {msg}")
+def debug(msg: str, **kwargs):
+    _emit(_build_event("debug", msg, **kwargs))
 
 
 def cmd(args: list[str]):
-    """Log a subprocess command (debug only): '  $ git status'"""
-    logger.debug(f"  $ {' '.join(args)}")
+    _emit({"type": "cmd", "msg": " ".join(args)})
 
 
-# --- User input ---
+# ---------------------------------------------------------------------------
+# Public API -- structured data (captured by tests)
+# ---------------------------------------------------------------------------
+
+def data(code: str, value):
+    """Emit a structured data event.
+
+    In test mode this is a regular NDJSON line; in human mode it is only
+    visible with --debug.
+    """
+    _emit({"type": "data", "code": code, "value": value})
+
+
+# ---------------------------------------------------------------------------
+# User input
+# ---------------------------------------------------------------------------
 
 def _flush_stdin():
+    if not sys.stdin.isatty():
+        return
     if os.name == "posix":
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     else:
         while msvcrt.kbhit():
             msvcrt.getch()
 
-def prompt(msg: str) -> str:
-    """Prompt the user for input, flushing any buffered keystrokes first."""
+
+def prompt(msg: str, *, name: str) -> str:
+    """Prompt the user for free-text input.
+
+    Args:
+        msg: The prompt message displayed to the user.
+        name: Unique prompt identifier (mandatory). Used for test config lookup.
+    """
+    _register_prompt(name, "prompt")
+    if _test_mode:
+        value = str(_get_test_response(name))
+        _emit({"type": "prompt", "name": name, "msg": msg, "response": value})
+        return value
     _flush_stdin()
     return input(f"{msg}: ").strip()
 
 
-# --- Confirmation prompt ---
+# ---------------------------------------------------------------------------
+# Confirmation prompt
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class PromptOption:
@@ -159,7 +325,8 @@ class ConfirmPrompt:
 
     Args:
         options: List of PromptOption instances available for this prompt.
-        level: Accepted form level — "danger", "light", or "complete".
+        name: Unique prompt identifier (mandatory). Used for registry and test config.
+        level: Accepted form level -- "danger", "light", or "complete".
             - danger: enter_confirms implied, any input accepted.
             - light: both light and complete forms accepted.
             - complete: only complete forms accepted.
@@ -171,24 +338,29 @@ class ConfirmPrompt:
     def __init__(
         self,
         options: list[PromptOption],
+        *,
+        name: str,
         level: str = "light",
         enter_confirms: bool = False,
         double_confirm: bool = False,
         secure_value: str | None = None,
     ):
-        self.options = options
+        self.name = name
+        self.options = list(options)  # copy to avoid mutating caller's list
         self.level = level
-        
+
+        _register_prompt(name, "confirm")
+
         self.enter_confirms = enter_confirms or level == "danger"
         if self.enter_confirms:
             self.options.append(ENTER)
-        
+
         self.double_confirm = double_confirm
-        
+
         self.secure_value = secure_value
         if self.secure_value:
-            self.options = [PromptOption("secure_value", secure_value,  secure_value, True)]
-        
+            self.options = [PromptOption("secure_value", secure_value, secure_value, True)]
+
         self._accepted = self._build_accepted()
 
     def _build_accepted(self) -> dict[str, PromptOption]:
@@ -196,13 +368,17 @@ class ConfirmPrompt:
         accepted = {}
         for opt in self.options:
             if self.level in ["danger", "light"]:
-                # Any input accepted, map both forms
                 accepted[opt.light.lower()] = opt
                 accepted[opt.complete.lower()] = opt
             else:
                 accepted[opt.complete.lower()] = opt
-        
+
         return accepted
+
+    @property
+    def option_names(self) -> list[str]:
+        """List of valid option names for this prompt."""
+        return [o.name for o in self.options]
 
     @property
     def hint(self) -> str:
@@ -222,29 +398,40 @@ class ConfirmPrompt:
     def _ask(self, message: str, accepted: dict) -> PromptOption:
         match = None
         while match is None:
-            response = prompt(message)
-            
-            # Empty input
+            _flush_stdin()
+            response = input(f"{message}: ").strip()
+
             if not response:
                 response = ""
-            
-            # Match against accepted forms
+
             match = accepted.get(response.lower())
             if not match and response:
                 return NO
-        
+
         return match
-    
+
     def ask(self, message: str) -> PromptOption:
         """Prompt the user until a valid option is entered.
 
-        Returns:
-            The matched PromptOption.
+        In test mode, looks up the response from the test config file.
         """
-        
+        if _test_mode:
+            response = str(_get_test_response(self.name))
+            match = next((o for o in self.options if o.name == response), None)
+            if match is None:
+                raise RuntimeError(
+                    f"Invalid test response '{response}' for prompt '{self.name}'. "
+                    f"Valid options: {self.option_names}"
+                )
+            _emit({"type": "confirm", "name": self.name, "msg": message,
+                   "options": self.option_names, "response": response})
+            return match
+
         match = self._ask(f"{message} [{self.hint}]", self._accepted)
-        
+
         if self.double_confirm:
-            match = self.ask("Are you sure? [y/n/Enter]", {YES, NO, ENTER})
-        
+            match = self._ask("Are you sure? [y/n/Enter]",
+                              {o.light.lower(): o for o in [YES, NO, ENTER]}
+                              | {o.complete.lower(): o for o in [YES, NO, ENTER]})
+
         return match
