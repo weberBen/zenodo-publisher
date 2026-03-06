@@ -47,10 +47,10 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
                 overwrite = apply_all
             else:
                 result = prompts.confirm_persist_overwrite.ask(f"Overwrite {dst.name}?")
-                if result.name == "yall":
+                if result.value == "yall":
                     overwrite = True
                     apply_all = True
-                elif result.name == "nall":
+                elif result.value == "nall":
                     overwrite = False
                     apply_all = False
                 else:

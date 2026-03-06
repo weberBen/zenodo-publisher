@@ -84,20 +84,21 @@ def _step_release(config) -> str:
     output.step("📝 Creating new release...")
 
     while True:
-        new_tag = output.prompt("Enter new tag name", name="enter_tag")
-        if new_tag:
+        result = prompts.enter_tag.ask("Enter new tag name")
+        if result.is_accept:
+            new_tag = result.value
             break
         output.warn("Tag name cannot be empty")
 
-    release_title = output.prompt(
+    result = prompts.release_title.ask(
         f"Enter release title (press Enter to use '{new_tag}')",
-        name="release_title",
     )
-    if not release_title:
-        release_title = new_tag
+    release_title = result.value if result.value else new_tag
+    if release_title == new_tag:
         output.detail("Using default title: {title}", title=release_title, name="default_title")
 
-    release_notes = output.prompt("Enter release notes (press Enter to skip)", name="release_notes")
+    result = prompts.release_notes.ask("Enter release notes (press Enter to skip)")
+    release_notes = result.value
     if not release_notes:
         release_notes = ""
         output.detail("No release notes provided")

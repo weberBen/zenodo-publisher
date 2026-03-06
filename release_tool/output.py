@@ -16,6 +16,7 @@ Levels:
 import json
 import sys
 import os
+from dataclasses import dataclass
 
 if os.name == "posix":  # Linux, macOS, BSD...
     import termios
@@ -28,28 +29,6 @@ RESET = "\033[0m"
 _label = ""
 _test_mode = False
 _debug = False
-
-
-# ---------------------------------------------------------------------------
-# Prompt registry
-# ---------------------------------------------------------------------------
-
-_prompt_registry: dict[str, str] = {}  # name -> "prompt" | "confirm"
-
-
-def _register_prompt(name: str, kind: str):
-    if not name:
-        raise RuntimeError("Prompt must have a name")
-    if name in _prompt_registry:
-        if _prompt_registry[name] == kind:
-            return  # same name+kind = OK (loop re-entry on same prompt)
-        raise RuntimeError(f"Duplicate prompt name '{name}' with different kind")
-    _prompt_registry[name] = kind
-
-
-def get_prompt_registry() -> dict[str, str]:
-    """Return a copy of the prompt registry (name -> kind)."""
-    return dict(_prompt_registry)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +161,7 @@ def _format_human(event: dict):
         if _debug:
             print(f"  [data:{event.get('code', '?')}] {json.dumps(event.get('value', ''), default=str)}")
     elif t in ("prompt", "confirm"):
-        pass  # handled by prompt()/ConfirmPrompt.ask(), not _format_human
+        pass  # handled by Prompt.ask(), not _format_human
     # unknown types are silently ignored
 
 
@@ -268,7 +247,7 @@ def data(code: str, value):
 
 
 # ---------------------------------------------------------------------------
-# User input
+# User input helpers
 # ---------------------------------------------------------------------------
 
 def _flush_stdin():
@@ -281,33 +260,14 @@ def _flush_stdin():
             msvcrt.getch()
 
 
-def prompt(msg: str, *, name: str) -> str:
-    """Prompt the user for free-text input.
-
-    Args:
-        msg: The prompt message displayed to the user.
-        name: Unique prompt identifier (mandatory). Used for test config lookup.
-    """
-    _register_prompt(name, "prompt")
-    if _test_mode:
-        value = str(_get_test_response(name))
-        _emit({"type": "prompt", "name": name, "msg": msg, "response": value})
-        return value
-    _flush_stdin()
-    return input(f"{msg}: ").strip()
-
-
 # ---------------------------------------------------------------------------
-# Confirmation prompt
+# Prompt system
 # ---------------------------------------------------------------------------
-
-from dataclasses import dataclass
-
 
 @dataclass(frozen=True)
 class PromptOption:
-    """A single option for a confirmation prompt."""
-    name: str         # returned value: "yes", "no", "yall", "nall"
+    """A single option for a prompt."""
+    name: str         # returned value: "yes", "no", "yall", "nall", "text", "text_optional"
     complete: str     # long form: "yes", "no", "yes all", "no all"
     light: str        # short form: "y", "n", "yall", "nall"
     is_accept: bool   # True for affirmative options
@@ -319,21 +279,38 @@ YES_ALL = PromptOption("yall", "yes all", "yall", True)
 NO_ALL  = PromptOption("nall", "no all",  "nall", False)
 ENTER   = PromptOption("enter", "",  "", True)
 
+# Text options: special markers detected by Prompt to switch to text mode
+TEXT          = PromptOption("text",          "", "", True)
+TEXT_OPTIONAL = PromptOption("text_optional", "", "", True)
 
-class ConfirmPrompt:
-    """Reusable confirmation prompt with configurable validation level.
+
+@dataclass(frozen=True)
+class PromptResult:
+    """Result returned by Prompt.ask()."""
+    name: str        # prompt name (e.g. "confirm_build", "enter_tag")
+    is_accept: bool  # True if the answer is affirmative / valid
+    value: str       # option name for confirm ("yes", "no", ...) or text for text prompts
+
+
+class Prompt:
+    """Unified prompt class for both confirmations and text input.
+
+    Text mode is activated when options contain TEXT or TEXT_OPTIONAL.
+    In text mode, ask() reads free-text input and validates non-empty (TEXT)
+    or accepts empty (TEXT_OPTIONAL).
+
+    Confirm mode validates input against the configured options.
 
     Args:
-        options: List of PromptOption instances available for this prompt.
+        options: List of PromptOption instances.
         name: Unique prompt identifier (mandatory). Used for registry and test config.
-        level: Accepted form level -- "danger", "light", or "complete".
-            - danger: enter_confirms implied, any input accepted.
-            - light: both light and complete forms accepted.
-            - complete: only complete forms accepted.
-        enter_confirms: If True, empty input returns the first accept option.
-        double_confirm: If True, after enter/shortcut confirm, ask "are you sure?".
-        secure_value: If set, typing this exact string counts as accept.
+        level: Accepted form level -- "danger", "light", or "complete" (confirm mode only).
+        enter_confirms: If True, empty input returns the first accept option (confirm mode).
+        double_confirm: If True, after enter/shortcut confirm, ask "are you sure?" (confirm mode).
+        secure_value: If set, typing this exact string counts as accept (confirm mode).
     """
+
+    _registry: dict[str, str] = {}  # name -> "text" | "confirm"
 
     def __init__(
         self,
@@ -346,25 +323,42 @@ class ConfirmPrompt:
         secure_value: str | None = None,
     ):
         self.name = name
-        self.options = list(options)  # copy to avoid mutating caller's list
-        self.level = level
+        self.options = list(options)
 
-        _register_prompt(name, "confirm")
+        # Detect text mode
+        self._is_text = any(o.name in ("text", "text_optional") for o in self.options)
+        kind = "text" if self._is_text else "confirm"
+        Prompt._register(name, kind)
 
-        self.enter_confirms = enter_confirms or level == "danger"
-        if self.enter_confirms:
-            self.options.append(ENTER)
+        if not self._is_text:
+            self.level = level
+            self.enter_confirms = enter_confirms or level == "danger"
+            if self.enter_confirms:
+                self.options.append(ENTER)
+            self.double_confirm = double_confirm
+            self.secure_value = secure_value
+            if self.secure_value:
+                self.options = [PromptOption("secure_value", secure_value, secure_value, True)]
+            self._accepted = self._build_accepted()
 
-        self.double_confirm = double_confirm
+    @classmethod
+    def _register(cls, name: str, kind: str):
+        if not name:
+            raise RuntimeError("Prompt must have a name")
+        if name in cls._registry:
+            if cls._registry[name] == kind:
+                return  # same name+kind = OK (loop re-entry on same prompt)
+            raise RuntimeError(f"Duplicate prompt name '{name}' with different kind")
+        cls._registry[name] = kind
 
-        self.secure_value = secure_value
-        if self.secure_value:
-            self.options = [PromptOption("secure_value", secure_value, secure_value, True)]
+    @classmethod
+    def get_registry(cls) -> dict[str, str]:
+        """Return a copy of the prompt registry (name -> kind)."""
+        return dict(cls._registry)
 
-        self._accepted = self._build_accepted()
+    # -- Confirm mode internals --
 
     def _build_accepted(self) -> dict[str, PromptOption]:
-        """Build mapping of accepted input strings to their PromptOption."""
         accepted = {}
         for opt in self.options:
             if self.level in ["danger", "light"]:
@@ -372,17 +366,16 @@ class ConfirmPrompt:
                 accepted[opt.complete.lower()] = opt
             else:
                 accepted[opt.complete.lower()] = opt
-
         return accepted
 
     @property
     def option_names(self) -> list[str]:
-        """List of valid option names for this prompt."""
         return [o.name for o in self.options]
 
     @property
     def hint(self) -> str:
-        """Auto-generated hint string from active forms."""
+        if self._is_text:
+            return ""
         if self.secure_value:
             return self.secure_value
         if self.enter_confirms and not self.double_confirm:
@@ -395,7 +388,58 @@ class ConfirmPrompt:
                 parts.append(opt.light)
         return "/".join(parts)
 
-    def _ask(self, message: str, accepted: dict) -> PromptOption:
+    # -- Main API --
+
+    def ask(self, message: str) -> PromptResult:
+        """Prompt the user and return a PromptResult.
+
+        In test mode, looks up the response from the test config file.
+        """
+        if self._is_text:
+            return self._ask_text(message)
+        return self._ask_confirm(message)
+
+    # -- Text mode --
+
+    def _ask_text(self, message: str) -> PromptResult:
+        optional = any(o.name == "text_optional" for o in self.options)
+
+        if _test_mode:
+            value = str(_get_test_response(self.name))
+            _emit({"type": "prompt", "name": self.name, "msg": message, "response": value})
+            is_accept = bool(value) or optional
+            return PromptResult(name=self.name, is_accept=is_accept, value=value)
+
+        _flush_stdin()
+        value = input(f"{message}: ").strip()
+        is_accept = bool(value) or optional
+        return PromptResult(name=self.name, is_accept=is_accept, value=value)
+
+    # -- Confirm mode --
+
+    def _ask_confirm(self, message: str) -> PromptResult:
+        if _test_mode:
+            response = str(_get_test_response(self.name))
+            match = next((o for o in self.options if o.name == response), None)
+            if match is None:
+                raise RuntimeError(
+                    f"Invalid test response '{response}' for prompt '{self.name}'. "
+                    f"Valid options: {self.option_names}"
+                )
+            _emit({"type": "confirm", "name": self.name, "msg": message,
+                   "options": self.option_names, "response": response})
+            return PromptResult(name=self.name, is_accept=match.is_accept, value=match.name)
+
+        match = self._ask_input(f"{message} [{self.hint}]", self._accepted)
+
+        if self.double_confirm:
+            match = self._ask_input("Are you sure? [y/n/Enter]",
+                                    {o.light.lower(): o for o in [YES, NO, ENTER]}
+                                    | {o.complete.lower(): o for o in [YES, NO, ENTER]})
+
+        return PromptResult(name=self.name, is_accept=match.is_accept, value=match.name)
+
+    def _ask_input(self, message: str, accepted: dict) -> PromptOption:
         match = None
         while match is None:
             _flush_stdin()
@@ -407,31 +451,5 @@ class ConfirmPrompt:
             match = accepted.get(response.lower())
             if not match and response:
                 return NO
-
-        return match
-
-    def ask(self, message: str) -> PromptOption:
-        """Prompt the user until a valid option is entered.
-
-        In test mode, looks up the response from the test config file.
-        """
-        if _test_mode:
-            response = str(_get_test_response(self.name))
-            match = next((o for o in self.options if o.name == response), None)
-            if match is None:
-                raise RuntimeError(
-                    f"Invalid test response '{response}' for prompt '{self.name}'. "
-                    f"Valid options: {self.option_names}"
-                )
-            _emit({"type": "confirm", "name": self.name, "msg": message,
-                   "options": self.option_names, "response": response})
-            return match
-
-        match = self._ask(f"{message} [{self.hint}]", self._accepted)
-
-        if self.double_confirm:
-            match = self._ask("Are you sure? [y/n/Enter]",
-                              {o.light.lower(): o for o in [YES, NO, ENTER]}
-                              | {o.complete.lower(): o for o in [YES, NO, ENTER]})
 
         return match
