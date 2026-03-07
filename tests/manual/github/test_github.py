@@ -43,7 +43,7 @@ def pause(label: str = ""):
 
 github = GithubClient(GIT_REPO_PATH)
 
-print("Git repo", GIT_REPO_PATH)
+print("Git repo", github.repo_dir)
 print("Data dir", DEFAULT_DIR)
 
 pause("get_list_release")
