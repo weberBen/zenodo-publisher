@@ -1,4 +1,7 @@
 from pathlib import Path
+import hashlib
+import string
+import random
 
 ZENODO_API_URL = "https://sandbox.zenodo.org/api"
 
@@ -21,3 +24,6 @@ def get_test_dir(anchor: Path | None = None) -> Path:
             return current
         current = current.parent
     raise FileNotFoundError("Could not find 'tests' directory")
+
+def get_random_string(length=6):
+    return "".join(random.choices(string.ascii_letters, k=length))
