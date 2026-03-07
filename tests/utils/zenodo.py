@@ -7,6 +7,12 @@ import requests
 from pathlib import Path
 
 
+def _check(r: requests.Response) -> None:
+    if not r.ok:
+        print(f"HTTP error {r.status_code} {r.request.method} {r.url}: {r.text}")
+    r.raise_for_status()
+
+
 class ZenodoClient:
     """Lightweight REST client for verifying Zenodo state after publication."""
 
@@ -19,7 +25,7 @@ class ZenodoClient:
 
     def get_record(self, record_id: str) -> dict:
         r = self.session.get(f"{self.api_url}/records/{record_id}")
-        r.raise_for_status()
+        _check(r)
         return r.json()
 
     def get_record_metadata(self, record_id: str) -> dict:
@@ -28,7 +34,7 @@ class ZenodoClient:
 
     def get_latest_version(self, concept_id: str) -> dict:
         r = self.session.get(f"{self.api_url}/records/{concept_id}/versions/latest")
-        r.raise_for_status()
+        _check(r)
         return r.json()
 
     def _get_versions(
@@ -70,7 +76,7 @@ class ZenodoClient:
                     "sort": sort,
                 },
             )
-            r.raise_for_status()
+            _check(r)
             data = r.json()
             hits = data.get("hits", {}).get("hits", [])
             if not hits:
@@ -139,7 +145,7 @@ class ZenodoClient:
             },
         )
             
-        r.raise_for_status()
+        _check(r)
         data = r.json()
         hits = data.get("hits", {}).get("hits", [])
         if not hits:
@@ -175,7 +181,7 @@ class ZenodoClient:
     def list_files(self, record_id: str) -> list[dict]:
         """List files for a record. Returns [{key, checksum, size}, ...]."""
         r = self.session.get(f"{self.api_url}/records/{record_id}/files")
-        r.raise_for_status()
+        _check(r)
         return r.json().get("entries", [])
 
     def download_file(self, record_id: str, filename: str, dest_dir: Path) -> Path:
@@ -185,7 +191,7 @@ class ZenodoClient:
             f"{self.api_url}/records/{record_id}/files/{filename}/content",
             stream=True,
         )
-        r.raise_for_status()
+        _check(r)
         dest = dest_dir / filename
         with open(dest, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -202,7 +208,13 @@ class ZenodoClient:
 
     # --- Draft management ---
 
+    def create_draft(self, record_id: str) -> dict:
+        """Create a new draft version from an existing published record."""
+        r = self.session.post(f"{self.api_url}/records/{record_id}/versions")
+        _check(r)
+        return r.json()
+
     def delete_draft(self, record_id: str):
         """Delete a draft version (best-effort, ignores errors)."""
         r = self.session.delete(f"{self.api_url}/records/{record_id}/draft")
-        r.raise_for_status()
+        _check(r)

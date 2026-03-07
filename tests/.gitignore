@@ -1,1 +1,4 @@
-manual/*
+manual/*/*.json
+*.env
+manual/*/data/*
+*.json
