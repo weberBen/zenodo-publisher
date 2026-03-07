@@ -53,6 +53,7 @@ def run_git_command(args: list[str], cwd: Path) -> str:
             capture_output=True,
             text=True,
         )
+        # git dryrun write on stderr not stdout
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         raise GitError(f"Git command failed: {' '.join(args)}\n{e.stderr}") from e
@@ -106,7 +107,46 @@ def has_local_modifs(project_root: Path, main_branch: str) -> bool:
     """
     result = run_git_command(["status", "--porcelain"], project_root)
     return result.strip() != ""
+
+def has_unpushed_commits(project_root: Path, main_branch: str) -> bool:
+    """
+    Check if there are local commits not pushed to remote.
+    Compares refs directly via git log, no text parsing.
+
+    Returns:
+        True if there are unpushed commits, False otherwise
+    """
+    result = run_git_command(
+        ["log", f"origin/{main_branch}..HEAD", "--oneline"],
+        project_root
+    )
+    return result.strip() != ""
+
+
+def has_unpushed_tags(project_root: Path) -> bool:
+    """
+    Check if there are local tags not pushed to remote.
+    Compares local refs vs remote refs directly, no text parsing.
+
+    Returns:
+        True if there are unpushed tags, False otherwise
+    """
+    local_tags = set(
+        run_git_command(["tag", "-l"], project_root).splitlines()
+    )
     
+    # --refs allow to remove ^{} defference like 'v0.3.0^{}'
+    remote_out = run_git_command(
+        ["ls-remote", "--tags", "--refs", "origin"], project_root
+    )
+    remote_tags = {
+        line.split("/")[-1]
+        for line in remote_out.splitlines()
+        if line and "^{}" not in line  # ignorer les lignes de déréférencement
+    }
+    
+    return bool(local_tags - remote_tags)
+
 
 def check_up_to_date(project_root: Path, main_branch: str) -> None:
     """
@@ -124,8 +164,20 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
         )
     if has_local_modifs(project_root, main_branch):
         raise GitError(
-            f"Local branch has local modififs/commit\n"
+            f"Local branch has local modifications/commits\n"
             f"Please pull/push the latest changes first"
+        )
+    
+    if has_unpushed_commits(project_root):
+        raise GitError(
+            "Local commits are not pushed to remote\n"
+            "Please push tags first: git push --tags"
+        )
+    
+    if has_unpushed_tags(project_root):
+        raise GitError(
+            "Local tags are not pushed to remote\n"
+            "Please push tags first: git push --tags"
         )
         
     output.info_ok("Repository is up to date with origin/{branch}", branch=main_branch, name="repo_up_to_date")
