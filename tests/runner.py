@@ -160,37 +160,30 @@ def run_single_test(test_dir: Path, repo_dir: Path, base_dir: Path,
             print(f"  SKIP: no test.py or no run()")
         return True
 
-    # Load test config
+    # Load test config (optional)
     test_config = load_test_config(test_dir)
-    if test_config is None:
-        print(f"  SKIP: no {TEST_CONFIG_FILENAME}")
-        return True
 
-    cli_section = test_config.get("cli", {})
-    command = cli_section.get("command")
-    if not command:
-        print(f"  SKIP: no cli.command in {TEST_CONFIG_FILENAME}")
-        return True
+    # If test.config.yaml exists with cli.command, run zp first
+    result = None
+    if test_config:
+        cli_section = test_config.get("cli", {})
+        command = cli_section.get("command")
+        if command:
+            cli_args = cli_section.get("args", [])
+            test_config_path = test_dir / TEST_CONFIG_FILENAME
+            prompts_section = test_config.get("prompts", {})
 
-    cli_args = cli_section.get("args", [])
+            print(f"  Running: zp {command} --test-mode --test-config {test_config_path.name} {' '.join(cli_args)}")
+            result = runner.run_with_config(command, cli_args,
+                                             test_config_path=test_config_path)
 
-    # Build the test config file path for --test-config
-    test_config_path = test_dir / TEST_CONFIG_FILENAME
-    prompts_section = test_config.get("prompts", {})
-
-    # Run zp
-    print(f"  Running: zp {command} --test-mode --test-config {test_config_path.name} {' '.join(cli_args)}")
-    result = runner.run_with_config(command, cli_args,
-                                     test_config_path=test_config_path)
-
-    # Verify prompt exhaustivity
-    if prompts_section and result.events:
-        try:
-            verify_prompts(result.events, set(prompts_section.keys()))
-        except AssertionError as e:
-            print(f"  FAIL: {name} (prompt verification)")
-            print(f"    {e}")
-            return False
+            if prompts_section and result.events:
+                try:
+                    verify_prompts(result.events, set(prompts_section.keys()))
+                except AssertionError as e:
+                    print(f"  FAIL: {name} (prompt verification)")
+                    print(f"    {e}")
+                    return False
 
     # Load repo config
     ctx["repo_config"] = load_repo_config(repo_dir)
