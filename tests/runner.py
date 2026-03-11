@@ -10,12 +10,11 @@ Usage:
     python tests/runner.py --work-dir /path/to/test-repo
     python tests/runner.py --work-dir /path/to/test-repo --start-from test_10_release
 
-The test repo is a real GitHub repo that test_00_base resets to a known state.
+The test repo is a real GitHub repo that test_00 resets to a known state.
 """
 
 import argparse
 import importlib.util
-import shutil
 import sys
 from pathlib import Path
 
@@ -24,13 +23,53 @@ import yaml
 TESTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(TESTS_DIR.parent))
 
+REPO_CONFIG_FILENAME = "zenodo_config.yaml"
+TEST_ENV_FILENAME = ".zenodo.test.env"
+BASE_TEST_DIR_NAME = "test_00_reset"
+
 from tests.utils.cli import ZpRunner
-from tests.utils.git import reset_repo_files, git_add_and_commit, git_push, git_remote_url
+from tests.utils.git import GitClient
 from tests.utils.ndjson import verify_prompts
 
 TEST_CONFIG_FILENAME = "test.config.yaml"
 TEST_PY_NAME = "test.py"
 PROTECTED_FILES = [TEST_CONFIG_FILENAME, TEST_PY_NAME]
+
+
+class AttrDict(dict):
+    """Dict with attribute access."""
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+
+def load_test_env(tests_dir: Path) -> dict[str, str]:
+    """Load .zenodo.test.env from tests dir. Returns empty dict if missing."""
+    path = tests_dir / TEST_ENV_FILENAME
+    if not path.exists():
+        raise Exception(f"Test file config is mendatory '{path}' does not exists")
+    env = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        env[key.strip()] = value.strip().strip('"')
+    return env
+
+
+def load_repo_config(repo_dir: Path) -> AttrDict | None:
+    """Load zenodo_config.yaml from repo, or None if missing."""
+    path = repo_dir / REPO_CONFIG_FILENAME
+    if not path.exists():
+        return None
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        return None
+    return AttrDict(data)
 
 
 def discover_tests(tests_dir: Path) -> list[Path]:
@@ -41,28 +80,35 @@ def discover_tests(tests_dir: Path) -> list[Path]:
     )
 
 
-def apply_test_files(test_dir: Path, repo_dir: Path, base_dir: Path):
-    """Apply test file overrides to the repo.
+def _extract_test_num(test_dir: Path) -> str | None:
+    """Extract the numeric prefix from a test dir name (e.g. 'test_01_foo' -> '01')."""
+    parts = test_dir.name.split("_", 2)
+    if len(parts) >= 2 and parts[1].isdigit():
+        return parts[1]
+    return None
 
-    For each file in test_dir (except test.py and test.config.yaml),
-    copy it to repo_dir, overriding the base.
-    Files not present in test_dir keep their base version.
+
+def filter_tests(tests: list[Path], range_spec: str) -> list[Path]:
+    """Filter tests by range spec.
+
+    Formats: '01' (single), '01-12' (range), '01-*' (from 01), '*-07' (up to 07).
     """
-    # First reset to base
-    reset_repo_files(repo_dir, base_dir)
+    if "-" in range_spec:
+        start, end = range_spec.split("-", 1)
+    else:
+        start, end = range_spec, range_spec
 
-    # Then apply test-specific overrides
-    for item in test_dir.iterdir():
-        if item.name in PROTECTED_FILES:
+    filtered = []
+    for t in tests:
+        num = _extract_test_num(t)
+        if num is None:
             continue
-        dst = repo_dir / item.name
-        if item.is_dir():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(item, dst)
-        else:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst)
+        if start != "*" and num < start.zfill(len(num)):
+            continue
+        if end != "*" and num > end.zfill(len(num)):
+            continue
+        filtered.append(t)
+    return filtered
 
 
 def load_test_config(test_dir: Path) -> dict | None:
@@ -93,17 +139,26 @@ def run_single_test(test_dir: Path, repo_dir: Path, base_dir: Path,
     print(f"  {name}")
     print(f"{'='*60}")
 
-    # Special case: test_00_base just resets the repo
+    # Special case: test_00 — run test.py directly (no zp run)
     if name.startswith("test_00"):
-        print("  Resetting repo to base template...")
-        reset_repo_files(repo_dir, base_dir)
-        git_add_and_commit(repo_dir, msg="reset to base template")
-        git_push(repo_dir)
-        print("  OK: repo reset")
+        ctx["repo_config"] = load_repo_config(repo_dir)
+        module = load_test_module(test_dir)
+        if module and hasattr(module, "run"):
+            try:
+                ctx["result"] = None
+                module.run(ctx)
+                print(f"  PASS: {name}")
+            except AssertionError as e:
+                print(f"  FAIL: {name}")
+                print(f"    {e}")
+                return False
+            except Exception as e:
+                print(f"  ERROR: {name}")
+                print(f"    {type(e).__name__}: {e}")
+                return False
+        else:
+            print(f"  SKIP: no test.py or no run()")
         return True
-
-    # Apply files (base + overrides)
-    apply_test_files(test_dir, repo_dir, base_dir)
 
     # Load test config
     test_config = load_test_config(test_dir)
@@ -137,6 +192,9 @@ def run_single_test(test_dir: Path, repo_dir: Path, base_dir: Path,
             print(f"    {e}")
             return False
 
+    # Load repo config
+    ctx["repo_config"] = load_repo_config(repo_dir)
+
     # Load and run test.py
     module = load_test_module(test_dir)
     if module is None:
@@ -148,7 +206,8 @@ def run_single_test(test_dir: Path, repo_dir: Path, base_dir: Path,
         return True
 
     try:
-        module.run(result=result, repo_dir=repo_dir, ctx=ctx)
+        ctx["result"] = result
+        module.run(ctx)
         print(f"  PASS: {name}")
         return True
     except AssertionError as e:
@@ -163,48 +222,48 @@ def run_single_test(test_dir: Path, repo_dir: Path, base_dir: Path,
 
 def main():
     parser = argparse.ArgumentParser(description="E2E test runner for zp")
-    parser.add_argument("--work-dir", required=True,
-                        help="Path to the test git repo")
-    parser.add_argument("--start-from", default=None,
-                        help="Start from this test (skip earlier ones)")
+    parser.add_argument("range", nargs="?", default=None,
+                        help="Test range: 01, 01-12, 01-*, *-07 (default: all)")
     args = parser.parse_args()
 
-    repo_dir = Path(args.work_dir).resolve()
+    # Load test env and resolve repo_dir from it
+    test_env = load_test_env(TESTS_DIR)
+
+    repo_dir = Path(test_env["GIT_REPO_PATH"]).resolve()
     if not (repo_dir / ".git").exists():
         print(f"Error: {repo_dir} is not a git repository", file=sys.stderr)
         sys.exit(1)
 
-    remote_url = git_remote_url(repo_dir)
-    print(f"Repo URL: {remote_url}")
+    git = GitClient(repo_dir)
+    remote_url = git.remote_url()
+    print(f"Repo: {repo_dir}")
+    print(f"Remote: {remote_url}")
+    confirm = input("Continue? [Y/n] ").strip().lower()
+    if confirm in ("n", "no"):
+        print("Aborted.")
+        sys.exit(0)
 
     tests = discover_tests(TESTS_DIR)
     if not tests:
         print("No test directories found", file=sys.stderr)
         sys.exit(1)
 
-    base_dir = TESTS_DIR / "test_00_base"
+    base_dir = TESTS_DIR / BASE_TEST_DIR_NAME
     if not base_dir.exists():
-        print("Error: test_00_base/ not found", file=sys.stderr)
+        print(f"Error: {BASE_TEST_DIR_NAME}/ not found", file=sys.stderr)
         sys.exit(1)
 
     runner = ZpRunner(repo_dir)
 
     # Context shared across tests
     ctx = {
-        "repo_dir": repo_dir,
         "tests_dir": TESTS_DIR,
+        "test_env": test_env,
     }
 
-    # Filter if --start-from
-    if args.start_from:
-        skip = True
-        filtered = []
-        for t in tests:
-            if t.name == args.start_from or args.start_from in t.name:
-                skip = False
-            if not skip:
-                filtered.append(t)
-        tests = filtered
+    # Filter by range
+    if args.range:
+        tests = filter_tests(tests, args.range)
 
     print(f"Running {len(tests)} test(s) on {repo_dir}")
 
