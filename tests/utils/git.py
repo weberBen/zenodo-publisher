@@ -67,6 +67,8 @@ class GitClient:
 
     def add_and_commit(self, msg: str = "update"):
         self.add_all()
+        if self.is_clean():
+            return
         self.commit(msg)
 
     def push(self, remote: str = "origin", branch: str | None = None):
@@ -152,8 +154,8 @@ class GitClient:
         self._run("fetch", remote)
         # Hard reset current branch to match remote (discard local changes)
         self._run("reset", "--hard", f"{remote}/{branch}")
-        # Remove all untracked and ignored files
-        self._run("clean", "-fdx")
+        # Remove all untracked (not ignored) files
+        self._run("clean", "-fd")
         # Drop all stashed changes
         self._run("stash", "clear")    
         
