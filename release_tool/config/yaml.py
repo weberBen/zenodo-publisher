@@ -14,20 +14,26 @@ def find_config_file(project_root: Path) -> Path | None:
     path = project_root / CONFIG_FILENAME
     return path if path.exists() else None
 
-
-def load_yaml(project_root: Path) -> dict:
-    """Load and parse zenodo_config.yaml."""
-    path = find_config_file(project_root)
-    if path is None:
-        raise NotInitializedError(
-            f"Missing config file: {project_root / CONFIG_FILENAME}"
-        )
+def _load_yaml_file(path: str | Path) -> dict:
+    """Load and parse a YAML config file from an explicit path."""
+    if not path:
+        raise ConfigError("No config file path provided")
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
     with open(path) as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
-        raise ConfigError(f"{CONFIG_FILENAME} must be a YAML mapping")
+        raise ConfigError(f"{path.name} must be a YAML mapping")
     return data
 
+def load_yaml_file(path: str | Path, raise_exception=True) -> dict:
+    """Load and parse a YAML config file from an explicit path."""
+    try:
+        _load_yaml_file(path)
+    except Exception as e:
+        if raise_exception:
+            raise e
 
 def traverse_yaml(config: dict, path: str) -> Any:
     """Traverse nested dict by dot-separated path. Returns None if missing."""

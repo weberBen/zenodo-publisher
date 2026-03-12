@@ -587,10 +587,10 @@ def _publish_github(config, tag_name, github_files):
 # Entry points
 # ---------------------------------------------------------------------------
 
-def run_release(config) -> None:
+def run_release(config, *, test=None) -> None:
     """Run the release process with the given config."""
     try:
-        _run_release(config)
+        _run_release(config, test=test)
     except KeyboardInterrupt:
         output.info("\nExited.")
     except Exception as e:
@@ -600,10 +600,9 @@ def run_release(config) -> None:
         output.error(str(e))
 
 
-def _run_release(config) -> None:
+def _run_release(config, *, test=None) -> None:
     """Main release pipeline."""
-    setup_pipeline(config.project_name_prefix, config.debug, config.project_root,
-                   test_mode=getattr(config, "test_mode", False))
+    setup_pipeline(config, test=test)
     prompts.init_prompts(config)
 
     output.info_ok("Main branch: {branch}", branch=config.main_branch, name="main_branch")

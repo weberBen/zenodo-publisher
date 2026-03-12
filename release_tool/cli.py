@@ -6,6 +6,7 @@ import sys
 
 from .config.env import ConfigError
 from .config.yaml import CONFIG_FILENAME
+from .config.test import TestConfig
 from .config.release import ReleaseConfig
 from .config.archive import ArchiveConfig
 
@@ -70,18 +71,22 @@ def _add_options(parser: argparse.ArgumentParser, config_cls) -> None:
 
 
 def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
-    """Add --work-dir, --test-mode + all config options to a subparser."""
+    """Add common flags + all config options to a subparser."""
     parser.add_argument(
         "--work-dir", type=str, default=None,
         help="Working directory (default: current directory)",
     )
     parser.add_argument(
+        "--config", type=str, default=None,
+        help="Path to config file (overrides auto-discovered)",
+    )
+    parser.add_argument(
         "--test-mode", action="store_true", default=False,
-        help="Output NDJSON events, use test config for prompt responses",
+        help="Enable test mode (NDJSON output, no interactive prompts)",
     )
     parser.add_argument(
         "--test-config", type=str, default=None,
-        help="Path to test config YAML (requires --test-mode)",
+        help="Path to test config YAML (prompts + cli responses). Implies --test-mode",
     )
     _add_options(parser, config_cls)
 
@@ -131,38 +136,18 @@ def setup_work_dir(args):
 # Command handlers
 # ---------------------------------------------------------------------------
 
-def setup_test_config(args):
-    """Validate and load --test-config if provided."""
-    test_mode = getattr(args, "test_mode", False)
-    test_config = getattr(args, "test_config", None)
-
-    if test_config and not test_mode:
-        print("\n\u274c --test-config requires --test-mode", file=sys.stderr)
-        sys.exit(1)
-
-    if test_config:
-        from . import output
-        output.load_test_config(test_config)
-
-
-
-def setup(args):
-    setup_work_dir(args)
-    setup_test_config(args)
-    
 def cmd_release(args):
     """Run the full release pipeline."""
-    setup(args)
-    
+    setup_work_dir(args)
+
     try:
         config = ReleaseConfig.from_args(args)
+        test = TestConfig.from_args(args)
     except ConfigError as e:
         if args.debug:
             raise
         print(f"\n\u274c {e}", file=sys.stderr)
         return
-
-    config.test_mode = getattr(args, "test_mode", False)
 
     if not config.is_zp_project:
         config_path = (config.project_root / CONFIG_FILENAME) if config.project_root else CONFIG_FILENAME
@@ -174,25 +159,24 @@ def cmd_release(args):
         return
 
     from .pipeline import run_release
-    run_release(config)
+    run_release(config, test=test)
 
 
 def cmd_archive(args):
     """Create a git archive at a given tag and print checksums."""
-    setup(args)
-    
+    setup_work_dir(args)
+
     try:
         config = ArchiveConfig.from_args(args)
+        test = TestConfig.from_args(args)
     except ConfigError as e:
         if args.debug:
             raise
         print(f"\n\u274c {e}", file=sys.stderr)
         return
 
-    config.test_mode = getattr(args, "test_mode", False)
-
     from .pipeline import run_archive
-    run_archive(config)
+    run_archive(config, test=test)
 
 
 # ---------------------------------------------------------------------------

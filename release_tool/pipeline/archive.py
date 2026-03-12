@@ -16,10 +16,10 @@ from .. import output
 from ._common import setup_pipeline
 
 
-def run_archive(config) -> None:
+def run_archive(config, *, test=None) -> None:
     """Run the archive pipeline with error handling."""
     try:
-        _run_archive(config)
+        _run_archive(config, test=test)
     except KeyboardInterrupt:
         output.info("\nExited.")
     except Exception as e:
@@ -94,10 +94,9 @@ def _step_display(
 # Entry points
 # ---------------------------------------------------------------------------
 
-def _run_archive(config) -> None:
+def _run_archive(config, *, test=None) -> None:
     """Main archive pipeline."""
-    setup_pipeline(config.project_name_prefix, config.debug, config.project_root,
-                   test_mode=getattr(config, "test_mode", False))
+    setup_pipeline(config, test=test)
 
     # Resolve project name template
     template_context = {"tag_name": config.tag}

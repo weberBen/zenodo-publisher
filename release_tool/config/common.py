@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .schema import ConfigOption
-from .yaml import find_config_file, load_yaml, traverse_yaml
+from .yaml import find_config_file, load_yaml_file, traverse_yaml
 from .transform_common import (
     TREE_ALGORITHMS,
     PROJECT_NAME_TEMPLATE_VARS,
@@ -99,8 +99,9 @@ class CommonConfig:
     ):
         self.project_root = project_root
         self.is_zp_project = (
-            project_root is not None
-            and find_config_file(project_root) is not None
+            bool(yaml_config)  # --config override counts as initialized
+            or (project_root is not None
+                and find_config_file(project_root) is not None)
         )
         self.yaml_config = yaml_config
         cli_overrides = cli_overrides or {}
@@ -142,6 +143,8 @@ class CommonConfig:
                     error_msg += f"\n{exception_msg}"
                 raise ConfigError(error_msg)
 
+        self.config_path = None
+        self.config_path_overrided = False
         self._validate()
 
     def project_name_template(self, context: dict[str, str]) -> str:
@@ -174,10 +177,28 @@ class CommonConfig:
     def from_args(cls, args):
         """Build config from CLI args: discover project root, load YAML + env, extract overrides."""
         project_root = cls._discover_project_root(args)
-        yaml_config = cls._load_yaml_safe(project_root)
+
+        # --config: override YAML config file
+        config_override = getattr(args, "config", None)
+        if config_override:
+            config_path = Path(config_override)
+            config_path_overrided = True
+            raise_exception = True
+        else:
+            config_path = find_config_file(project_root) if project_root else None
+            config_path_overrided = False
+            raise_exception = False
+
+        yaml_config = load_yaml_file(config_path, raise_exception=raise_exception)
+        if yaml_config is None:
+            yaml_config = {}
+
         env_vars = cls._load_env_safe(project_root)
         cli_overrides = cls._extract_overrides(args)
-        return cls(project_root, yaml_config, env_vars, cli_overrides)
+        instance = cls(project_root, yaml_config, env_vars, cli_overrides)
+        instance.config_path = config_path
+        instance.config_path_overrided = config_path_overrided
+        return instance
 
     @classmethod
     def _discover_project_root(cls, args) -> Path | None:
@@ -186,16 +207,6 @@ class CommonConfig:
             return find_project_root()
         except RuntimeError:
             return None
-
-    @classmethod
-    def _load_yaml_safe(cls, project_root: Path | None) -> dict:
-        """Load zenodo_config.yaml if available, return empty dict otherwise."""
-        if not project_root:
-            return {}
-        try:
-            return load_yaml(project_root)
-        except (NotInitializedError, ConfigError):
-            return {}
 
     @classmethod
     def _load_env_safe(cls, project_root: Path | None) -> dict[str, str]:
