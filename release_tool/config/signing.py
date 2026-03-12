@@ -34,13 +34,14 @@ def _parse_sign_mode(value: str) -> SignMode:
     except ValueError:
         valid = [m.value for m in SignMode]
         raise ConfigError(
-            f"Invalid sign_mode '{value}'. Valid: {', '.join(valid)}"
+            f"Invalid sign_mode '{value}'. Valid: {', '.join(valid)}",
+            name="signing.invalid_mode",
         )
 
 
 def _validate_hash_algo(algo: str) -> None:
     if algo not in hashlib.algorithms_available:
-        raise ConfigError(f"Unknown hash algorithm '{algo}'")
+        raise ConfigError(f"Unknown hash algorithm '{algo}'", name="signing.algo.unknown")
 
 
 def parse_signing_config(raw: Any) -> SigningConfig:
@@ -48,7 +49,7 @@ def parse_signing_config(raw: Any) -> SigningConfig:
     if not raw:
         return SigningConfig()
     if not isinstance(raw, dict):
-        raise ConfigError("'signing' must be a YAML mapping")
+        raise ConfigError("'signing' must be a YAML mapping", name="signing.invalid_format")
 
     cfg = SigningConfig()
 

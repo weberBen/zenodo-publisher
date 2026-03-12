@@ -25,8 +25,7 @@ def run_archive(config, *, test=None) -> None:
     except Exception as e:
         if config.debug:
             raise
-        output.fatal("Error during archive:")
-        output.error(str(e))
+        output.fatal("Error during archive:", exc=e)
 
 
 # ---------------------------------------------------------------------------

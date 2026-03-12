@@ -33,6 +33,7 @@ from ..gpg_operations import gpg_sign_file, prompt_gpg_key
 from ..config.generated_files import FileEntry, FileEntryKind
 from ..config.signing import SignMode
 from .. import output, prompts
+from ..errors import PipelineError
 from ._common import setup_pipeline
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ def _step_compile(config, env_vars=None):
         return
 
     if not prompts.confirm_build.ask("Start building project ?").is_accept:
-        raise RuntimeError("Build aborted by user.")
+        raise PipelineError("Build aborted by user.", name="build_aborted")
 
     output.step("📋 Starting build process...")
     compile(config.compile_dir, config.make_args, env_vars=env_vars)
@@ -177,9 +178,10 @@ def _step_resolve_generated_files(config) -> list[FileEntry]:
             matches = sorted(parent.glob(glob_pat))
 
             if not matches:
-                raise RuntimeError(
+                raise PipelineError(
                     f"Pattern '{entry.pattern_template}' (generated_files.{entry.key}) "
-                    f"matched no files"
+                    f"matched no files",
+                    name=f"no_match.{entry.key}",
                 )
             entry.resolved_paths = matches
             for m in matches:
@@ -596,8 +598,7 @@ def run_release(config, *, test=None) -> None:
     except Exception as e:
         if config.debug:
             raise
-        output.fatal("Error during process execution:")
-        output.error(str(e))
+        output.fatal("Error during process execution:", exc=e)
 
 
 def _run_release(config, *, test=None) -> None:

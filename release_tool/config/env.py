@@ -4,15 +4,16 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .schema import ConfigOption
+from ..errors import ZPError
 
 
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 
-class ConfigError(Exception):
+class ConfigError(ZPError):
     """Base error for configuration problems."""
-    pass
+    _prefix = "config"
 
 
 class NotInitializedError(ConfigError):
@@ -80,7 +81,8 @@ def load_env(project_root: Path) -> dict[str, str]:
     if not env_file.exists():
         raise NotInitializedError(
             f"Project not initialized for Zenodo publisher.\n"
-            f"Missing: {env_file}\n"
+            f"Missing: {env_file}\n",
+            name="not_initialized",
         )
 
     env_vars = {}
@@ -103,7 +105,8 @@ def validate_env_keys(env_vars: dict[str, str], all_env_keys: set[str]) -> None:
     unknown = set(env_vars.keys()) - all_env_keys
     if unknown:
         raise UnknownEnvKeyError(
-            f"Unknown keys in .zenodo.env: {', '.join(sorted(unknown))}"
+            f"Unknown keys in .zenodo.env: {', '.join(sorted(unknown))}",
+            name="unknown_env_key",
         )
 
 
@@ -120,10 +123,12 @@ def validate_choices(opt: ConfigOption, value: Any) -> None:
         if invalid:
             raise InvalidValueError(
                 f"contains invalid values: "
-                f"{', '.join(invalid)}. Must be one of {opt.choices}"
+                f"{', '.join(invalid)}. Must be one of {opt.choices}",
+                name="invalid_value",
             )
         return
     if value not in opt.choices:
         raise InvalidValueError(
-            f"must be one of {opt.choices}, got '{value}'"
+            f"must be one of {opt.choices}, got '{value}'",
+            name="invalid_value",
         )

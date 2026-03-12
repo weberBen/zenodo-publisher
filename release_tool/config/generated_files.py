@@ -150,7 +150,8 @@ def _validate_no_sig_keys(keys: list[str]) -> None:
     bad = [k for k in keys if k.endswith("_sig")]
     if bad:
         raise ConfigError(
-            f"Keys ending with '_sig' are reserved for signature references: {bad}"
+            f"Keys ending with '_sig' are reserved for signature references: {bad}",
+            name="generated_files.reserved_key",
         )
 
 
@@ -158,10 +159,10 @@ def _validate_destinations(pubs: PublisherDestinations) -> None:
     """Check that all destinations are known (zenodo, github)."""
     for dest in pubs.file_destination:
         if dest not in VALID_DESTINATIONS:
-            raise ConfigError(f"Unknown destination '{dest}'. Valid: {VALID_DESTINATIONS}")
+            raise ConfigError(f"Unknown destination '{dest}'. Valid: {VALID_DESTINATIONS}", name="generated_files.invalid_dest")
     for dest in pubs.sig_destination:
         if dest not in VALID_DESTINATIONS:
-            raise ConfigError(f"Unknown destination '{dest}'. Valid: {VALID_DESTINATIONS}")
+            raise ConfigError(f"Unknown destination '{dest}'. Valid: {VALID_DESTINATIONS}", name="generated_files.invalid_dest")
 
 
 def _validate_manifest_refs(manifest_entry: FileEntry, all_keys: set[str]) -> None:
@@ -173,7 +174,8 @@ def _validate_manifest_refs(manifest_entry: FileEntry, all_keys: set[str]) -> No
         if base not in all_keys:
             raise ConfigError(
                 f"Manifest references unknown key '{ref}'. "
-                f"Available keys: {sorted(all_keys)}"
+                f"Available keys: {sorted(all_keys)}",
+                name="generated_files.manifest.unknown_ref",
             )
 
 
@@ -190,16 +192,19 @@ def _validate_identifier(entry: FileEntry) -> None:
     if entry.identifier.source not in ("file", "sig_file"):
         raise ConfigError(
             f"'{entry.key}': identifier.source must be 'file' or 'sig_file', "
-            f"got '{entry.identifier.source}'"
+            f"got '{entry.identifier.source}'",
+            name="generated_files.identifier.invalid_source",
         )
     if entry.identifier.source == "sig_file" and entry.sign is False:
         raise ConfigError(
-            f"'{entry.key}' has identifier.source=sig_file but sign=false"
+            f"'{entry.key}' has identifier.source=sig_file but sign=false",
+            name="generated_files.identifier.sign.need",
         )
     if entry.kind == FileEntryKind.PATTERN and entry.pattern and "*" in entry.pattern:
         raise ConfigError(
             f"'{entry.key}' uses glob pattern '*' and has identifier config. "
-            f"Glob patterns matching multiple files can't be used as identifier source."
+            f"Glob patterns matching multiple files can't be used as identifier source.",
+            name="generated_files.identifier.glob_conflict",
         )
 
 def validate_no_pattern_overlap(entries) -> None:
@@ -218,7 +223,8 @@ def validate_no_pattern_overlap(entries) -> None:
                 raise ConfigError(
                     f"Patterns may overlap: "
                     f"'{entry_a.key}' ({entry_a.pattern_template}) "
-                    f"and '{entry_b.key}' ({entry_b.pattern_template})"
+                    f"and '{entry_b.key}' ({entry_b.pattern_template})",
+                    name="generated_files.pattern_overlap",
                 )
 
 # ---------------------------------------------------------------------------
@@ -261,7 +267,7 @@ def _parse_sign_mode(raw: Any) -> SignMode | None:
         return SignMode(str(raw))
     except ValueError:
         valid = [m.value for m in SignMode]
-        raise ConfigError(f"Invalid sign_mode '{raw}'. Valid: {', '.join(valid)}")
+        raise ConfigError(f"Invalid sign_mode '{raw}'. Valid: {', '.join(valid)}", name="generated_files.sign.invalid_mode")
 
 
 def _parse_manifest_config(raw: dict) -> ManifestInclusion:
@@ -277,7 +283,8 @@ def _parse_pattern_entry(key: str, raw: dict) -> FileEntry:
     """Parse a user-defined PATTERN entry. Requires 'pattern' key."""
     if "pattern" not in raw:
         raise ConfigError(
-            f"generated_files.{key}: 'pattern' is required for non-special keys"
+            f"generated_files.{key}: 'pattern' is required for non-special keys",
+            name="generated_files.missing_pattern",
         )
     _validate_pattern_template(raw["pattern"])
     return FileEntry(
@@ -335,7 +342,7 @@ def parse_generated_files(raw: Any) -> list[FileEntry]:
     if not raw:
         return []
     if not isinstance(raw, dict):
-        raise ConfigError("'generated_files' must be a YAML mapping")
+        raise ConfigError("'generated_files' must be a YAML mapping", name="generated_files.invalid_format")
 
     keys = list(raw.keys())
     _validate_no_sig_keys(keys)
@@ -344,7 +351,7 @@ def parse_generated_files(raw: Any) -> list[FileEntry]:
     for key, value in raw.items():
         value = value or {}
         if not isinstance(value, dict):
-            raise ConfigError(f"generated_files.{key} must be a YAML mapping")
+            raise ConfigError(f"generated_files.{key} must be a YAML mapping", name=f"generated_files.invalid_entry.{key}")
 
         if key == "project":
             entries.append(_parse_project_entry(value))

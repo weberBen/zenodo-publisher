@@ -5,15 +5,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import output
+from .errors import ZPError
 
 from inveniordm_py import InvenioAPI
 from inveniordm_py.files.metadata import FilesListMetadata, OutgoingStream
 from requests.exceptions import HTTPError
 
 
-class ZenodoError(Exception):
+class ZenodoError(ZPError):
     """Zenodo operation error."""
-    pass
+    _prefix = "zenodo"
 
 def get_zenodo_id_from_doi(doi: str) -> str:
     """Extract Zenodo record ID from a DOI string."""
@@ -49,7 +50,7 @@ class ZenodoPublisher:
             concept_record = self.client.records(self.concept_id).versions.latest()
             return self.client.records(concept_record.data["id"]).get()
         except Exception as e:
-            raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}")
+            raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}", name="record.not_found")
 
     def _is_draft(self, record_id: str) -> bool:
         try:
@@ -73,7 +74,7 @@ class ZenodoPublisher:
 
         hits = response_data["hits"]["hits"]
         if len(hits) == 0:
-            raise ZenodoError(f"Cannot found deposit associated to record {self.concept_id}")
+            raise ZenodoError(f"Cannot found deposit associated to record {self.concept_id}", name="deposit.not_found")
 
         record_data = hits[0]
 
@@ -161,7 +162,7 @@ class ZenodoPublisher:
             if af.is_preview:
                 default_preview_file = af.file_path.name
 
-            output.detail("Uploading {filename}...", filename=af.file_path.name, name="zenodo.uploading")
+            output.detail("Uploading {filename}...", filename=af.file_path.name, name="uploading")
             with open(af.file_path, "rb") as f:
                 file_content = f.read()
 
@@ -170,7 +171,7 @@ class ZenodoPublisher:
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            output.detail_ok("{filename} uploaded", filename=af.file_path.name, name="zenodo.uploaded")
+            output.detail_ok("{filename} uploaded", filename=af.file_path.name, name="uploaded")
 
         if default_preview_file:
             draft_record.data["files"]["default_preview"] = default_preview_file
@@ -190,14 +191,15 @@ class ZenodoPublisher:
             with open(zenodo_json) as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            raise ZenodoError(f"Failed to read .zenodo.json: {e}")
+            raise ZenodoError(f"Failed to read .zenodo.json: {e}", name="metadata.read.fail")
 
         overrides = data.get("metadata", data)
 
         if "version" in overrides:
             raise ZenodoError(
                 ".zenodo.json contains 'version' — this is set by the pipeline (git tag). "
-                "Remove it from .zenodo.json to continue."
+                "Remove it from .zenodo.json to continue.",
+                name="metadata.version.conflict",
             )
 
         if "publication_date" in overrides:
@@ -206,7 +208,7 @@ class ZenodoPublisher:
                 "(config value '{config_date}' will be ignored)",
                 override_date=overrides['publication_date'],
                 config_date=self._publication_date or 'today UTC',
-                name="zenodo.date_override",
+                name="publication_date.override",
             )
 
         # Check for identifier collisions
@@ -225,7 +227,8 @@ class ZenodoPublisher:
                 collision_values = [c["identifier"] for c in collisions]
                 raise ZenodoError(
                     f".zenodo.json identifiers conflict with pipeline identifiers: "
-                    f"{collision_values}. Remove them from .zenodo.json to continue."
+                    f"{collision_values}. Remove them from .zenodo.json to continue.",
+                    name="identifier.conflict",
                 )
 
         return overrides if overrides else None
@@ -241,7 +244,7 @@ class ZenodoPublisher:
             metadata_overrides: Dict from .zenodo.json
         """
         if metadata_overrides:
-            output.detail("Applying metadata overrides: {keys}", keys=str(list(metadata_overrides.keys())), name="zenodo.metadata_overrides")
+            output.detail("Applying metadata overrides: {keys}", keys=str(list(metadata_overrides.keys())), name="metadata.overrides")
             if "publication_date" in metadata_overrides:
                 publication_date = metadata_overrides.pop("publication_date")
             draft_record.data["metadata"].update(metadata_overrides)
@@ -282,19 +285,19 @@ class ZenodoPublisher:
             ZenodoError: If publication fails
         """
         output.info("📤 Publishing new version to Zenodo...")
-        output.detail("Concept DOI: {doi}", doi=self.concept_doi, name="zenodo.concept_doi")
-        output.detail("Version: {version}", version=tag_name, name="zenodo.version")
+        output.detail("Concept DOI: {doi}", doi=self.concept_doi, name="concept_doi")
+        output.detail("Version: {version}", version=tag_name, name="version")
 
         publication_date = self.get_publication_date()
         last_record = self._get_last_record()
 
-        output.detail("Publication date: {date}", date=publication_date, name="zenodo.pub_date")
+        output.detail("Publication date: {date}", date=publication_date, name="publication_date")
 
         try:
             output.detail("Creating new draft version...")
             existing_draft_id = self._get_exsiting_draft_id()
             if existing_draft_id is not None:
-                output.warn("Detecting existing draft version {draft_id}, discarding...", draft_id=existing_draft_id, name="zenodo.draft_discard")
+                output.warn("Detecting existing draft version {draft_id}, discarding...", draft_id=existing_draft_id, name="draft.discard")
                 self._discard_draft_version(existing_draft_id)
             else:
                 output.detail_ok("No existing draft detected")
@@ -306,12 +309,12 @@ class ZenodoPublisher:
                 or
                 (draft_record.data["id"] == last_record.data["id"])
             ):
-                raise ZenodoError("Cannot create draft new version...")
+                raise ZenodoError("Cannot create draft new version...", name="draft_creation_failed")
 
             output.detail("Uploading files...")
             self._upload_files(draft_record, archived_files)
 
-            output.detail("Updating metadata (version: {version})...", version=tag_name, name="zenodo.metadata_update")
+            output.detail("Updating metadata (version: {version})...", version=tag_name, name="metadata.update")
             metadata_overrides = self._load_metadata_overrides(identifiers=identifiers)
             self._update_metadata(draft_record, publication_date, tag_name,
                                   identifiers=identifiers,
@@ -323,12 +326,12 @@ class ZenodoPublisher:
             record_info = self._format_record_info(published_record)
 
             output.info_ok("Published to Zenodo!")
-            output.detail("DOI: https://doi.org/{doi}", doi=record_info['doi'], name="zenodo.published_doi")
-            output.detail("URL: {url}", url=record_info['record_url'], name="zenodo.published_url")
+            output.detail("DOI: https://doi.org/{doi}", doi=record_info['doi'], name="published.doi")
+            output.detail("URL: {url}", url=record_info['record_url'], name="published.url")
 
             return record_info
 
         except Exception as e:
             if self.config.debug:
                 raise e
-            raise ZenodoError(f"Failed to publish new version: {e}")
+            raise ZenodoError(f"Failed to publish new version: {e}", name="publish.fail")

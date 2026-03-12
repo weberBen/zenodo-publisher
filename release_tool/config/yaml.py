@@ -17,14 +17,14 @@ def find_config_file(project_root: Path) -> Path | None:
 def _load_yaml_file(path: str | Path) -> dict:
     """Load and parse a YAML config file from an explicit path."""
     if not path:
-        raise ConfigError("No config file path provided")
+        raise ConfigError("No config file path provided", name="yaml.no_path")
     path = Path(path)
     if not path.exists():
-        raise ConfigError(f"Config file not found: {path}")
+        raise ConfigError(f"Config file not found: {path}", name="yaml.not_found")
     with open(path) as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
-        raise ConfigError(f"{path.name} must be a YAML mapping")
+        raise ConfigError(f"{path.name} must be a YAML mapping", name="yaml.invalid_format")
     return data
 
 def load_yaml_file(path: str | Path, raise_exception=True) -> dict | None:

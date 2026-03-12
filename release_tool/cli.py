@@ -144,7 +144,7 @@ def cmd_release(args):
     except ConfigError as e:
         if args.debug:
             raise
-        output.fatal(str(e), name="config_error.loading")
+        output.fatal(str(e), name="config_error.loading", exc=e)
         return
 
     if not config.is_zp_project:
@@ -168,7 +168,7 @@ def cmd_archive(args):
     except ConfigError as e:
         if args.debug:
             raise
-        output.fatal(str(e), name="config_error.loading")
+        output.fatal(str(e), name="config_error.loading", exc=e)
         return
 
     from .pipeline import run_archive
@@ -186,7 +186,7 @@ def run_cmd(args, fn):
     except Exception as e:
         if debug:
             raise
-        output.fatal(str(e), name="config_error.runtime")
+        output.fatal(str(e), name="config_error.loading", exc=e)
 
 CMD = {
     "release": cmd_release,

@@ -16,7 +16,10 @@ Levels:
 import json
 import sys
 import os
+import traceback
 from dataclasses import dataclass
+from pathlib import Path
+from .errors import normalize_name
 
 if os.name == "posix":  # Linux, macOS, BSD...
     import termios
@@ -25,6 +28,49 @@ else:  # Windows
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
+
+
+# ---------------------------------------------------------------------------
+# Stack trace formatting
+# ---------------------------------------------------------------------------
+
+def _extract_frames(exc: BaseException) -> list[str]:
+    """Extract release_tool frames from an exception's traceback."""
+    tb = traceback.extract_tb(exc.__traceback__)
+    parts = []
+    for frame in tb:
+        if "release_tool" not in frame.filename:
+            continue
+        module = Path(frame.filename).stem
+        parts.append(f"{module}:{frame.name}")
+    return parts
+
+
+def format_trace(exc: BaseException) -> str:
+    """Format exception traceback as file(func).file(func)... pipe.
+
+    Only includes frames from the release_tool package.
+    Walks the exception chain (__cause__) for chained exceptions.
+    """
+    parts = _extract_frames(exc)
+    cause = exc.__cause__
+    while cause:
+        parts.extend(_extract_frames(cause))
+        cause = cause.__cause__
+    return ".".join(parts)
+
+def _enrich_event_from_exc(event: dict, exc: Exception) -> None:
+    """Add exc, error_type, name (from ZPError), and pipe to an event dict."""
+    from .errors import ZPError
+
+    event["exc"] = str(exc)
+    event["error_type"] = type(exc).__name__
+    if isinstance(exc, ZPError) and exc.name:
+        existing = event.get("name")
+        event["name"] = normalize_name(existing, suffix=exc.name)
+    pipe = format_trace(exc)
+    if pipe:
+        event["pipe"] = pipe
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +237,14 @@ class Output:
     def error(self, msg: str, exc: Exception | None = None, **kwargs):
         event = self._build_event("error", msg, **kwargs)
         if exc:
-            event["exc"] = str(exc)
-            event["error_type"] = type(exc).__name__
+            _enrich_event_from_exc(event, exc)
         self.emit(event)
 
-    def fatal(self, msg: str, **kwargs):
-        self.emit(self._build_event("fatal", msg, **kwargs))
+    def fatal(self, msg: str, exc: Exception | None = None, **kwargs):
+        event = self._build_event("fatal", msg, **kwargs)
+        if exc:
+            _enrich_event_from_exc(event, exc)
+        self.emit(event)
 
     def debug(self, msg: str, **kwargs):
         self.emit(self._build_event("debug", msg, **kwargs))

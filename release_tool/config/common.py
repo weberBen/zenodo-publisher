@@ -112,6 +112,7 @@ class CommonConfig:
             validate_env_keys(env_vars, SENSITIVE_ENV_KEYS)
 
         for opt in self._options:
+            opt_name = self._get_opt_name(opt)
             try:
                 raw = self._resolve_value(opt, yaml_config, env_vars, cli_overrides)
                 validate_type(opt, raw)
@@ -137,11 +138,11 @@ class CommonConfig:
                 if debug:
                     raise e
 
-                error_msg = f"Invalid argument for '{opt.yaml_path or opt.env_key or opt.name}'"
+                error_msg = f"Invalid argument for '{opt_name}'"
                 exception_msg = str(e)
                 if exception_msg:
                     error_msg += f"\n{exception_msg}"
-                raise ConfigError(error_msg)
+                raise ConfigError(error_msg, name=f"invalid_option.{opt_name}", exc=e)
 
         self.config_path = None
         self.config_path_overrided = False
@@ -171,7 +172,7 @@ class CommonConfig:
         """Check that all required options have non-None values."""
         for name in self._required:
             if getattr(self, name, None) is None:
-                raise ConfigError(f"Required option '{name}' not set")
+                raise ConfigError(f"Required option '{name}' not set", name=f"required_missing.{name}")
 
     @classmethod
     def from_args(cls, args):
@@ -250,6 +251,9 @@ class CommonConfig:
         msg = f"value '{value}' looks like a '{inferred_type}' "
         msg += f"but type is '{defined_type}' (expected '{inferred_type}'?)"
         return msg
+    
+    def _get_opt_name(self, opt: ConfigOption):
+        return opt.yaml_path or opt.env_key or opt.name
 
     def _coerce(self, opt: ConfigOption, value: Any) -> Any:
         """Coerce values to proper Python types.
@@ -257,6 +261,7 @@ class CommonConfig:
         YAML already provides native types (bool, list, int).
         String coercion is only needed for env vars and CLI args.
         """
+        opt_name = self._get_opt_name(opt)
         if opt.parse:
             return opt.parse(opt, value)
         if value is None:
@@ -281,17 +286,22 @@ class CommonConfig:
             canonical_value = value.strip().lower()
             if canonical_value in ["true", "false"]:
                 raise ConfigError(
-                    self._format_coerce_wrong_type_msg(opt.type, "bool", value)
+                    self._format_coerce_wrong_type_msg(opt.type, "bool", value),
+                    name=f"wrong_type.{opt_name}",
                 )
             if "," in canonical_value:
                 raise ConfigError(
-                    self._format_coerce_wrong_type_msg(opt.type, "list", value)
+                    self._format_coerce_wrong_type_msg(opt.type, "list", value),
+                    name=f"wrong_type.{opt_name}",
                 )
             if canonical_value in ["none", "null", ""]:
                 if opt.nullable:
                     return None
                 if canonical_value == "":
                     return ""
-                raise ConfigError("argument is not nullable")
+                raise ConfigError(
+                        "argument is not nullable",
+                        name=f"not_nullable.{opt_name}"
+                    )
 
         return value

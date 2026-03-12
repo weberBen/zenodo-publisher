@@ -85,16 +85,17 @@ def validate_compile_dir(config) -> None:
     """Check that compile_dir exists if set."""
     if config.compile_dir and not config.compile_dir.exists():
         raise ConfigError(
-            f"Compile directory not found: {config.compile_dir}"
+            f"Compile directory not found: {config.compile_dir}",
+            name="release.compile_dir.not_found",
         )
 
 
 def validate_project_root(config) -> None:
     project_root = config.project_root
     if not project_root:
-        raise ConfigError("No project root defined")
+        raise ConfigError("No project root defined", name="release.no_project_root")
     if not project_root.exists():
-        raise ConfigError(f"Invalid project root {project_root}")
+        raise ConfigError(f"Invalid project root {project_root}", name="release.invalid_project_root")
 
 
 def validate(config):
@@ -162,7 +163,8 @@ class ReleaseConfig(CommonConfig):
                 if var not in context:
                     raise ConfigError(
                         f"generated_files.{entry.key}: pattern uses "
-                        f"'{{{var}}}' but {var} is not set"
+                        f"'{{{var}}}' but {var} is not set",
+                        name=f"release.pattern_unresolved_var.{entry.key}",
                     )
             # Resolve all available variables, leave {project_name} as-is
             entry.pattern = entry.pattern_template.format_map(

@@ -41,7 +41,8 @@ def _validate_project_name_suffix(value):
         return
     if "." in value:
         raise InvalidValueError(
-            f"'.' deliminator are not allowed"
+            f"'.' deliminator are not allowed",
+            name="suffix_dot_not_allowed",
         )
     
     found_vars = _TEMPLATE_VAR_RE.findall(value)
@@ -52,7 +53,8 @@ def _validate_project_name_suffix(value):
         valid = ", ".join(PROJECT_NAME_TEMPLATE_VARS)
         raise InvalidValueError(
             f"Unknown template variable(s): "
-            f"{', '.join(invalid)}. Allowed variables: {valid}"
+            f"{', '.join(invalid)}. Allowed variables: {valid}",
+            name="suffix_unknown_var",
         )
 
 def _validate_pattern_template(value):
@@ -67,7 +69,8 @@ def _validate_pattern_template(value):
         valid = ", ".join(PATTERN_TEMPLATE_VARS)
         raise InvalidValueError(
             f"Unknown template variable(s) in pattern: "
-            f"{', '.join(invalid)}. Allowed: {valid}"
+            f"{', '.join(invalid)}. Allowed: {valid}",
+            name="pattern_unknown_var",
         )
 
 
@@ -92,12 +95,13 @@ def validate_hash_algorithms(value) -> bool:
     if type(value) is str:
         value = [value]
     if not is_iterable_of_strings(value):
-        raise InvalidValueError("not a list of hash algo names")
+        raise InvalidValueError("not a list of hash algo names", name="hash_invalid_type")
     
     invalid = [a for a in value if not _validate_hash_algorithm(a)]
     if invalid:
         raise InvalidValueError(
-            f"Unsupported hash algorithms: {', '.join(invalid)}"
+            f"Unsupported hash algorithms: {', '.join(invalid)}",
+            name="hash_unsupported",
         )
 
 def _resolve_optional_path(value, project_root):

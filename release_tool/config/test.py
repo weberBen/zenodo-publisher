@@ -35,7 +35,7 @@ def parse_test_config(raw: Any) -> TestConfig | None:
     if not raw:
         return None
     if not isinstance(raw, dict):
-        raise ConfigError("test config must be a YAML mapping")
+        raise ConfigError("test config must be a YAML mapping", name="test.invalid_format")
 
     cfg = TestConfig()
 
@@ -45,13 +45,13 @@ def parse_test_config(raw: Any) -> TestConfig | None:
     if "prompts" in raw:
         prompts = raw["prompts"]
         if not isinstance(prompts, dict):
-            raise ConfigError("'prompts' must be a YAML mapping")
+            raise ConfigError("'prompts' must be a YAML mapping", name="test.prompts.invalid_format")
         cfg.prompts = {str(k): str(v) if v is not None else "" for k, v in prompts.items()}
 
     if "cli" in raw:
         cli = raw["cli"]
         if not isinstance(cli, dict):
-            raise ConfigError("'cli' must be a YAML mapping")
+            raise ConfigError("'cli' must be a YAML mapping", name="test.invalid_cli")
         cfg.cli = cli
 
     return cfg
@@ -60,10 +60,10 @@ def parse_test_config(raw: Any) -> TestConfig | None:
 def _load_test_config_file(path: Path) -> TestConfig:
     """Load a test config from a YAML file path."""
     if not path.exists():
-        raise ConfigError(f"Test config file not found: {path}")
+        raise ConfigError(f"Test config file not found: {path}", name="test.not_found")
     with open(path) as f:
         data = yaml.safe_load(f)
     cfg = parse_test_config(data)
     if cfg is None:
-        raise ConfigError(f"Test config file is empty: {path}")
+        raise ConfigError(f"Test config file is empty: {path}", name="test.empty")
     return cfg

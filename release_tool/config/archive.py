@@ -37,7 +37,8 @@ def validate_archive_context(config) -> None:
     """Check that archive has enough context to run."""
     if not config.remote and not config.project_root:
         raise ConfigError(
-            "Cannot find project root (no .git directory found)"
+            "Cannot find project root (no .git directory found)",
+            name="archive.no_project_root",
         )
     if not config.project_name_prefix:
         if config.project_root:
@@ -45,7 +46,8 @@ def validate_archive_context(config) -> None:
         else:
             raise ConfigError(
                 "--project-name-prefix is required when using --remote "
-                "outside a git repository"
+                "outside a git repository",
+                name="archive.missing_prefix",
             )
 
 

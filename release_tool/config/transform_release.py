@@ -38,5 +38,6 @@ def _validate_commit_fields(value):
         valid = ", ".join(sorted(COMMIT_FIELD_MAP))
         raise InvalidValueError(
             f"Unknown commit fields: {', '.join(invalid)}. "
-            f"Valid fields: {valid}"
+            f"Valid fields: {valid}",
+            name="commit.unknown_field",
         )

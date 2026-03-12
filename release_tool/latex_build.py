@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import output
 from .subprocess_utils import run as run_cmd
+from .errors import CompileError
 
 
 def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dict | None = None) -> None:
@@ -23,9 +24,9 @@ def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dic
     makefile = compile_dir / "Makefile"
 
     if not makefile.exists():
-        raise FileNotFoundError(f"Makefile not found at {makefile}")
+        raise CompileError(f"Makefile not found at {makefile}", name="makefile.not_found")
 
-    output.info("Building document in {compile_dir}...", compile_dir=str(compile_dir), name="compile.start")
+    output.info("Building document in {compile_dir}...", compile_dir=str(compile_dir), name="start")
 
     env = {**os.environ, **env_vars} if env_vars else None
 
@@ -38,12 +39,12 @@ def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dic
             text=True,
             env=env,
         )
-        output.info_ok("Compilation successful", name="compile.ok")
+        output.info_ok("Compilation successful", name="ok")
 
     except subprocess.CalledProcessError as e:
-        output.error("Compilation failed", name="compile.error")
+        output.error("Compilation failed", name="error")
         if e.stdout:
-            output.detail("Stdout:\n{stdout}", stdout=e.stdout, name="compile.stdout")
+            output.detail("Stdout:\n{stdout}", stdout=e.stdout, name="stdout")
         if e.stderr:
-            output.detail("Stderr:\n{stderr}", stderr=e.stderr, name="compile.stderr")
-        raise RuntimeError("Compilation failed") from e
+            output.detail("Stderr:\n{stderr}", stderr=e.stderr, name="stderr")
+        raise CompileError("Compilation failed", name="failed") from e
