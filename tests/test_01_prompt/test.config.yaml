@@ -1,5 +1,0 @@
-cli:
-  command: archive
-  args:
-    - "--tag"
-    - "v1.0.0"
