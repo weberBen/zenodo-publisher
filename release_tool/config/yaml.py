@@ -27,14 +27,15 @@ def _load_yaml_file(path: str | Path) -> dict:
         raise ConfigError(f"{path.name} must be a YAML mapping")
     return data
 
-def load_yaml_file(path: str | Path, raise_exception=True) -> dict:
+def load_yaml_file(path: str | Path, raise_exception=True) -> dict | None:
     """Load and parse a YAML config file from an explicit path."""
     try:
-        _load_yaml_file(path)
-    except Exception as e:
+        return _load_yaml_file(path)
+    except ConfigError:
         if raise_exception:
-            raise e
-
+            raise
+        return None
+    
 def traverse_yaml(config: dict, path: str) -> Any:
     """Traverse nested dict by dot-separated path. Returns None if missing."""
     keys = path.split(".")
