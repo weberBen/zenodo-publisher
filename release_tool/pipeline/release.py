@@ -598,7 +598,7 @@ def run_release(config, *, test=None) -> None:
     except Exception as e:
         if config.debug:
             raise
-        output.fatal("Error during process execution:", exc=e)
+        output.fatal("Error during process execution", exc=e)
 
 
 def _run_release(config, *, test=None) -> None:

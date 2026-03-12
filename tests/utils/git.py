@@ -152,6 +152,10 @@ class GitClient:
         
         # Fetch latest refs from remote
         self._run("fetch", remote)
+        # remove all local tags
+        tags = self.list_tags()
+        for tag in tags:
+            self._run("tag", "-d", tag)
         # Hard reset current branch to match remote (discard local changes)
         self._run("reset", "--hard", f"{remote}/{branch}")
         # Remove all untracked (not ignored) files

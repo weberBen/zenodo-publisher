@@ -172,7 +172,7 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
             name="local_modifications",
         )
     
-    if has_unpushed_commits(project_root):
+    if has_unpushed_commits(project_root, main_branch):
         raise GitError(
             "Local commits are not pushed to remote\n"
             "Please push tags first: git push --tags",

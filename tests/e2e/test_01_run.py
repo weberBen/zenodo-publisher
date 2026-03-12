@@ -59,12 +59,12 @@ def test_run_release(tmp_path):
     )
 
     # Verify project_root matches tmp_path
-    ev = find_by_name(result.events, "project_root")
+    ev = find_by_name(result.events, "config.project_root")
     assert ev is not None, "project_root event not found"
     assert ev["data"]["project_root"] == str(tmp_path), \
         f"project_root mismatch: {ev['data']['project_root']} != {tmp_path}"
 
     # Expect failure: no remote origin in tmp repo
     errors = find_errors(result.events)
-    assert any("origin/main" in e.get("msg", "") for e in errors), \
-        f"Expected origin/main error, got: {errors}"
+    assert any("origin/" in e.get("msg", "") for e in errors), \
+        f"Expected origin/ error, got: {errors}"
