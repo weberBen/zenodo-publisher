@@ -256,7 +256,7 @@ class ZpRunner:
         else:
             raise ValueError(
                 f"fail_on must be a set of types, 'ignore', or None. Got: {fail_on!r}")
-        args = [command]
+        args = [command, "--test-mode"]
 
         # Build log path
         log_path = None
@@ -279,7 +279,7 @@ class ZpRunner:
                 test_config_path = tmpdir / "test.config.yaml"
                 with open(test_config_path, "w") as f:
                     yaml.dump(test_config, f, default_flow_style=False)
-                args.extend(["--test-mode", "--test-config", str(test_config_path)])
+                args.extend(["--test-config", str(test_config_path)])
 
                 # Extract CLI args from test_config
                 cli_section = test_config.get("cli", {})

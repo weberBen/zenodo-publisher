@@ -12,16 +12,16 @@ def setup_pipeline(config, *, test=None):
                  test_mode=test_mode, test_config=test)
     if config.config_path_overrided:
         output.warn("Config override: using '{path}' instead of repo config",
-                     path=config.config_path, name="config_path_overrided")
+                     path=config.config_path, name="config.path_overrided")
     if test_mode:
-        output.warn("Running in test mode", name="test_mode")
+        output.warn("Running in test mode", name="config.test_mode")
     if config.project_root:
-        output.info_ok("Project root: {project_root}", project_root=str(config.project_root), name="project_root")
+        output.info_ok("Project root: {project_root}", project_root=str(config.project_root), name="config.project_root")
         output.info_ok("Project root name: {project_root_name}",
                        project_root_name=f"{RED_UNDERLINE}{config.project_root.name}{RESET}",
-                       name="project_root_name")
+                       name="config.project_root_name")
     else:
-        output.warn("No local project root detected", name="no_project_root")
+        output.warn("No local project root detected", name="config.no_project_root")
 
-    output.info_ok("Project name: {project_name}", project_name=config.project_name_prefix, name="project_name_prefix")
-    output.step_ok("Project configuration checked", name="config_checked")
+    output.info_ok("Project name: {project_name}", project_name=config.project_name_prefix, name="config.project_name_prefix")
+    output.step_ok("Project configuration checked", name="config.checked")

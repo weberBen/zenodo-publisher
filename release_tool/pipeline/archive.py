@@ -48,7 +48,7 @@ def _step_archive(
 
     if no_cache:
         origin_url = get_remote_url(project_root)
-        output.info("Cloning from {origin_url}", origin_url=origin_url, name="clone_remote")
+        output.info("Cloning from {origin_url}", origin_url=origin_url, name="archive.clone_remote")
         return archive_zip_remote_project(
             origin_url, tag_name, project_name, output_dir)
 
@@ -74,14 +74,14 @@ def _step_display(
 
     hashes = {}
     output.info("\n{label}:  {archive_path}", label=f"{'Archive':<{pad}}",
-                archive_path=str(result.file_path), name="archive_path")
+                archive_path=str(result.file_path), name="archive.path")
     for algo in all_algos:
         if algo in tree_hashes:
             h = tree_hashes[algo]
         else:
             h = compute_file_hash(result.file_path, algo)["value"]
         hashes[algo] = h
-        output.info("{label}:  {hash}", label=f"{algo:<{pad}}", hash=h, name="archive_hash")
+        output.info("{label}:  {hash}", label=f"{algo:<{pad}}", hash=h, name="archive.hash")
 
     output.data("archive_result", {
         "path": str(result.file_path),
@@ -105,7 +105,7 @@ def _run_archive(config, *, test=None) -> None:
             config.project_root, config.tag)
     config.generate_project_name(template_context)
     output.data("project_name", config.project_name)
-    output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="formatted_project_name")
+    output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
 
     # Resolve hash algos: config + CLI --hash
     hash_algos = list(config.hash_algorithms or [])

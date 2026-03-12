@@ -52,9 +52,9 @@ def _step_git_check(config):
     """Check branch, remote sync, and local modifications."""
     output.step("🔍 Checking git repository status...")
     check_on_main_branch(config.project_root, config.main_branch)
-    output.step_ok("On {branch} branch", branch=config.main_branch, name="branch_check")
+    output.step_ok("On {branch} branch", branch=config.main_branch, name="git.branch_check")
     check_up_to_date(config.project_root, config.main_branch)
-    output.step_ok("Project is up to date with git repo", name="git_up_to_date")
+    output.step_ok("Project is up to date with git repo", name="git.up_to_date")
 
 
 def _step_release(config) -> str:
@@ -63,21 +63,21 @@ def _step_release(config) -> str:
 
     if is_released:
         tag_name = latest_release["tagName"]
-        output.info_ok("Latest commit already has a release: {tag_name}", tag_name=tag_name, name="existing_release")
-        output.info_ok("Nothing to do for release.", name="release_noop")
-        output.step_ok("Project is up to date with git release", name="release_up_to_date")
+        output.info_ok("Latest commit already has a release: {tag_name}", tag_name=tag_name, name="release.existing")
+        output.info_ok("Nothing to do for release.", name="release.noop")
+        output.step_ok("Project is up to date with git release", name="release.up_to_date")
         output.data("tag_name", tag_name)
         return tag_name
 
     output.step("📋 Current release status:")
     if latest_release:
-        output.detail("Last release: {tag}", tag=latest_release['tagName'], name="last_release_tag")
+        output.detail("Last release: {tag}", tag=latest_release['tagName'], name="release.last_tag")
         if latest_release.get("name"):
-            output.detail("Title: {title}", title=latest_release['name'], name="last_release_title")
+            output.detail("Title: {title}", title=latest_release['name'], name="release.last_title")
         if latest_release.get("body"):
             body = latest_release["body"]
             preview = body[:100] + "..." if len(body) > 100 else body
-            output.detail("Notes: {notes}", notes=preview, name="last_release_notes")
+            output.detail("Notes: {notes}", notes=preview, name="release.last_notes")
     else:
         output.detail("No releases found (this will be the first release)")
 
@@ -95,7 +95,7 @@ def _step_release(config) -> str:
     )
     release_title = result.value if result.value else new_tag
     if release_title == new_tag:
-        output.detail("Using default title: {title}", title=release_title, name="default_title")
+        output.detail("Using default title: {title}", title=release_title, name="release.default_title")
 
     result = prompts.release_notes.ask("Enter release notes (press Enter to skip)")
     release_notes = result.value
@@ -106,7 +106,7 @@ def _step_release(config) -> str:
     output.step("🔍 Verifying tag validity...")
     check_tag_validity(config.project_root, new_tag, config.main_branch)
     create_github_release(config.project_root, new_tag, release_title, release_notes)
-    output.step_ok("Release {tag} created successfully!", tag=new_tag, name="release_created")
+    output.step_ok("Release {tag} created successfully!", tag=new_tag, name="release.created")
     output.data("tag_name", new_tag)
     return new_tag
 
@@ -114,17 +114,17 @@ def _step_release(config) -> str:
 def _step_commit_info(config, tag_name):
     output.step("Retrieve commit info")
     commit_env = get_last_commit_info(config.project_root, tag_name=tag_name)
-    output.info_ok("Commit SHA: {sha}", sha=commit_env['ZP_COMMIT_SHA'], name="commit_sha")
-    output.info_ok("Commit timestamp: {timestamp}", timestamp=commit_env['ZP_COMMIT_DATE_EPOCH'], name="commit_timestamp")
-    output.info_ok("Commit subject: {subject}", subject=commit_env['ZP_COMMIT_SUBJECT'], name="commit_subject")
+    output.info_ok("Commit SHA: {sha}", sha=commit_env['ZP_COMMIT_SHA'], name="commit.sha")
+    output.info_ok("Commit timestamp: {timestamp}", timestamp=commit_env['ZP_COMMIT_DATE_EPOCH'], name="commit.timestamp")
+    output.info_ok("Commit subject: {subject}", subject=commit_env['ZP_COMMIT_SUBJECT'], name="commit.subject")
     output.info_ok("Author: {author_name} <{author_email}>",
                    author_name=commit_env['ZP_COMMIT_AUTHOR_NAME'],
-                   author_email=commit_env['ZP_COMMIT_AUTHOR_EMAIL'], name="commit_author")
+                   author_email=commit_env['ZP_COMMIT_AUTHOR_EMAIL'], name="commit.author")
     output.info_ok("Committer: {committer_name} <{committer_email}>",
                    committer_name=commit_env['ZP_COMMIT_COMMITTER_NAME'],
-                   committer_email=commit_env['ZP_COMMIT_COMMITTER_EMAIL'], name="commit_committer")
-    output.info_ok("Branch: {branch}", branch=commit_env['ZP_BRANCH'], name="commit_branch")
-    output.info_ok("Origin: {origin}", origin=commit_env['ZP_ORIGIN_URL'], name="commit_origin")
+                   committer_email=commit_env['ZP_COMMIT_COMMITTER_EMAIL'], name="commit.committer")
+    output.info_ok("Branch: {branch}", branch=commit_env['ZP_BRANCH'], name="commit.branch")
+    output.info_ok("Origin: {origin}", origin=commit_env['ZP_ORIGIN_URL'], name="commit.origin")
     output.data("commit_env", commit_env)
     output.step_ok("", silent=True)
     return commit_env
@@ -137,7 +137,7 @@ def _step_project_name(config, tag_name, commit_env):
         "sha_commit": commit_env["ZP_COMMIT_SHA"],
     })
     output.data("project_name", config.project_name)
-    output.step_ok("Formatted project name: {project_name}", project_name=config.project_name, name="formatted_project_name")
+    output.step_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
 
 
 def _step_compile(config, env_vars=None):
@@ -183,7 +183,7 @@ def _step_resolve_generated_files(config) -> list[FileEntry]:
                 )
             entry.resolved_paths = matches
             for m in matches:
-                output.detail("{key}: {filename}", key=entry.key, filename=m.name, name="resolved_file")
+                output.detail("{key}: {filename}", key=entry.key, filename=m.name, name="files.resolved")
 
     output.step_ok("Generated files resolved")
     return config.generated_files
@@ -218,7 +218,7 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                     has_signature=entry.effective_sign(config.signing.sign),
                     publishers=entry.publishers,
                 ))
-                output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive_copy")
+                output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
         elif entry.kind == FileEntryKind.PROJECT:
             result = archive_zip_project(
@@ -254,7 +254,7 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                 hashes=pre_hashes,
             )
             archived_files.append(af)
-            output.detail("project archive: {filename}", filename=final_path.name, name="project_archive")
+            output.detail("project archive: {filename}", filename=final_path.name, name="archive.project")
 
         # MANIFEST kind is handled in step 9
 
@@ -329,7 +329,7 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir):
         metadata=metadata,
     )
     manifest_path = manifest_to_file(config, manifest_dict, output_dir)
-    output.detail("Manifest: {path}", path=str(manifest_path), name="manifest_path")
+    output.detail("Manifest: {path}", path=str(manifest_path), name="manifest.path")
 
     archived_files.append(ArchivedFile(
         file_path=manifest_path,
@@ -357,9 +357,9 @@ def _step_compute_hashes(config, archived_files):
     compute_hashes(archived_files, algos)
 
     for af in archived_files:
-        output.detail("{filename}", filename=af.file_path.name, name="hash_file")
+        output.detail("{filename}", filename=af.file_path.name, name="hash.file")
         for algo, h in af.hashes.items():
-            output.detail("  {algo}: {hash}", algo=algo, hash=h['value'], name="hash_value")
+            output.detail("  {algo}: {hash}", algo=algo, hash=h['value'], name="hash.value")
     output.data("file_hashes", {
         af.file_path.name: {algo: h["value"] for algo, h in af.hashes.items()}
         for af in archived_files
@@ -452,12 +452,12 @@ def _step_compute_identifiers(config, archived_files):
             continue
 
         if target is None:
-            output.warn("Identifier source not found for '{key}'", key=fe.key, name="identifier_missing")
+            output.warn("Identifier source not found for '{key}'", key=fe.key, name="identifier.missing")
             continue
 
         hash_val = target.hashes.get(config.sign_hash_algo)
         if hash_val is None:
-            output.warn("Hash {algo} not found for identifier '{key}'", algo=config.sign_hash_algo, key=fe.key, name="identifier_hash_missing")
+            output.warn("Hash {algo} not found for identifier '{key}'", algo=config.sign_hash_algo, key=fe.key, name="identifier.hash_missing")
             continue
 
         formatted = hash_val['formatted_value']
@@ -467,7 +467,7 @@ def _step_compute_identifiers(config, archived_files):
         if not has_identifiers:
             output.step("Computing identifiers...")
             has_identifiers = True
-        output.detail("Identifier ({key}): {value}", key=fe.key, value=identifier_value, name="identifier_computed")
+        output.detail("Identifier ({key}): {value}", key=fe.key, value=identifier_value, name="identifier.computed")
 
     if has_identifiers:
         output.step_ok("Identifiers computed")
@@ -519,8 +519,8 @@ def _publish_zenodo(config, tag_name, zenodo_files, all_files) -> dict | None:
 
     up_to_date, msg, record_info = publisher.is_up_to_date(tag_name, zenodo_files)
     if up_to_date and record_info:
-        output.info("Last record url: https://doi.org/{doi}", doi=record_info['doi'], name="zenodo_doi")
-        output.info("Last record url: {url}", url=record_info['record_url'], name="zenodo_url")
+        output.info("Last record url: https://doi.org/{doi}", doi=record_info['doi'], name="zenodo.doi")
+        output.info("Last record url: {url}", url=record_info['record_url'], name="zenodo.url")
 
     if msg:
         output.step_ok(msg)
@@ -541,12 +541,12 @@ def _publish_zenodo(config, tag_name, zenodo_files, all_files) -> dict | None:
             zenodo_files, tag_name, identifiers=identifiers,
         )
         output.data("record_info", record_info)
-        output.detail("Zenodo DOI: {doi}", doi=record_info['doi'], name="zenodo_published_doi")
-        output.step_ok("Publication {tag} completed successfully!", tag=tag_name, name="publication_done")
+        output.detail("Zenodo DOI: {doi}", doi=record_info['doi'], name="zenodo.published_doi")
+        output.step_ok("Publication {tag} completed successfully!", tag=tag_name, name="zenodo.publication_done")
         return record_info
 
     except ZenodoError as e:
-        output.error("GitHub release created but Zenodo publication failed: {err}", err=str(e), name="zenodo_publish_error")
+        output.error("GitHub release created but Zenodo publication failed: {err}", err=str(e), name="zenodo.publish_error")
         output.detail("You can manually upload files to Zenodo")
     finally:
         return record_info
@@ -563,22 +563,22 @@ def _publish_github(config, tag_name, github_files):
         )
 
         if remote_sha and local_sha == remote_sha:
-            output.detail("{filename} already up to date on release", filename=af.file_path.name, name="github_asset_ok")
+            output.detail("{filename} already up to date on release", filename=af.file_path.name, name="github.asset_ok")
             continue
 
         if remote_sha:
-            output.step_warn("{filename} differs from release asset", filename=af.file_path.name, name="github_asset_diff")
-            output.detail("Remote: {hash}", hash=ellipse_hash(remote_sha), name="github_remote_hash")
-            output.detail("Local: {hash}", hash=ellipse_hash(local_sha), name="github_local_hash")
+            output.step_warn("{filename} differs from release asset", filename=af.file_path.name, name="github.asset_diff")
+            output.detail("Remote: {hash}", hash=ellipse_hash(remote_sha), name="github.remote_hash")
+            output.detail("Local: {hash}", hash=ellipse_hash(local_sha), name="github.local_hash")
             if not prompts.confirm_github_overwrite.ask(f"Overwrite {af.file_path.name} on release ?").is_accept:
-                output.warn("{filename} not updated on release", filename=af.file_path.name, name="github_asset_skipped")
+                output.warn("{filename} not updated on release", filename=af.file_path.name, name="github.asset_skipped")
                 continue
 
         upload_release_asset(
             config.project_root, tag_name, af.file_path,
             clobber=bool(remote_sha),
         )
-        output.detail_ok("{filename} uploaded to release", filename=af.file_path.name, name="github_asset_uploaded")
+        output.detail_ok("{filename} uploaded to release", filename=af.file_path.name, name="github.asset_uploaded")
 
     output.step_ok("GitHub release updated")
 
@@ -605,7 +605,7 @@ def _run_release(config, *, test=None) -> None:
     setup_pipeline(config, test=test)
     prompts.init_prompts(config)
 
-    output.info_ok("Main branch: {branch}", branch=config.main_branch, name="main_branch")
+    output.info_ok("Main branch: {branch}", branch=config.main_branch, name="config.main_branch")
 
     # 1. Git check
     _step_git_check(config)

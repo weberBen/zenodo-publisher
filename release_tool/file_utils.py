@@ -33,9 +33,9 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     # Check which files already exist
     existing = [e for e in to_persist if (persist_dir / e.file_path.name).exists()]
     if existing:
-        output.info("Files already exist in {dir}:", dir=str(persist_dir), name="persist_existing")
+        output.info("Files already exist in {dir}:", dir=str(persist_dir), name="persist.existing")
         for e in existing:
-            output.detail("  {filename}", filename=e.file_path.name, name="persist_existing_file")
+            output.detail("  {filename}", filename=e.file_path.name, name="persist.existing_file")
 
     apply_all = None  # None = ask each time, True = overwrite all, False = skip all
     for entry in to_persist:
@@ -57,9 +57,9 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
                     overwrite = result.is_accept
 
             if not overwrite:
-                output.detail("Skipped {filename}", filename=dst.name, name="persist_skipped")
+                output.detail("Skipped {filename}", filename=dst.name, name="persist.skipped")
                 continue
 
         shutil.move(str(src), str(dst))
         entry.file_path = dst
-        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(persist_dir), name="persist_done")
+        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(persist_dir), name="persist.done")

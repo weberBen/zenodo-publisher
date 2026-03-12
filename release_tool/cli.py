@@ -144,14 +144,14 @@ def cmd_release(args):
     except ConfigError as e:
         if args.debug:
             raise
-        output.fatal(str(e), name="config_error")
+        output.fatal(str(e), name="config_error.loading")
         return
 
     if not config.is_zp_project:
         config_path = (config.project_root / CONFIG_FILENAME) if config.project_root else CONFIG_FILENAME
         output.fatal(
             f"Project not initialized for Zenodo publisher. Missing: {config_path}",
-            name="not_initialized",
+            name="config_error.not_initialized",
         )
         return
 
@@ -168,7 +168,7 @@ def cmd_archive(args):
     except ConfigError as e:
         if args.debug:
             raise
-        output.fatal(str(e), name="config_error")
+        output.fatal(str(e), name="config_error.loading")
         return
 
     from .pipeline import run_archive
@@ -186,7 +186,7 @@ def run_cmd(args, fn):
     except Exception as e:
         if debug:
             raise
-        output.fatal(str(e), name="config_error")
+        output.fatal(str(e), name="config_error.runtime")
 
 CMD = {
     "release": cmd_release,
