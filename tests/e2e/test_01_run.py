@@ -5,7 +5,7 @@ from pathlib import Path
 from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
-from tests.utils.ndjson import find_by_name
+from tests.utils.ndjson import find_by_name, find_errors
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ def test_run_release(tmp_path):
         test_config={"prompts": RELEASE_PROMPTS, "verify_prompts": False},
         log_dir=conftest.log_dir,
         test_name="test_01_run",
-        fail_on=["fatal", "error"],
+        fail_on="ignore",
     )
 
     # Verify project_root matches tmp_path
@@ -63,3 +63,8 @@ def test_run_release(tmp_path):
     assert ev is not None, "project_root event not found"
     assert ev["data"]["project_root"] == str(tmp_path), \
         f"project_root mismatch: {ev['data']['project_root']} != {tmp_path}"
+
+    # Expect failure: no remote origin in tmp repo
+    errors = find_errors(result.events)
+    assert any("origin/main" in e.get("msg", "") for e in errors), \
+        f"Expected origin/main error, got: {errors}"

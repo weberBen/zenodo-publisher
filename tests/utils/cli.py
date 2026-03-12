@@ -21,6 +21,10 @@ from .sandbox import SandboxConfig, TraceResult, run_sandboxed
 # Root of the zenodo-publisher project (resolved from this file's location)
 ZP_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Event types that can trigger auto-raise in run_test()
+FAIL_EVENT_TYPES = {"fatal", "error", "warn"}
+DEFAULT_FAIL_ON = {"fatal", "error"}
+
 
 @dataclass
 class ZpResult:
@@ -49,8 +53,13 @@ class ZpRunner:
         self.proxy_port = proxy_port
 
     def run(self, *args: str, timeout: int = 120,
-            env: dict | None = None) -> ZpResult:
-        """Run zp with given arguments."""
+            env: dict | None = None,
+            log_path: Path | None = None) -> ZpResult:
+        """Run zp with given arguments.
+
+        If log_path is provided, stdout/stderr are streamed line-by-line
+        to the log file as they arrive (survives crashes).
+        """
         cmd = [
             self.uv_binary, "run",
             "--project", str(ZP_PROJECT_ROOT),
@@ -76,32 +85,90 @@ class ZpRunner:
                     env=run_env or None,
                     timeout=timeout,
                 )
+                stdout_str = result.stdout
+                stderr_str = result.stderr
+                returncode = result.returncode
+                # Write log after the fact for sandbox mode
+                if log_path:
+                    self._stream_write_log(log_path, stdout_str, stderr_str)
             else:
                 full_env = os.environ.copy()
                 if run_env:
                     full_env.update(run_env)
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(self.work_dir),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    env=full_env,
-                )
+
+                if log_path:
+                    stdout_str, stderr_str, returncode = self._run_streaming(
+                        cmd, cwd=self.work_dir, env=full_env,
+                        timeout=timeout, log_path=log_path,
+                    )
+                else:
+                    result = subprocess.run(
+                        cmd,
+                        cwd=str(self.work_dir),
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        env=full_env,
+                    )
+                    stdout_str = result.stdout
+                    stderr_str = result.stderr
+                    returncode = result.returncode
         finally:
             if proxy:
                 http_requests = proxy.stop()
 
-        events = parse_stream(result.stdout) if "--test-mode" in args else []
+        events = parse_stream(stdout_str) if "--test-mode" in args else []
 
         return ZpResult(
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            returncode=returncode,
+            stdout=stdout_str,
+            stderr=stderr_str,
             events=events,
             trace=trace_result,
             http_requests=http_requests,
         )
+
+    @staticmethod
+    def _run_streaming(cmd, cwd, env, timeout, log_path):
+        """Run command, streaming stdout/stderr to log file line by line."""
+        import threading
+
+        log_path.parent.mkdir(exist_ok=True)
+        stdout_lines = []
+        stderr_lines = []
+
+        proc = subprocess.Popen(
+            cmd, cwd=str(cwd), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        def _drain(stream, buf, log_f, prefix):
+            for line in stream:
+                buf.append(line)
+                log_f.write(f"[{prefix}] {line}")
+                log_f.flush()
+
+        with open(log_path, "w") as log_f:
+            t_out = threading.Thread(target=_drain, args=(proc.stdout, stdout_lines, log_f, "out"))
+            t_err = threading.Thread(target=_drain, args=(proc.stderr, stderr_lines, log_f, "err"))
+            t_out.start()
+            t_err.start()
+            proc.wait(timeout=timeout)
+            t_out.join()
+            t_err.join()
+
+        return "".join(stdout_lines), "".join(stderr_lines), proc.returncode
+
+    @staticmethod
+    def _stream_write_log(log_path, stdout, stderr):
+        """Write stdout/stderr to log (fallback for sandbox mode)."""
+        log_path.parent.mkdir(exist_ok=True)
+        with open(log_path, "w") as f:
+            for line in stdout.splitlines(keepends=True):
+                f.write(f"[out] {line}")
+            for line in stderr.splitlines(keepends=True):
+                f.write(f"[err] {line}")
 
     def run_with_config(self, command: str, cli_args: list[str],
                         test_config_path: Path | None = None,
@@ -157,7 +224,8 @@ class ZpRunner:
                  test_config: dict | None = None,
                  extra_args: list[str] | None = None,
                  log_dir: Path | None = None,
-                 test_name: str | None = None) -> ZpResult:
+                 test_name: str | None = None,
+                 fail_on: set[str] | list[str] | str | None = None) -> ZpResult:
         """Run zp with inline config dicts. Writes them to tmp files, runs zp, verifies prompts, logs output.
 
         Args:
@@ -167,8 +235,35 @@ class ZpRunner:
             extra_args: Additional CLI arguments.
             log_dir: Directory for log files.
             test_name: Test name for log file naming.
+            fail_on: Event types that trigger AssertionError.
+                     Default (None) = {"fatal", "error"}.
+                     "ignore" = no auto-raise.
+                     Set of types e.g. {"fatal", "error", "warn"}.
         """
+        # Resolve fail_on
+        if fail_on is None:
+            fail_types = DEFAULT_FAIL_ON
+        elif fail_on == "ignore":
+            fail_types = set()
+        elif isinstance(fail_on, (set, list)):
+            fail_on = set(fail_on)
+            invalid = fail_on - FAIL_EVENT_TYPES
+            if invalid:
+                raise ValueError(
+                    f"Invalid fail_on types: {invalid}. "
+                    f"Valid types: {FAIL_EVENT_TYPES}")
+            fail_types = fail_on
+        else:
+            raise ValueError(
+                f"fail_on must be a set of types, 'ignore', or None. Got: {fail_on!r}")
         args = [command]
+
+        # Build log path
+        log_path = None
+        if log_dir:
+            log_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = log_dir / f"{test_name or command}_{timestamp}.log"
 
         # Write config to tmp file and pass via --config
         tmpdir = Path(tempfile.mkdtemp())
@@ -194,46 +289,24 @@ class ZpRunner:
             if extra_args:
                 args.extend(extra_args)
 
-            result = self.run(*args)
+            result = self.run(*args, log_path=log_path)
 
-            # Verify prompts if test_config defines them
-            if test_config and "prompts" in test_config and result.events:
+            # Verify prompts if test_config defines them (unless verify_prompts=False)
+            if (test_config and "prompts" in test_config
+                    and test_config.get("verify_prompts", True) and result.events):
                 verify_prompts(result.events, set(test_config["prompts"].keys()))
 
-            # Log output
-            if log_dir:
-                self._write_log(result, log_dir, test_name or command)
+            # Auto-detect errors based on fail_on level
+            if fail_types and result.events:
+                matched = [e for e in result.events if e.get("type") in fail_types]
+                if matched:
+                    msgs = [f"[{e.get('type')}/{e.get('name', '?')}] {e.get('msg', '')}"
+                            for e in matched]
+                    raise AssertionError(
+                        f"ZP emitted {len(matched)} event(s) matching fail_on={fail_types}:\n" +
+                        "\n".join(f"  - {m}" for m in msgs)
+                    )
 
             return result
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-
-    @staticmethod
-    def _write_log(result: ZpResult, log_dir: Path, test_name: str):
-        """Write full ZP output to a log file."""
-        log_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_path = log_dir / f"{test_name}_{timestamp}.log"
-        with open(log_path, "w") as f:
-            f.write(f"=== {test_name} ===\n")
-            f.write(f"returncode: {result.returncode}\n")
-            f.write(f"\n--- stdout ---\n{result.stdout}\n")
-            f.write(f"\n--- stderr ---\n{result.stderr}\n")
-            if result.events:
-                f.write(f"\n--- events ({len(result.events)}) ---\n")
-                for event in result.events:
-                    f.write(f"  {event}\n")
-            if result.trace:
-                f.write(f"\n--- trace: files ({len(result.trace.files)}) ---\n")
-                for fp in result.trace.files:
-                    f.write(f"  {fp}\n")
-                f.write(f"\n--- trace: commands ({len(result.trace.commands)}) ---\n")
-                for cmd in result.trace.commands:
-                    f.write(f"  {cmd}\n")
-                f.write(f"\n--- trace: connections ({len(result.trace.connections)}) ---\n")
-                for conn in result.trace.connections:
-                    f.write(f"  {conn}\n")
-            if result.http_requests:
-                f.write(f"\n--- http requests ({len(result.http_requests)}) ---\n")
-                for req in result.http_requests:
-                    f.write(f"  {req}\n")
