@@ -55,7 +55,7 @@ def test_run_release(tmp_path):
         test_config={"prompts": RELEASE_PROMPTS, "verify_prompts": False},
         log_dir=conftest.log_dir,
         test_name="test_01_run",
-        fail_on="ignore",
+        fail_on=["fatal", "error"],
     )
 
     # Verify project_root matches tmp_path
