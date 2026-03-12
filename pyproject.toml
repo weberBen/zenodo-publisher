@@ -22,3 +22,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["release_tool"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+# clear tmp test between each test
+tmp_path_retention_policy = "none"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

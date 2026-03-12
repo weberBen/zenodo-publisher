@@ -50,6 +50,8 @@ class Output:
         self._debug = debug
         self.label = f"({RED_UNDERLINE}{project_name}{RESET})" if project_name else ""
 
+    def before_init_setup(self, debug: bool = False, test_mode: bool = False):
+        self.setup("ZP", debug=debug, test_mode=test_mode)
     # -- Test config --------------------------------------------------------
 
     def get_test_response(self, name: str):
@@ -231,6 +233,7 @@ class Output:
 
 _out = Output()
 
+before_init_setup = _out.before_init_setup
 setup = _out.setup
 step = _out.step
 step_ok = _out.step_ok

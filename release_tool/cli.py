@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 
+from . import output
 from .config.env import ConfigError
 from .config.yaml import CONFIG_FILENAME
 from .config.test import TestConfig
@@ -105,7 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
     release_p = subparsers.add_parser(
         "release", help="Run the full release pipeline")
     _setup_subparser(release_p, ReleaseConfig)
-    release_p.set_defaults(func=cmd_release)
 
     # --- zp archive --------------------------------------------------------
     archive_p = subparsers.add_parser(
@@ -119,7 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _setup_subparser(archive_p, ArchiveConfig)
-    archive_p.set_defaults(func=cmd_archive)
 
     return parser
 
@@ -138,7 +137,6 @@ def setup_work_dir(args):
 
 def cmd_release(args):
     """Run the full release pipeline."""
-    setup_work_dir(args)
 
     try:
         config = ReleaseConfig.from_args(args)
@@ -146,15 +144,14 @@ def cmd_release(args):
     except ConfigError as e:
         if args.debug:
             raise
-        print(f"\n\u274c {e}", file=sys.stderr)
+        output.fatal(str(e), name="config_error")
         return
 
     if not config.is_zp_project:
         config_path = (config.project_root / CONFIG_FILENAME) if config.project_root else CONFIG_FILENAME
-        print(
-            f"\n\u274c Project not initialized for Zenodo publisher.\n"
-            f"Missing: {config_path}",
-            file=sys.stderr,
+        output.fatal(
+            f"Project not initialized for Zenodo publisher. Missing: {config_path}",
+            name="not_initialized",
         )
         return
 
@@ -164,7 +161,6 @@ def cmd_release(args):
 
 def cmd_archive(args):
     """Create a git archive at a given tag and print checksums."""
-    setup_work_dir(args)
 
     try:
         config = ArchiveConfig.from_args(args)
@@ -172,12 +168,30 @@ def cmd_archive(args):
     except ConfigError as e:
         if args.debug:
             raise
-        print(f"\n\u274c {e}", file=sys.stderr)
+        output.fatal(str(e), name="config_error")
         return
 
     from .pipeline import run_archive
     run_archive(config, test=test)
 
+
+def run_cmd(args, fn):
+    setup_work_dir(args)
+    test_mode = getattr(args, "test_mode", False)
+    debug = getattr(args, "debug", False)
+    output.before_init_setup(test_mode=test_mode, debug=debug)
+    
+    try:
+        fn(args)
+    except Exception as e:
+        if debug:
+            raise
+        output.fatal(str(e), name="config_error")
+
+CMD = {
+    "release": cmd_release,
+    "archive": cmd_archive
+}
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -188,8 +202,9 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    if hasattr(args, "func"):
-        args.func(args)
-    else:
+    if args.command not in CMD:
         parser.print_help()
         sys.exit(1)
+    
+    fn = CMD[args.command]
+    run_cmd(args, fn)

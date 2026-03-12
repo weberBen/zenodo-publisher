@@ -4,11 +4,19 @@ Calls `uv run --project <zp_root> zp` via subprocess.
 Completely independent from release_tool internals.
 """
 
+import os
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
-from .ndjson import parse_stream
+import yaml
+
+from .ndjson import parse_stream, verify_prompts
+from .proxy import HttpProxy
+from .sandbox import SandboxConfig, TraceResult, run_sandboxed
 
 # Root of the zenodo-publisher project (resolved from this file's location)
 ZP_PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +28,8 @@ class ZpResult:
     stdout: str
     stderr: str
     events: list[dict] = field(default_factory=list)
+    trace: TraceResult | None = None
+    http_requests: list[dict] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -29,11 +39,17 @@ class ZpResult:
 class ZpRunner:
     """Subprocess wrapper for `uv run zp`."""
 
-    def __init__(self, work_dir: Path, uv_binary: str = "uv"):
+    def __init__(self, work_dir: Path, uv_binary: str = "uv",
+                 sandbox: SandboxConfig | None = None,
+                 use_proxy: bool = False, proxy_port: int = 8888):
         self.work_dir = work_dir
         self.uv_binary = uv_binary
+        self.sandbox = sandbox
+        self.use_proxy = use_proxy
+        self.proxy_port = proxy_port
 
-    def run(self, *args: str, timeout: int = 120) -> ZpResult:
+    def run(self, *args: str, timeout: int = 120,
+            env: dict | None = None) -> ZpResult:
         """Run zp with given arguments."""
         cmd = [
             self.uv_binary, "run",
@@ -41,13 +57,40 @@ class ZpRunner:
             "zp",
         ] + list(args)
 
-        result = subprocess.run(
-            cmd,
-            cwd=str(self.work_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        trace_result = None
+        http_requests = []
+        proxy = None
+
+        # Start proxy if requested
+        run_env = env or {}
+        if self.use_proxy:
+            proxy = HttpProxy(port=self.proxy_port)
+            proxy_env = proxy.start()
+            run_env = {**run_env, **proxy_env}
+
+        try:
+            if self.sandbox:
+                result, trace_result = run_sandboxed(
+                    cmd, self.sandbox,
+                    cwd=self.work_dir,
+                    env=run_env or None,
+                    timeout=timeout,
+                )
+            else:
+                full_env = os.environ.copy()
+                if run_env:
+                    full_env.update(run_env)
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(self.work_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    env=full_env,
+                )
+        finally:
+            if proxy:
+                http_requests = proxy.stop()
 
         events = parse_stream(result.stdout) if "--test-mode" in args else []
 
@@ -56,6 +99,8 @@ class ZpRunner:
             stdout=result.stdout,
             stderr=result.stderr,
             events=events,
+            trace=trace_result,
+            http_requests=http_requests,
         )
 
     def run_with_config(self, command: str, cli_args: list[str],
@@ -106,3 +151,89 @@ class ZpRunner:
             elif v is not False and v is not None:
                 args.extend([flag, str(v)])
         return self.run(*args)
+
+    def run_test(self, command: str,
+                 config: dict | None = None,
+                 test_config: dict | None = None,
+                 extra_args: list[str] | None = None,
+                 log_dir: Path | None = None,
+                 test_name: str | None = None) -> ZpResult:
+        """Run zp with inline config dicts. Writes them to tmp files, runs zp, verifies prompts, logs output.
+
+        Args:
+            command: Subcommand ("release", "archive").
+            config: ZP config dict (written as zenodo_config.yaml).
+            test_config: Test config dict with "prompts" and/or "cli" sections.
+            extra_args: Additional CLI arguments.
+            log_dir: Directory for log files.
+            test_name: Test name for log file naming.
+        """
+        args = [command]
+
+        # Write config to tmp file and pass via --config
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            if config is not None:
+                config_path = tmpdir / "zenodo_config.yaml"
+                with open(config_path, "w") as f:
+                    yaml.dump(config, f, default_flow_style=False)
+                args.extend(["--config", str(config_path)])
+
+            # Write test_config to tmp file and pass via --test-mode --test-config
+            if test_config is not None:
+                test_config_path = tmpdir / "test.config.yaml"
+                with open(test_config_path, "w") as f:
+                    yaml.dump(test_config, f, default_flow_style=False)
+                args.extend(["--test-mode", "--test-config", str(test_config_path)])
+
+                # Extract CLI args from test_config
+                cli_section = test_config.get("cli", {})
+                if cli_section.get("args"):
+                    args.extend(cli_section["args"])
+
+            if extra_args:
+                args.extend(extra_args)
+
+            result = self.run(*args)
+
+            # Verify prompts if test_config defines them
+            if test_config and "prompts" in test_config and result.events:
+                verify_prompts(result.events, set(test_config["prompts"].keys()))
+
+            # Log output
+            if log_dir:
+                self._write_log(result, log_dir, test_name or command)
+
+            return result
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def _write_log(result: ZpResult, log_dir: Path, test_name: str):
+        """Write full ZP output to a log file."""
+        log_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = log_dir / f"{test_name}_{timestamp}.log"
+        with open(log_path, "w") as f:
+            f.write(f"=== {test_name} ===\n")
+            f.write(f"returncode: {result.returncode}\n")
+            f.write(f"\n--- stdout ---\n{result.stdout}\n")
+            f.write(f"\n--- stderr ---\n{result.stderr}\n")
+            if result.events:
+                f.write(f"\n--- events ({len(result.events)}) ---\n")
+                for event in result.events:
+                    f.write(f"  {event}\n")
+            if result.trace:
+                f.write(f"\n--- trace: files ({len(result.trace.files)}) ---\n")
+                for fp in result.trace.files:
+                    f.write(f"  {fp}\n")
+                f.write(f"\n--- trace: commands ({len(result.trace.commands)}) ---\n")
+                for cmd in result.trace.commands:
+                    f.write(f"  {cmd}\n")
+                f.write(f"\n--- trace: connections ({len(result.trace.connections)}) ---\n")
+                for conn in result.trace.connections:
+                    f.write(f"  {conn}\n")
+            if result.http_requests:
+                f.write(f"\n--- http requests ({len(result.http_requests)}) ---\n")
+                for req in result.http_requests:
+                    f.write(f"  {req}\n")

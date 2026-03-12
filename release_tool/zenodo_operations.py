@@ -30,6 +30,16 @@ class ZenodoPublisher:
         self.concept_id = get_zenodo_id_from_doi(config.zenodo_concept_doi)
         self._publication_date = config.publication_date
         self.config = config
+        self._setup_http_logging()
+
+    def _setup_http_logging(self):
+        def _on_response(response, *args, **kwargs):
+            output.data("http_request", {
+                "method": response.request.method,
+                "url": response.request.url,
+                "status": response.status_code,
+            })
+        self.client.session.hooks["response"].append(_on_response)
 
     def get_publication_date(self):
         return self._publication_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
