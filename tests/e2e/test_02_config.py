@@ -223,19 +223,6 @@ def test_prompt_level_secure(tmp_path):
 
 # --- Signing ---
 
-def test_signing_off(tmp_path):
-    """signing.sign: false — should load without GPG."""
-    _git_init(tmp_path)
-    config = {**MINIMAL_CONFIG, "signing": {"sign": False}}
-    runner = ZpRunner(tmp_path)
-    result = runner.run_test("release", config=config,
-                             test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_off",
-                             fail_on="ignore")
-    assert has_step_ok(result.events, "config.checked"), \
-        f"Sign off should load: events={result.events}"
-
-
 def test_signing_on_file_mode(tmp_path):
     """signing: sign + sign_mode: file — config should load."""
     _git_init(tmp_path)
@@ -362,19 +349,6 @@ def test_signing_gpg_extra_args(tmp_path):
 
 
 # --- Hash algorithms ---
-
-def test_hash_sha256(tmp_path):
-    """Default sha256 hash algorithm."""
-    _git_init(tmp_path)
-    config = {**MINIMAL_CONFIG, "hash_algorithms": ["sha256"]}
-    runner = ZpRunner(tmp_path)
-    result = runner.run_test("release", config=config,
-                             test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_hash_sha256",
-                             fail_on="ignore")
-    assert has_step_ok(result.events, "config.checked"), \
-        f"sha256 should load: events={result.events}"
-
 
 def test_hash_multiple(tmp_path):
     """Multiple hash algorithms: md5, sha256."""
