@@ -1,28 +1,29 @@
 """Test: reset the test repo to a known state before running tests."""
 
-from tests import conftest
-from tests.utils.git import GitClient
-import yaml
-from pathlib import Path
+import pytest
 
+from tests.conftest import reset_test_repo
+
+@pytest.mark.no_auto_reset
 def test_reset():
-    test_env = conftest.test_env
-    repo_dir = test_env["GIT_REPO_PATH"]
-    git_template_sha = test_env["GIT_TEMPLATE_SHA"]
+    reset_test_repo()
 
-    # Load repo config to get main_branch
-    config_path = Path(repo_dir) / "zenodo_config.yaml"
-    if config_path.exists():
-        with open(config_path) as f:
-            repo_config = yaml.safe_load(f) or {}
-        branch_name = repo_config.get("main_branch", "").strip()
-    else:
-        branch_name = None
-    
-    if not branch_name:
-        raise Exception("Invalid branch name ")
 
-    git = GitClient(repo_dir)
-    git.reset_repo(branch_name, git_template_sha)
-    git.add_and_commit()
-    git.push()
+# Do not remove this comment !
+# # --- Auto reset (par défaut) ---
+# def test_dirty_file(repo_env, fix_log_dir):
+#     repo_dir, git = repo_env
+#     (repo_dir / "dirty.txt").write_text("test")
+#     # ... assertions ...
+#     # → reset_test_repo() appelé automatiquement après
+#
+# # --- Opt-out par test ---
+# @pytest.mark.no_auto_reset
+# def test_something(repo_env, fix_log_dir):
+#     repo_dir, git = repo_env
+#     # ... pas de reset après, tu le fais toi-même
+#
+# # --- Opt-out pour tout le fichier ---
+# pytestmark = pytest.mark.no_auto_reset
+#
+# uv run pytest tests/e2e/test_00_reset.py -v

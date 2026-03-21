@@ -5,11 +5,15 @@
 - Sorts tests by file number (test_00_*, test_01_*, ...)
 - Excludes tests/manual/ from collection
 - Creates tests/logs/ for output logging
+- Provides fixtures: log_dir, repo_dir, repo_git, branch_name
 """
 
 import re
 import sys
 from pathlib import Path
+
+import pytest
+import yaml
 
 from tests.utils.git import GitClient
 
@@ -26,6 +30,8 @@ TEST_ENV_FILENAME = ".zenodo.test.env"
 
 test_env: dict[str, str] = {}
 repo_dir: Path | None = None
+branch_name: str | None = None
+git_template_sha: str | None = None
 tests_dir: Path = TESTS_DIR
 log_dir: Path = TESTS_DIR / "logs"
 
@@ -34,6 +40,10 @@ log_dir: Path = TESTS_DIR / "logs"
 # ---------------------------------------------------------------------------
 
 collect_ignore_glob = ["manual/*"]
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "no_auto_reset: disable auto repo reset after test")
 
 
 def pytest_collection_modifyitems(items):
@@ -65,9 +75,19 @@ def _load_test_env(tests_dir: Path) -> dict[str, str]:
     return env
 
 
+def _load_branch_name(repo_path: Path) -> str | None:
+    """Read main_branch from zenodo_config.yaml in the repo."""
+    config_path = repo_path / "zenodo_config.yaml"
+    if not config_path.exists():
+        return None
+    with open(config_path) as f:
+        repo_config = yaml.safe_load(f) or {}
+    return repo_config.get("main_branch", "").strip() or None
+
+
 def pytest_sessionstart(session):
     """Load context and prompt for confirmation before running tests."""
-    global test_env, repo_dir
+    global test_env, repo_dir, branch_name, git_template_sha
 
     test_env.update(_load_test_env(TESTS_DIR))
 
@@ -75,6 +95,9 @@ def pytest_sessionstart(session):
     if not (repo_dir / ".git").exists():
         print(f"Error: {repo_dir} is not a git repository", file=sys.stderr)
         sys.exit(1)
+
+    git_template_sha = test_env.get("GIT_TEMPLATE_SHA")
+    branch_name = _load_branch_name(repo_dir)
 
     git = GitClient(repo_dir)
     remote_url = git.remote_url()
@@ -88,3 +111,58 @@ def pytest_sessionstart(session):
             sys.exit(0)
 
     log_dir.mkdir(exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Repo reset
+# ---------------------------------------------------------------------------
+
+def reset_test_repo():
+    """Reset the external test repo to its template state."""
+    if not repo_dir or not git_template_sha or not branch_name:
+        raise RuntimeError(
+            "Cannot reset: repo_dir, git_template_sha or branch_name not set"
+        )
+    git = GitClient(repo_dir)
+    git.reset_repo(branch_name, git_template_sha)
+    git.add_and_commit()
+    git.push()
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def fix_log_dir():
+    return log_dir
+
+
+@pytest.fixture(scope="session")
+def fix_repo_dir():
+    return repo_dir
+
+
+@pytest.fixture(scope="session")
+def fix_repo_git():
+    return GitClient(repo_dir)
+
+
+@pytest.fixture(scope="session")
+def fix_branch_name():
+    return branch_name
+
+
+@pytest.fixture
+def repo_env(request, fix_repo_dir, fix_repo_git):
+    """Yield (repo_dir, git_client), then auto-reset the repo.
+
+    Auto-reset after each test unless opted out:
+      - Per test:   @pytest.mark.no_auto_reset
+      - Per file:   pytestmark = pytest.mark.no_auto_reset
+    """
+    yield fix_repo_dir, fix_repo_git
+
+    marker = request.node.get_closest_marker("no_auto_reset")
+    if marker is None:
+        reset_test_repo()
