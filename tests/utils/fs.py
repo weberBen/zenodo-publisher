@@ -51,10 +51,10 @@ def extract_archive(archive_path: Path, dest_dir: Path) -> Path:
             zf.extractall(dest_dir)
     elif archive_path.name.endswith(".tar.gz"):
         with tarfile.open(archive_path, "r:gz") as tf:
-            tf.extractall(dest_dir)
+            tf.extractall(dest_dir, filter="data")
     elif archive_path.suffix == ".tar":
         with tarfile.open(archive_path, "r:") as tf:
-            tf.extractall(dest_dir)
+            tf.extractall(dest_dir, filter="data")
     else:
         raise ValueError(f"Unknown archive format: {archive_path}")
 
