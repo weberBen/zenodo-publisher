@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from tests.utils.git import GitClient
+from tests.utils.github import GithubClient
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -124,6 +125,25 @@ def reset_test_repo():
             "Cannot reset: repo_dir, git_template_sha or branch_name not set"
         )
     git = GitClient(repo_dir)
+
+    # Clean up orphaned GitHub state from failed tests
+    gh = GithubClient(repo_dir)
+
+    # Delete draft releases (created when a tag is deleted but release survives)
+    # gh release list doesn't show drafts, so we use the API via list_draft_releases
+    for draft in gh.list_draft_releases():
+        release_id = draft.get("id")
+        if release_id:
+            gh._run("api", "-X", "DELETE",
+                    f"repos/{{owner}}/{{repo}}/releases/{release_id}")
+
+    # Delete remote tags that don't have an associated release (orphans)
+    release_tags = {r["tagName"] for r in gh.list_releases()}
+    for tag_info in gh.list_tags():
+        tag = tag_info["name"]
+        if tag not in release_tags:
+            gh.delete_tag(tag, dangerous_delete=True)
+
     git.reset_repo(branch_name, git_template_sha)
     git.add_and_commit()
     git.push()

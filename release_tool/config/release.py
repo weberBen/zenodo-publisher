@@ -64,6 +64,12 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  type="bool", default=False,
                  help="Enable GPG signing"),
 
+    # GitHub checks
+    ConfigOption("check_gh_draft", env_key=None,
+                 yaml_path="github.check_draft",
+                 type="bool", default=False, cli=False,
+                 help="Reject tags associated with draft releases (scans all releases via API)"),
+
     # Runtime options
     ConfigOption("prompt_validation_level", env_key=None,
                  yaml_path="prompt_validation_level",

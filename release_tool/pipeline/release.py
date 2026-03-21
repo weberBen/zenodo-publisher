@@ -105,7 +105,7 @@ def _step_release(config) -> str:
         output.detail("No release notes provided")
 
     output.step("🔍 Verifying tag validity...")
-    check_tag_validity(config.project_root, new_tag, config.main_branch)
+    check_tag_validity(config.project_root, new_tag, config.main_branch, check_draft=config.check_gh_draft)
     create_github_release(config.project_root, new_tag, release_title, release_notes)
     output.step_ok("Release {tag} created successfully!", tag=new_tag, name="release.created")
     output.data("tag_name", new_tag)

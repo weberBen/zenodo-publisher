@@ -233,9 +233,9 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
         Dictionary with release info (tagName, name, body) or None if no releases
     """
     try:
-        # First, get the list of releases (without body field)
+        # Get the list of releases, excluding drafts
         result = run_gh_command(
-            ["release", "list", "--limit", "1", "--json", "tagName,name"],
+            ["release", "list", "--exclude-drafts", "--limit", "1", "--json", "tagName,name"],
             project_root
         )
         if not result:
@@ -248,13 +248,16 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
         # Get the latest release tag
         latest_tag = releases[0]["tagName"]
 
-        # Now get full details including body
+        # Get full details including body, verify it's not a draft
         details = run_gh_command(
-            ["release", "view", latest_tag, "--json", "tagName,name,body"],
+            ["release", "view", latest_tag, "--json", "tagName,name,body,isDraft"],
             project_root
         )
+        release = json.loads(details)
+        if release.get("isDraft"):
+            return None
 
-        return json.loads(details)
+        return release
     except (GitHubError, json.JSONDecodeError, KeyError, IndexError):
         return None
 
@@ -364,7 +367,8 @@ def tag_exists(project_root: Path, tag_name: str) -> bool:
         return False
 
 
-def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> None:
+def check_tag_validity(project_root: Path, tag_name: str, main_branch: str,
+                       check_draft: bool = False) -> None:
     """
     Verify that the tag either doesn't exist, or if it exists,
     points to the latest commit on the remote main branch.
@@ -373,16 +377,25 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         project_root: Path to project root
         tag_name: Name of the tag to check
         main_branch: Name of the main branch
+        check_draft: If True, reject tags associated with draft releases.
+                     Requires scanning all releases via API (slower).
 
     Raises:
         GitError: If tag exists but doesn't point to the latest remote commit
     """
+    # Check for draft release first (drafts don't create git tags,
+    # so tag_exists would return False, but gh release create would
+    # silently convert the draft into a published release)
+    if check_draft:
+        _check_no_draft_release(project_root, tag_name)
+
     if not tag_exists(project_root, tag_name):
         output.info_ok("Tag '{tag}' does not exist yet", tag=tag_name, name="git.tag_new")
         return
 
     # Tag exists, check if it points to the latest remote commit
     output.warn("Tag '{tag}' already exists, verifying it points to latest commit...", tag=tag_name, name="git.tag_exists")
+
     tag_commit = get_commit_of_tag(project_root, tag_name)
     remote_latest = get_remote_latest_commit(project_root, main_branch)
 
@@ -397,6 +410,29 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         f"Please use a different tag name",
         name="tag_invalid",
     )
+
+
+def _check_no_draft_release(project_root: Path, tag_name: str) -> None:
+    """Reject a tag if it is associated with a draft release on GitHub.
+
+    Draft releases are invisible to both gh release list and the
+    /releases/tags/{tag} API endpoint. The only way to find them is
+    to scan all releases via /releases and filter by tag_name + draft.
+    """
+    try:
+        result = run_gh_command(
+            ["api", "repos/{owner}/{repo}/releases", "--paginate",
+             "--jq", f'.[] | select(.draft == true and .tag_name == "{tag_name}") | .id'],
+            project_root,
+        )
+        if result.strip():
+            raise GitError(
+                f"Tag '{tag_name}' is associated with a draft release on GitHub\n"
+                f"Please delete the draft release first or use a different tag name",
+                name="tag_draft_release",
+            )
+    except GitHubError:
+        pass
 
 
 def is_latest_commit_released(project_root: Path) -> tuple[bool, Optional[dict]]:

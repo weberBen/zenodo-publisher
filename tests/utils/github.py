@@ -65,9 +65,13 @@ class GithubClient:
         return json.loads(r.stdout)
 
     def list_draft_releases(self) -> list[dict]:
-        """List only draft releases."""
-        releases = self.list_releases()
-        return [r for r in releases if r.get("isDraft")]
+        """List only draft releases via REST API.
+
+        gh release list does not include drafts, so we use the API directly.
+        """
+        r = self._run("api", "repos/{owner}/{repo}/releases", "--paginate")
+        all_releases = json.loads(r.stdout)
+        return [rel for rel in all_releases if rel.get("draft")]
 
     def create_release(self, tag: str, title: str = "",
                        body: str = "", files: list[Path] | None = None):
