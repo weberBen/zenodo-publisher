@@ -28,22 +28,13 @@ def collapse_name(name):
     return '.'.join(new_items)
 
 def normalize_name(name: str | None, prefix: str | None = None, suffix: str | None = None):
-    name = name.strip() if name else None
-    if not name:
+    parts = [p.strip() for p in (prefix, name, suffix) if p and p.strip()]
+    if not parts:
         return ""
-    
-    prefix = prefix.strip() if prefix else None
-    if prefix:
-        name = f"{prefix}.{name}"
-    
-    suffix = suffix.strip() if suffix else None
-    if suffix:
-        name = f"{name}.{suffix}"
-    
-    name = re.sub(r'\.{2,}', '.', name)
-    name = collapse_name(name)
-    
-    return name
+
+    result = ".".join(parts)
+    result = re.sub(r'\.{2,}', '.', result)
+    return collapse_name(result)
 
 class GpgError(ZPError):
     """GPG operation error."""

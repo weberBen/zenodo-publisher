@@ -159,26 +159,27 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
     """
     fetch_remote(project_root)
 
-    if not is_up_to_date_with_remote(project_root, main_branch):
-        raise GitError(
-            f"Local branch is not up to date with origin/{main_branch}\n"
-            f"Please pull/push the latest changes first",
-            name="not_up_to_date",
-        )
     if has_local_modifs(project_root, main_branch):
         raise GitError(
             f"Local branch has local modifications/commits\n"
-            f"Please pull/push the latest changes first",
+            f"Please commit or stash your changes first",
             name="local_modifications",
         )
-    
+
     if has_unpushed_commits(project_root, main_branch):
         raise GitError(
             "Local commits are not pushed to remote\n"
-            "Please push tags first: git push --tags",
+            "Please push first: git push",
             name="unpushed_commits",
         )
-    
+
+    if not is_up_to_date_with_remote(project_root, main_branch):
+        raise GitError(
+            f"Local branch is not up to date with origin/{main_branch}\n"
+            f"Please pull the latest changes first",
+            name="not_up_to_date",
+        )
+
     if has_unpushed_tags(project_root):
         raise GitError(
             "Local tags are not pushed to remote\n"

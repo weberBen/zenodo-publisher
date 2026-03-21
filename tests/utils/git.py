@@ -166,22 +166,29 @@ class GitClient:
     def reset_repo(self, branch: str, template_sha: str, remote: str = "origin"):
         """Reset a branch to match the template at a specific commit.
 
-        1. Resets the current branch to its remote state (hard reset)
-        2. Cleans all untracked files and stashes
-        3. Checks out the target branch
+        1. Force-cleans the working tree (without depending on remote)
+        2. Checks out the target branch
+        3. Resets to remote state
         4. Replaces the entire working tree + index with the content
            from template_sha, ready to be committed
 
         The branch history is preserved — only the file content changes.
         """
-        # Get current branch name and clean it to checkout
-        current = self.branch_current()
-        
-        self.reset(current)
-        
+        # Clean local state without depending on remote tracking
+        self._run("reset", "--hard", "HEAD")
+        self._run("clean", "-fd")
+
         # Switch to the target branch
-        self.branch_checkout(branch)
-        
+        self._run("checkout", "-f", branch)
+
+        # Delete all other local branches except target branch
+        r = self._run("branch", "--list")
+        for b in r.stdout.splitlines():
+            b = b.strip().lstrip("* ")
+            if b and b != branch:
+                self._run("branch", "-D", b)
+
+        # Reset target branch to remote state (also deletes all local tags)
         self.reset(branch)
         
         # Remove all tracked files from index and working tree
