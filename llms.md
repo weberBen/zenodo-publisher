@@ -413,19 +413,22 @@ Uses `interegular` FSM library. Checks segment-by-segment. Normalizes paths (res
 
 ### Identifier config
 
-Computed from the file hash using `sign_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`.
+Computed from the file hash using `signing.sign_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`. Note: `sign_hash_algo` must be under `signing:` in YAML, not at root level.
 
 ```yaml
 identifier:
   use_as_alternate_identifier: true
   source: file        # "file" (hash the file) or "sig_file" (hash the signature)
-  prefix: ""          # optional prefix prepended to the identifier value
+  prefix: ""          # prefix prepended: "" -> "sha256:abc...", "manifest-" -> "manifest-sha256:abc..."
 ```
+
+Format: `{prefix}{sign_hash_algo}:{hex_value}`.
 
 Constraints:
 - `source: sig_file` requires `sign: true` on the entry
-- Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous source)
+- Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file?)
 - User keys must not end with `_sig` (reserved for signature references)
+- Multiple identifiers with the same algo prefix overwrite each other on Zenodo. Use different `prefix` values per file to distinguish them (e.g. `prefix: "paper-"`, `prefix: "manifest-"`)
 
 ---
 

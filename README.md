@@ -395,11 +395,12 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
 - `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
-- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). Options:
+- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `signing.sign_hash_algo` (not `hash_algorithms`). Options:
   - `source: file` (default): hash of the file itself
   - `source: sig_file`: hash of the signature (requires `sign: true`)
-  - `prefix`: optional string prepended to the identifier value
-  - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous source)
+  - `prefix`: string prepended to the identifier value. Default: `""` (produces `sha256:abc...`). Use different prefixes per file to avoid collisions on Zenodo (e.g. `prefix: "manifest-"` produces `manifest-sha256:abc...`)
+  - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file to use?)
+  - When multiple entries have identifiers, ZP replaces existing Zenodo identifiers that share the same algo prefix (e.g. two `sha256:` entries overwrite each other). Use `prefix` to distinguish them
 
 #### Pattern path resolution
 
