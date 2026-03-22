@@ -136,7 +136,7 @@ def test_invalid_yaml_not_dict(tmp_path):
     config_path.write_text("- just\n- a\n- list\n")
     runner = ZpRunner(tmp_path)
     result = runner.run("release", "--test-mode", "--config", str(config_path))
-    _assert_has_error(result, name="config_error.loading", msg_contains="mapping")
+    _assert_has_error(result, name="config_error.loading")
 
 
 def test_invalid_archive_format(tmp_path):

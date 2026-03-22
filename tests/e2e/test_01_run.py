@@ -64,7 +64,6 @@ def test_run_release(tmp_path):
     assert ev["data"]["project_root"] == str(tmp_path), \
         f"project_root mismatch: {ev['data']['project_root']} != {tmp_path}"
 
-    # Expect failure: no remote origin in tmp repo
-    errors = find_errors(result.events)
-    assert any("origin/" in e.get("msg", "") for e in errors), \
-        f"Expected origin/ error, got: {errors}"
+    # Expect failure: no remote origin in tmp repo (git fetch fails)
+    assert find_by_name(result.events, "git.command_failed"), \
+        f"Expected git.command_failed (no remote). events={result.events}"

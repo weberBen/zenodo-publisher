@@ -232,8 +232,8 @@ def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
     persist_dir = archive_dir / TAG
     files = fs.list_files(persist_dir)
     sig_files = [f for f in files if f.name.endswith(".asc")]
-    assert len(sig_files) >= 2, \
-        f"Expected at least 2 signatures. Got: {[f.name for f in files]}"
+    assert len(sig_files) == 2, \
+        f"Expected exactly 2 signatures. Got: {[f.name for f in files]}"
 
 
 def test_no_sign(sign_env, fix_log_dir):
@@ -366,11 +366,8 @@ def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
 
     errors = find_errors(result.events)
     assert errors, f"Expected GPG error with invalid UID. events={result.events}"
-    assert any("gpg" in e.get("error_type", "").lower()
-               or "gpg" in e.get("name", "").lower()
-               or "gpg" in e.get("msg", "").lower()
-               for e in errors), \
-        f"Expected GPG-related error. Got: {errors}"
+    assert find_by_name(result.events, "gpg.no_secret_key"), \
+        f"Expected gpg.no_secret_key. Got: {errors}"
 
 
 
@@ -776,7 +773,9 @@ def test_manifest_lightweight_tag(sign_env, fix_log_dir):
     manifest = fs.parse_manifest(manifest_files[0])
 
     commit_sha = manifest["commit"]["sha"]
-    version_sha = manifest["version"].get("sha", "")
+    assert "sha" in manifest["version"], \
+        f"version.sha missing from manifest. version={manifest['version']}"
+    version_sha = manifest["version"]["sha"]
 
     # For a lightweight tag, tag SHA == commit SHA
     assert version_sha == commit_sha, \
@@ -840,7 +839,9 @@ def test_manifest_annotated_tag(repo_env, fix_log_dir):
         manifest = fs.parse_manifest(manifest_files[0])
 
         commit_sha = manifest["commit"]["sha"]
-        version_sha = manifest["version"].get("sha", "")
+        assert "sha" in manifest["version"], \
+            f"version.sha missing from manifest. version={manifest['version']}"
+        version_sha = manifest["version"]["sha"]
 
         # For an annotated tag, tag object SHA != commit SHA
         assert version_sha != commit_sha, \

@@ -113,9 +113,8 @@ def test_project_only(release_env, fix_log_dir):
     persist_dir = archive_dir / TAG
     assert persist_dir.exists(), f"Persist dir should exist: {persist_dir}"
     files = fs.list_files(persist_dir)
-    assert len(files) >= 1, f"Expected at least 1 file, got: {files}"
-    archive_file = [f for f in files if f.suffix == ".zip"]
-    assert archive_file, f"Expected a .zip file in {files}"
+    assert len(files) == 1, f"Expected exactly 1 file (project zip), got: {[f.name for f in files]}"
+    assert files[0].suffix == ".zip", f"Expected .zip, got: {files[0].name}"
 
 
 def test_pattern_only(release_env, fix_log_dir):
@@ -458,6 +457,6 @@ def test_project_archive_contents(release_env, fix_log_dir):
         content_dir = fs.extract_archive(zip_files[0], Path(tmp))
         extracted_files = [f.name for f in Path(content_dir).rglob("*") if f.is_file()]
 
-    # Should contain repo files
-    assert "zenodo_config.yaml" in extracted_files or len(extracted_files) > 0, \
-        f"Archive should contain repo files. Got: {extracted_files}"
+    # Should contain repo files (zenodo_config.yaml is always in the repo)
+    assert "zenodo_config.yaml" in extracted_files, \
+        f"Archive should contain zenodo_config.yaml. Got: {extracted_files}"

@@ -203,8 +203,8 @@ def test_tag_exists_wrong_commit(tag_env, fix_log_dir):
 
     errors = find_errors(result.events)
     assert errors, f"Expected error for tag on wrong commit. events={result.events}"
-    assert any("tag_invalid" in e.get("name", "") or "tag" in e.get("msg", "").lower()
-               for e in errors), f"Expected tag_invalid error. Got: {errors}"
+    assert find_by_name(result.events, "git.tag_invalid"), \
+        f"Expected git.tag_invalid. Got: {errors}"
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +344,8 @@ def test_tag_on_old_commit(tag_env, fix_log_dir):
 
     errors = find_errors(result.events)
     assert errors, f"Expected error for tag on old commit. events={result.events}"
+    assert find_by_name(result.events, "git.tag_invalid"), \
+        f"Expected git.tag_invalid. Got: {errors}"
 
 
 def test_checkout_old_release(tag_env, fix_log_dir):
@@ -648,9 +650,8 @@ def test_draft_release_tag_reuse_refused(tag_env, fix_log_dir):
     # ZP should detect the tag is associated with a draft release and refuse
     errors = find_errors(result.events)
     assert errors, f"Expected error for draft release tag. events={result.events}"
-    assert find_by_name(result.events, "git.tag_draft_release") \
-        or any("draft" in e.get("msg", "").lower() for e in errors), \
-        f"Expected draft-related error. Got: {errors}"
+    assert find_by_name(result.events, "git.tag_draft_release"), \
+        f"Expected git.tag_draft_release. Got: {errors}"
 
 
 def test_draft_release_check_disabled(tag_env, fix_log_dir):

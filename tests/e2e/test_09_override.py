@@ -638,10 +638,8 @@ def test_env_var_override_fake_token(override_env, fix_log_dir):
 
     errors = find_errors(result.events)
     assert errors, f"Expected Zenodo error with fake token. events={result.events}"
-    assert any("zenodo" in e.get("pipe", "").lower()
-               or e.get("error_type") == "ZenodoError"
-               for e in errors), \
-        f"Expected Zenodo-related error. Got: {errors}"
+    assert any("zenodo_operations" in e.get("pipe", "") for e in errors), \
+        f"Expected error from zenodo_operations. Got: {errors}"
 
 
 # ---------------------------------------------------------------------------

@@ -376,8 +376,6 @@ def test_persist_overwrite_refused(env_test, fix_log_dir):
                               log_dir=fix_log_dir, test_name="test_persist_refuse_2",
                               fail_on="ignore")
 
-    # Should have skipped or warned about persist
-    skipped = find_by_name(result2.events, "persist.skipped")
-    errors = find_errors(result2.events)
-    assert skipped or errors, \
-        f"Expected persist.skipped or error when refusing overwrite. events={result2.events}"
+    # Should have skipped persist
+    assert find_by_name(result2.events, "persist.skipped"), \
+        f"Expected persist.skipped when refusing overwrite. events={result2.events}"
