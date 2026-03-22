@@ -263,9 +263,17 @@ For each PATTERN entry:
 
 Creates `ArchivedFile` for each file.
 
-### Step 9: Manifest (`_step_manifest`)
+### Step 9: Compute hashes (`_step_compute_hashes`)
 
-**Generated BEFORE hashes (step 10)**. Manifest entries contain only `key` (filename), not hashes.
+Computes hashes for all ArchivedFile entries. Reads files in 8192-byte chunks. Skips already-computed hashes (`if algo not in hashes`).
+
+Tree hashes: pre-computed in step 8 for PROJECT entries (single extraction). For non-archive files (PDF), falls back to hashlib equivalent: `tree` -> `sha1`, `tree256` -> `sha256`.
+
+Hash dict per file: `{algo: {"type": algo, "value": hex, "formatted_value": "algo:hex"}}`
+
+### Step 10: Manifest (`_step_manifest`)
+
+Generated **after** hashes (step 9), so manifest entries include file hashes. The manifest file itself is then hashed by a second call to `_step_compute_hashes` (already-computed hashes on other files are skipped).
 
 Uses JCS (RFC 8785) for canonical JSON: deterministic serialization, same bytes = same hash.
 
@@ -274,21 +282,12 @@ Structure:
 {
   "version": {"label": "v1.0.0", "sha": "tag_object_sha"},
   "commit": {"sha": "abc...", "date_epoch": 1234567890, ...},
-  "files": [{"key": "paper.pdf"}, {"key": "project.zip"}],
+  "files": [{"key": "paper.pdf", "md5": "...", "sha256": "..."}, ...],
   "metadata": {"title": "...", "creators": [...]}
 }
 ```
 
 `manifest.files` lists entry keys to include. Append `_sig` to include the signature of an entry (e.g. `paper_sig` includes the hash of `paper`'s `.asc`/`.sig` file). The `_sig` suffix is reserved and cannot be used as a user-defined key.
-The manifest file itself is hashed in step 10.
-
-### Step 10: Compute hashes (`_step_compute_hashes`)
-
-Computes hashes for all ArchivedFile entries. Reads files in 8192-byte chunks.
-
-Tree hashes: pre-computed in step 8 for PROJECT entries (single extraction). For non-archive files (PDF), falls back to hashlib equivalent: `tree` -> `sha1`, `tree256` -> `sha256`.
-
-Hash dict per file: `{algo: {"type": algo, "value": hex, "formatted_value": "algo:hex"}}`
 
 ### Step 11: Sign (`_step_sign`)
 

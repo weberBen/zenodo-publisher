@@ -316,8 +316,8 @@ This is highly recommended, not mandatory, but without these the only reference 
 6. **Re-check**: verifies git state and release are still valid after compilation
 7. **Resolve generated files**: scans project dir for files matching `pattern` globs (default path suffix is compile dir)
 8. **Archive**: copies/renames PATTERN files, creates PROJECT archive via `git archive`
-9. **Manifest**: generates JSON manifest (JCS/RFC 8785) if a `manifest` entry exists in `generated_files`
-10. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
+9. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
+10. **Manifest**: generates JSON manifest (JCS/RFC 8785) with file hashes included, then the manifest itself is hashed
 11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files
 12. **Compute identifiers**: per-file alternate identifiers pushed to Zenodo metadata (`metadata.identifiers`), computed from the file hash (e.g. `sha256:abc123...`)
 13. **Publish**: routes each file to zenodo and/or github based on `publishers` config
