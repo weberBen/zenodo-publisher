@@ -8,25 +8,61 @@ Tests are not isolated. They share an external repo and run in order (`test_00_*
 
 ## Requirements
 
-- A dedicated GitHub sandbox repo
-- `gh` (GitHub CLI) authenticated
+- A dedicated GitHub sandbox repo (see setup below)
+- `gh` (GitHub CLI) authenticated (`gh auth login`)
 - `gpg` with at least one secret key (for signing tests)
 - `git` with push access to the repo
+- A Zenodo sandbox account with an API token and a concept DOI
 - A `.zenodo.test.env` file in `tests/`
+
+## Sandbox repo setup
+
+Tests run against a real GitHub repo that they modify (commits, tags, releases, assets). You need a dedicated sandbox repo for this. You can clone and adapt [zenodo-sandbox-publisher](https://github.com/weberBen/zenodo-sandbox-publisher) which has the expected structure:
+
+```
+zenodo-sandbox-publisher/
+├── .gitignore
+├── .zenodo.env                    # ZENODO_TOKEN + ZENODO_CONCEPT_DOI
+├── zenodo.env.example
+├── zenodo_config.yaml             # ZP config for the sandbox project
+├── README.md
+└── papers/
+    ├── .gitignore                 # ignores *.pdf, *.aux, *.log, etc.
+    ├── readme.md
+    └── latex/
+        ├── Makefile               # must have a `deploy` target
+        ├── main.tex
+        ├── main.bib
+        ├── main.dep
+        ├── images/
+        │   └── my_figure.png
+        └── releases/
+            └── .gitkeep           # persistent archive directory
+```
+
+The repo must have:
+- A `zenodo_config.yaml` at the root (ZP config for this project)
+- A `.zenodo.env` with a valid `ZENODO_TOKEN` and `ZENODO_CONCEPT_DOI` for the sandbox Zenodo instance
+- A `papers/latex/` directory with a Makefile that has a `deploy` target
+- A `papers/latex/releases/` directory for persistent archives
 
 ## Configuration
 
 ### `.zenodo.test.env`
 
+Create a `tests/.zenodo.test.env` file. This file is separate from the sandbox repo's own `.zenodo.env` and configures the test suite independently:
+
 ```env
-GIT_REPO_PATH="/path/to/sandbox-repo"
+GIT_REPO_PATH="/path/to/zenodo-sandbox-publisher"
 GIT_TEMPLATE_SHA="<commit sha>"
 GPG_UID="<gpg key fingerprint or email>"
 ```
 
-- `GIT_REPO_PATH`: local path to the test repo (must be cloned and have a `zenodo_config.yaml`)
-- `GIT_TEMPLATE_SHA`: commit SHA used as template for repo reset (see below)
-- `GPG_UID`: GPG key fingerprint or email used for signing tests. Available as `fix_gpg_uid` fixture. Tests also verify that signing works without an explicit UID (ZP falls back to the default GPG key).
+| Variable | Description |
+|----------|-------------|
+| `GIT_REPO_PATH` | Absolute path to the sandbox repo on your local disk. The test suite runs `zp` inside this directory. |
+| `GIT_TEMPLATE_SHA` | Commit SHA used as the "clean state" reference. After each test, the repo is reset to this commit's file content (see [Repo reset](#repo-reset)). Pick a commit that represents the baseline state of your sandbox repo (typically the initial commit after setup). Get it with `git log -1 --format=%H`. |
+| `GPG_UID` | GPG key fingerprint or email used for signing tests. Must match a secret key in your keyring. Available as `fix_gpg_uid` fixture. Tests also verify that signing works without an explicit UID (ZP falls back to the default GPG key). |
 
 ## Repo reset
 
