@@ -391,6 +391,8 @@ The `generated_files` section in `zenodo_config.yaml` declares which files to in
 Each entry can specify:
 - `sign`: per-file signing override (overrides global `signing.sign`)
 - `sign_mode`: per-file signing mode override
+- `rename`: rename using project name template (default: false)
+- `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both)
 - `publishers.sig_destination`: where to upload the signature
 - `identifier`: compute an alternate identifier from the file hash, pushed to Zenodo metadata (`metadata.identifiers`)
@@ -484,6 +486,18 @@ When a `manifest` entry exists in `generated_files`, the pipeline generates a JS
 - **File entries**: each listed file with its filename as `key`
 - **Optional metadata**: fields from `.zenodo.json` via `zenodo_metadata`
 
+The `files` list references entry keys. To include signatures, append the `_sig` suffix to the entry key:
+
+```yaml
+manifest:
+  files: [paper, paper_sig, project, project_sig]
+  commit_info: [sha, date_epoch]
+  sign: true
+  publishers:
+    file_destination: [github, zenodo]
+```
+
+This includes the hashes of the PDF, its signature, the ZIP archive, and its signature in the manifest. The `_sig` suffix is reserved for this purpose and cannot be used as a user-defined key.
 
 The canonical JSON format (JCS) ensures deterministic serialization: the same content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
 

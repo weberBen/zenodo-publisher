@@ -279,7 +279,7 @@ Structure:
 }
 ```
 
-`manifest.files` lists entry keys to include (append `_sig` for signatures).
+`manifest.files` lists entry keys to include. Append `_sig` to include the signature of an entry (e.g. `paper_sig` includes the hash of `paper`'s `.asc`/`.sig` file). The `_sig` suffix is reserved and cannot be used as a user-defined key.
 The manifest file itself is hashed in step 10.
 
 ### Step 10: Compute hashes (`_step_compute_hashes`)
@@ -302,7 +302,7 @@ GPG key resolution: explicit `gpg.uid` > `default-key` from `~/.gnupg/gpg.conf` 
 
 After signing: verifies signature with `gpg.verify_file()`, checks fingerprint match.
 
-Signature files are appended to `archived_files` list as `ArchivedFile(kind="signature", is_signature=True)`.
+Signature files are appended to `archived_files` list as `ArchivedFile(kind="signature", is_signature=True)`. Signatures inherit `persist` from their parent file: if a file has `archive: false`, its signature is also not persisted.
 
 ### Step 12: Compute identifiers (`_step_compute_identifiers`)
 
