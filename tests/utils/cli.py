@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -146,9 +147,11 @@ class ZpRunner:
         )
 
         def _drain(stream, buf, log_f, prefix):
+            from tests.conftest import session_id
             for line in stream:
                 buf.append(line)
-                log_f.write(f"[{prefix}] {line}")
+                ts = datetime.now().isoformat(timespec='milliseconds')
+                log_f.write(f"[{session_id}] [{ts}] [{prefix}] {line}")
                 log_f.flush()
 
         with open(log_path, "w") as log_f:
@@ -166,11 +169,13 @@ class ZpRunner:
     def _stream_write_log(log_path, stdout, stderr):
         """Write stdout/stderr to log (fallback for sandbox mode)."""
         log_path.parent.mkdir(exist_ok=True)
+        from tests.conftest import session_id
+        ts = datetime.now().isoformat(timespec='milliseconds')
         with open(log_path, "w") as f:
             for line in stdout.splitlines(keepends=True):
-                f.write(f"[out] {line}")
+                f.write(f"[{session_id}] [{ts}] [out] {line}")
             for line in stderr.splitlines(keepends=True):
-                f.write(f"[err] {line}")
+                f.write(f"[{session_id}] [{ts}] [err] {line}")
 
     def run_with_config(self, command: str, cli_args: list[str],
                         test_config_path: Path | None = None,

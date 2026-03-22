@@ -10,6 +10,7 @@
 
 import re
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ repo_dir: Path | None = None
 branch_name: str | None = None
 git_template_sha: str | None = None
 gpg_uid: str | None = None
+session_id: str = uuid.uuid4().hex[:8]
 tests_dir: Path = TESTS_DIR
 log_dir: Path = TESTS_DIR / "logs"
 
