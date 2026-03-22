@@ -326,6 +326,46 @@ This is highly recommended, not mandatory, but without these the only reference 
 
 This tool uses `git fetch` (not in dry run mode). If fetching regularly is a problem for your project, do not use this tool.
 
+### Re-running after a failure
+
+The pipeline is designed to be **re-run safely** after a failure. Each step handles pre-existing state:
+
+- **Step 2 (Release)**: if the GitHub release and tag already exist from a previous run, the pipeline detects that the latest commit is already released and **skips creation**. It reuses the existing tag and continues.
+- **Step 5 (Compile)**: `make deploy` runs again from scratch. If your Makefile is idempotent, the output will be the same.
+- **Step 8 (Archive)**: files are always created in a **fresh temporary directory**, so there is no conflict with a previous run.
+- **Step 13 (Publish to Zenodo)**: compares the version name and MD5 checksums of local files against the latest Zenodo record. If everything matches, publication is **skipped** (unless `zenodo.force_update: true`). Signature files (.asc/.sig) are excluded from the comparison because GPG signatures contain a timestamp that changes on every run.
+- **Step 13 (Publish to GitHub)**: compares the SHA256 digest of local files against existing release assets. If identical, the asset is **skipped**. If different, the user is prompted before overwriting (via `gh release upload --clobber`).
+- **Step 14 (Persist)**: if the archive directory already contains files from a previous run, the user is prompted before overwriting.
+
+In short: re-running `zp release` after a failure will pick up where it left off. The release and tag are reused, unchanged files are skipped, and you are prompted before any overwrite.
+
+### Prompt validation level
+
+The `prompt_validation_level` setting controls how much confirmation is required at each interactive prompt. It affects three prompts: **build confirmation**, **publish confirmation**, and **GitHub asset overwrite**.
+
+| Level | What the user types | Use case |
+|-------|-------------------|----------|
+| `danger` | Just press **Enter** | Fast iteration during development or testing. No protection against accidental confirmation. |
+| `light` | Type **y** or **yes** | Default for most workflows. Quick but intentional. |
+| `normal` | Type the full word **yes** | Extra caution for production releases. |
+| `secure` | Type the **exact project root directory name** | Maximum protection. Prevents accidental publication to the wrong project. |
+
+Two prompts are **not affected** by this setting and have fixed levels:
+- GPG key confirmation: always `danger` (Enter to accept, since the key info is displayed)
+- Persist overwrite: always `light` (y/yes, with "yes to all" / "no to all" options)
+
+### File renaming (`rename` option)
+
+When `rename: true` is set on a `generated_files` entry, the matched file is renamed using the resolved project name:
+
+```
+original: main.pdf  →  renamed: MyProject-v1.0.0.pdf
+```
+
+The pattern is `{project_name}{original_extension}`, where `project_name` is built from `project_name.prefix` + `project_name.suffix` with template variables resolved (e.g. `{tag_name}` becomes `v1.0.0`).
+
+This only applies to **pattern** entries, not to `project` or `manifest` (which have their own naming conventions). If `rename: false` (default), the original filename is kept as-is.
+
 ### Generated files
 
 The `generated_files` section in `zenodo_config.yaml` declares which files to include in the release. Three types:
