@@ -83,11 +83,11 @@ def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
     )
     parser.add_argument(
         "--test-mode", action="store_true", default=False,
-        help="Enable test mode (NDJSON output, no interactive prompts)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--test-config", type=str, default=None,
-        help="Path to test config YAML (prompts + cli responses). Implies --test-mode",
+        help=argparse.SUPPRESS,
     )
     _add_options(parser, config_cls)
 
