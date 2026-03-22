@@ -42,9 +42,6 @@ COMMON_OPTIONS: list[ConfigOption] = [
                  help="Suffix template for file naming. "
                       "Available variables: {"
                       + "}, {".join(PROJECT_NAME_TEMPLATE_VARS) + "}"),
-    ConfigOption("main_branch", env_key=None,
-                 yaml_path="main_branch", default="main",
-                 help="Git main branch name"),
     ConfigOption("debug", env_key=None,
                  yaml_path="debug", type="bool", default=False,
                  help="Enable debug mode (full stack traces)"),

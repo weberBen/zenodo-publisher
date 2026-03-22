@@ -19,6 +19,9 @@ from .generated_files import validate_no_pattern_overlap
 # ---------------------------------------------------------------------------
 
 RELEASE_OPTIONS: list[ConfigOption] = [
+    ConfigOption("main_branch", env_key=None,
+                 yaml_path="main_branch", default="main",
+                 help="Git main branch name"),
     ConfigOption("compile_enabled", env_key=None,
                  yaml_path="compile.enabled",
                  type="bool", default=True,
