@@ -1,5 +1,6 @@
 """Common configuration: base class and shared options."""
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -232,13 +233,15 @@ class CommonConfig:
         self, opt: ConfigOption, yaml_config: dict, env_vars: dict,
         cli_overrides: dict,
     ) -> Any:
-        """Priority: CLI override > YAML config > env file > default."""
+        """Priority: CLI override > YAML config > os.environ > env file > default."""
         if opt.name in cli_overrides and cli_overrides[opt.name] is not None:
             return cli_overrides[opt.name]
         if opt.yaml_path:
             val = traverse_yaml(yaml_config, opt.yaml_path)
             if val is not None:
                 return val
+        if opt.env_key and opt.env_key in os.environ:
+            return os.environ[opt.env_key]
         if opt.env_key and opt.env_key in env_vars:
             return env_vars[opt.env_key]
         return opt.default

@@ -225,7 +225,8 @@ class ZpRunner:
                  extra_args: list[str] | None = None,
                  log_dir: Path | None = None,
                  test_name: str | None = None,
-                 fail_on: set[str] | list[str] | str | None = None) -> ZpResult:
+                 fail_on: set[str] | list[str] | str | None = None,
+                 env: dict | None = None) -> ZpResult:
         """Run zp with inline config dicts. Writes them to tmp files, runs zp, verifies prompts, logs output.
 
         Args:
@@ -239,6 +240,7 @@ class ZpRunner:
                      Default (None) = {"fatal", "error"}.
                      "ignore" = no auto-raise.
                      Set of types e.g. {"fatal", "error", "warn"}.
+            env: Extra environment variables (overrides existing env keys).
         """
         # Resolve fail_on
         if fail_on is None:
@@ -289,7 +291,7 @@ class ZpRunner:
             if extra_args:
                 args.extend(extra_args)
 
-            result = self.run(*args, log_path=log_path)
+            result = self.run(*args, log_path=log_path, env=env)
 
             # Verify prompts if test_config defines them (unless verify_prompts=False)
             if (test_config and "prompts" in test_config
