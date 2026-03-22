@@ -24,6 +24,9 @@ ZP_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FAIL_EVENT_TYPES = {"fatal", "error", "warn"}
 DEFAULT_FAIL_ON = {"fatal", "error"}
 
+# Counter for log paths: tracks how many times each base path has been used
+_log_path_counter: dict[Path, int] = {}
+
 
 @dataclass
 class ZpResult:
@@ -257,6 +260,16 @@ class ZpRunner:
                 f"fail_on must be a set of types, 'ignore', or None. Got: {fail_on!r}")
         args = [command, "--test-mode"]
 
+        # Resolve log path with auto-incrementing suffix for multiple runs
+        actual_log_path = None
+        if log_path:
+            count = _log_path_counter.get(log_path, 0)
+            _log_path_counter[log_path] = count + 1
+            if count == 0:
+                actual_log_path = log_path
+            else:
+                actual_log_path = log_path.with_suffix(f".run{count + 1}.log")
+
         # Write config to tmp file and pass via --config
         tmpdir = Path(tempfile.mkdtemp())
         try:
@@ -281,7 +294,7 @@ class ZpRunner:
             if extra_args:
                 args.extend(extra_args)
 
-            result = self.run(*args, log_path=log_path, env=env)
+            result = self.run(*args, log_path=actual_log_path, env=env)
 
             # Verify prompts if test_config defines them (unless verify_prompts=False)
             if (test_config and "prompts" in test_config

@@ -146,7 +146,7 @@ def test_existing_release_reused(tag_env, fix_log_path):
     # Second run: should detect existing release, no prompts for tag
     result2 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -238,7 +238,7 @@ def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_path):
     # ZP should reject: local tag not pushed to remote
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert find_by_name(result2.events, "git.unpushed_tags"), \
@@ -248,7 +248,7 @@ def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_path):
     git._run("push", "origin", TAG)
     result3 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_path=fix_log_path.with_suffix(".run2.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result3.events), f"Errors after push: {find_errors(result3.events)}"
     assert gh.has_release(TAG)
@@ -274,7 +274,7 @@ def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_path):
     # Re-run ZP: latest commit is already released → should reuse
     result2 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -307,7 +307,7 @@ def test_new_commit_not_released(tag_env, fix_log_path):
     # Second run: HEAD is not released, ZP should ask for a new tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -370,7 +370,7 @@ def test_checkout_old_release(tag_env, fix_log_path):
 
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result2.events)
     assert gh.has_release(TAG2)
@@ -382,7 +382,7 @@ def test_checkout_old_release(tag_env, fix_log_path):
     # HEAD points to TAG2's commit → should detect existing release
     result3 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_path=fix_log_path.with_suffix(".run2.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -423,7 +423,7 @@ def test_technical_commit_after_release(tag_env, fix_log_path):
     # → it should prompt for a new tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -477,7 +477,7 @@ def test_release_tag_moved_to_old_commit(tag_env, fix_log_path):
     # ZP should see HEAD != latest release commit → ask for new tag.
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -517,7 +517,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_path):
     # ZP should reject: TAG3 is a local unpushed tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG3),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert find_by_name(result2.events, "git.unpushed_tags"), \
         f"Expected unpushed_tags error. Got: {find_errors(result2.events)}"
@@ -533,7 +533,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_path):
                                   },
                                   "verify_prompts": False,
                               },
-                              log_path=fix_log_path.with_suffix(".run2.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -568,7 +568,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_path):
 
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result2.events)
     assert gh.has_release(TAG2)
@@ -591,7 +591,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_path):
                                   },
                                   "verify_prompts": False,
                               },
-                              log_path=fix_log_path.with_suffix(".run2.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"

@@ -114,9 +114,6 @@ def pytest_sessionstart(session):
             sys.exit(0)
 
     log_dir.mkdir(exist_ok=True)
-    # Clean previous logs (one file per test, overwritten each run)
-    for old_log in log_dir.glob("*.log"):
-        old_log.unlink()
 
 
 # ---------------------------------------------------------------------------

@@ -219,7 +219,7 @@ def test_env_epoch_stable_across_runs(env_test, fix_log_path):
     runner2 = ZpRunner(repo_dir)
     result2 = runner2.run_test("release", config=config,
                                test_config=_TEST_CONFIG,
-                               log_path=fix_log_path.with_suffix(".run1.log"),
+                               log_path=fix_log_path,
                                fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -263,7 +263,7 @@ def test_env_epoch_changes_with_commit(env_test, fix_log_path):
     runner2 = ZpRunner(repo_dir)
     result2 = runner2.run_test("release", config=config,
                                test_config=_TEST_CONFIG,
-                               log_path=fix_log_path.with_suffix(".run1.log"),
+                               log_path=fix_log_path,
                                fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -336,7 +336,7 @@ def test_persist_overwrite_accepted(env_test, fix_log_path):
     # Second run with overwrite accepted
     result2 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result2.events), f"Run 2 errors: {find_errors(result2.events)}"
 
@@ -372,7 +372,7 @@ def test_persist_overwrite_refused(env_test, fix_log_path):
     }
     result2 = runner.run_test("release", config=config,
                               test_config=refuse_config,
-                              log_path=fix_log_path.with_suffix(".run1.log"),
+                              log_path=fix_log_path,
                               fail_on="ignore")
 
     # Should have skipped persist
