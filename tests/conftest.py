@@ -114,6 +114,9 @@ def pytest_sessionstart(session):
             sys.exit(0)
 
     log_dir.mkdir(exist_ok=True)
+    # Clean previous logs (one file per test, overwritten each run)
+    for old_log in log_dir.glob("*.log"):
+        old_log.unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +161,17 @@ def reset_test_repo():
 @pytest.fixture(scope="session")
 def fix_log_dir():
     return log_dir
+
+
+@pytest.fixture
+def fix_log_path(request):
+    """Auto-computed log path from test node ID. One file per test, overwritten each run."""
+    node_id = request.node.nodeid
+    parts = node_id.split("::")
+    file_stem = Path(parts[0]).stem
+    func_name = parts[-1].replace("[", "_").replace("]", "").replace("/", "_")
+    log_name = f"{file_stem}__{func_name}.log"
+    return log_dir / log_name
 
 
 @pytest.fixture(scope="session")

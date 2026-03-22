@@ -4,7 +4,6 @@ Uses the real test repo (from .zenodo.test.env) with auto-reset via repo_env.
 Runs `zp release` and verifies git-related error detection.
 """
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.ndjson import find_errors, find_by_name, has_step_ok
 
@@ -41,7 +40,7 @@ def _assert_has_error(result, name: str | None = None, msg_contains: str | None 
 
 # --- Working tree dirty ---
 
-def test_uncommitted_changes(repo_env, fix_log_dir):
+def test_uncommitted_changes(repo_env, fix_log_path):
     """Modified tracked file not committed: should error git.local_modifications."""
     repo_dir, _ = repo_env
     (repo_dir / ".gitkeep").write_text("modified")
@@ -49,12 +48,12 @@ def test_uncommitted_changes(repo_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_uncommitted_changes",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="git.local_modifications")
 
 
-def test_untracked_file(repo_env, fix_log_dir):
+def test_untracked_file(repo_env, fix_log_path):
     """Untracked file in working tree: should error git.local_modifications."""
     repo_dir, _ = repo_env
     (repo_dir / "untracked_test_file.txt").write_text("untracked")
@@ -62,14 +61,14 @@ def test_untracked_file(repo_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_untracked_file",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="git.local_modifications")
 
 
 # --- Branch ---
 
-def test_wrong_branch(repo_env, fix_log_dir):
+def test_wrong_branch(repo_env, fix_log_path):
     """On a non-main branch: should error git.not_on_main."""
     repo_dir, git = repo_env
     git.branch_checkout("test-wrong-branch", create=True)
@@ -77,14 +76,14 @@ def test_wrong_branch(repo_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_wrong_branch",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="git.not_on_main")
 
 
 # --- Sync with remote ---
 
-def test_unpushed_commits(repo_env, fix_log_dir):
+def test_unpushed_commits(repo_env, fix_log_path):
     """Local commit not pushed: should error git.unpushed_commits."""
     repo_dir, git = repo_env
     git.add_file("unpushed_test_file.txt", "content")
@@ -93,12 +92,12 @@ def test_unpushed_commits(repo_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_unpushed_commits",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="git.unpushed_commits")
 
 
-def test_unpushed_tags(repo_env, fix_log_dir):
+def test_unpushed_tags(repo_env, fix_log_path):
     """Local tag not pushed to remote: should error git.unpushed_tags."""
     repo_dir, git = repo_env
     git.tag_create("v99.99.99-test")
@@ -106,21 +105,21 @@ def test_unpushed_tags(repo_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_unpushed_tags",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="git.unpushed_tags")
 
 
 # --- Happy path ---
 
-def test_clean_repo(repo_env, fix_log_dir):
+def test_clean_repo(repo_env, fix_log_path):
     """Clean repo, on main, synced with remote: should pass git checks."""
     repo_dir, _ = repo_env
 
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_clean_repo",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "git.branch_check"), \
         f"Branch check should pass. events={result.events}"

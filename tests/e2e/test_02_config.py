@@ -7,7 +7,6 @@ external test repo.
 
 from pathlib import Path
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.ndjson import find_errors, find_by_name, has_step_ok
@@ -68,34 +67,34 @@ _TEST_CONFIG = {"prompts": RELEASE_PROMPTS, "verify_prompts": False}
 
 # --- Git / init ---
 
-def test_no_git(tmp_path):
+def test_no_git(tmp_path, fix_log_path):
     """Without git init: config loading should fail (no project root)."""
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=MINIMAL_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_no_git",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading")
 
 
-def test_git_no_config(tmp_path):
+def test_git_no_config(tmp_path, fix_log_path):
     """With git init but no zenodo_config.yaml: should report not initialized."""
     _git_init(tmp_path)
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release",
-                             log_dir=conftest.log_dir, test_name="test_git_no_config",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.not_initialized")
 
 
 # --- Valid config ---
 
-def test_valid_minimal_config(tmp_path):
+def test_valid_minimal_config(tmp_path, fix_log_path):
     """With git init + valid minimal config: should pass config check."""
     _git_init(tmp_path)
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=MINIMAL_CONFIG,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_valid_minimal_config",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Config check should pass. events={result.events}"
@@ -103,26 +102,26 @@ def test_valid_minimal_config(tmp_path):
 
 # --- Env file ---
 
-def test_with_env_file(tmp_path):
+def test_with_env_file(tmp_path, fix_log_path):
     """With .zenodo.env containing valid keys: should load fine."""
     _git_init(tmp_path)
     (tmp_path / ".zenodo.env").write_text("ZENODO_TOKEN=fake_token_123\n")
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=MINIMAL_CONFIG,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_with_env_file",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Should load with .zenodo.env: events={result.events}"
 
 
-def test_env_file_unknown_keys(tmp_path):
+def test_env_file_unknown_keys(tmp_path, fix_log_path):
     """With .zenodo.env containing unknown keys: should error."""
     _git_init(tmp_path)
     (tmp_path / ".zenodo.env").write_text("UNKNOWN_KEY=value\nBAD_KEY=123\n")
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=MINIMAL_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_env_file_unknown_keys",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.unknown_env_key")
 
@@ -139,31 +138,31 @@ def test_invalid_yaml_not_dict(tmp_path):
     _assert_has_error(result, name="config_error.loading")
 
 
-def test_invalid_archive_format(tmp_path):
+def test_invalid_archive_format(tmp_path, fix_log_path):
     """Invalid archive format choice: should fail."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "archive": {"format": "rar"}}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
-                             log_dir=conftest.log_dir, test_name="test_invalid_archive_format",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.invalid_option.archive")
 
 
-def test_invalid_prompt_level(tmp_path):
+def test_invalid_prompt_level(tmp_path, fix_log_path):
     """Invalid prompt_validation_level: should fail."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "prompt_validation_level": "extreme"}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
-                             log_dir=conftest.log_dir, test_name="test_invalid_prompt_level",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.invalid_option.prompt_validation_level")
 
 
 # --- Prompt levels ---
 
-def test_prompt_level_danger(tmp_path):
+def test_prompt_level_danger(tmp_path, fix_log_path):
     """Danger level: Enter confirms (enter option available)."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "prompt_validation_level": "danger"}
@@ -171,39 +170,39 @@ def test_prompt_level_danger(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config={"prompts": prompts, "verify_prompts": False},
-                             log_dir=conftest.log_dir, test_name="test_prompt_level_danger",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Danger level should accept 'enter': events={result.events}"
 
 
-def test_prompt_level_light(tmp_path):
+def test_prompt_level_light(tmp_path, fix_log_path):
     """Light level: y/yes accepted."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "prompt_validation_level": "light"}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_prompt_level_light",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Light level should work: events={result.events}"
 
 
-def test_prompt_level_normal(tmp_path):
+def test_prompt_level_normal(tmp_path, fix_log_path):
     """Normal level: full 'yes' required."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "prompt_validation_level": "normal"}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_prompt_level_normal",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Normal level should work: events={result.events}"
 
 
-def test_prompt_level_secure(tmp_path):
+def test_prompt_level_secure(tmp_path, fix_log_path):
     """Secure level: must type the project root name."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "prompt_validation_level": "secure"}
@@ -215,7 +214,7 @@ def test_prompt_level_secure(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config={"prompts": prompts, "verify_prompts": False},
-                             log_dir=conftest.log_dir, test_name="test_prompt_level_secure",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Secure level should work: events={result.events}"
@@ -223,7 +222,7 @@ def test_prompt_level_secure(tmp_path):
 
 # --- Signing ---
 
-def test_signing_on_file_mode(tmp_path):
+def test_signing_on_file_mode(tmp_path, fix_log_path):
     """signing: sign + sign_mode: file — config should load."""
     _git_init(tmp_path)
     config = {
@@ -233,13 +232,13 @@ def test_signing_on_file_mode(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_on_file_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Sign on (file mode) should load: events={result.events}"
 
 
-def test_signing_on_file_hash_mode(tmp_path):
+def test_signing_on_file_hash_mode(tmp_path, fix_log_path):
     """signing: sign + sign_mode: file_hash — config should load."""
     _git_init(tmp_path)
     config = {
@@ -249,13 +248,13 @@ def test_signing_on_file_hash_mode(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_on_file_hash_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Sign on (file_hash mode) should load: events={result.events}"
 
 
-def test_signing_invalid_mode(tmp_path):
+def test_signing_invalid_mode(tmp_path, fix_log_path):
     """Invalid sign_mode: should fail."""
     _git_init(tmp_path)
     config = {
@@ -264,12 +263,12 @@ def test_signing_invalid_mode(tmp_path):
     }
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
-                             log_dir=conftest.log_dir, test_name="test_signing_invalid_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.signing.invalid_mode")
 
 
-def test_signing_invalid_hash_algo(tmp_path):
+def test_signing_invalid_hash_algo(tmp_path, fix_log_path):
     """Invalid sign_hash_algo: should fail."""
     _git_init(tmp_path)
     config = {
@@ -278,12 +277,12 @@ def test_signing_invalid_hash_algo(tmp_path):
     }
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
-                             log_dir=conftest.log_dir, test_name="test_signing_invalid_hash_algo",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.signing.algo.unknown")
 
 
-def test_signing_cli_override(tmp_path):
+def test_signing_cli_override(tmp_path, fix_log_path):
     """--sign CLI flag should override signing.sign: false in YAML."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "signing": {"sign": False}}
@@ -291,13 +290,13 @@ def test_signing_cli_override(tmp_path):
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
                              extra_args=["--sign"],
-                             log_dir=conftest.log_dir, test_name="test_signing_cli_override",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"--sign override should load: events={result.events}"
 
 
-def test_signing_gpg_uid(tmp_path):
+def test_signing_gpg_uid(tmp_path, fix_log_path):
     """GPG UID in config should load without error."""
     _git_init(tmp_path)
     config = {
@@ -307,13 +306,13 @@ def test_signing_gpg_uid(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_gpg_uid",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"GPG UID config should load: events={result.events}"
 
 
-def test_signing_gpg_uid_empty(tmp_path):
+def test_signing_gpg_uid_empty(tmp_path, fix_log_path):
     """Empty GPG UID should be treated as None (auto-detect)."""
     _git_init(tmp_path)
     config = {
@@ -323,13 +322,13 @@ def test_signing_gpg_uid_empty(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_gpg_uid_empty",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Empty GPG UID should load: events={result.events}"
 
 
-def test_signing_gpg_extra_args(tmp_path):
+def test_signing_gpg_extra_args(tmp_path, fix_log_path):
     """Custom GPG extra_args should merge with defaults."""
     _git_init(tmp_path)
     config = {
@@ -342,7 +341,7 @@ def test_signing_gpg_extra_args(tmp_path):
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_signing_gpg_extra_args",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"GPG extra_args should load: events={result.events}"
@@ -350,79 +349,79 @@ def test_signing_gpg_extra_args(tmp_path):
 
 # --- Hash algorithms ---
 
-def test_hash_multiple(tmp_path):
+def test_hash_multiple(tmp_path, fix_log_path):
     """Multiple hash algorithms: md5, sha256."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "hash_algorithms": ["md5", "sha256"]}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_hash_multiple",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"Multiple hashes should load: events={result.events}"
 
 
-def test_hash_with_tree(tmp_path):
+def test_hash_with_tree(tmp_path, fix_log_path):
     """Tree hash algorithm (git tree hash)."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "hash_algorithms": ["sha256", "tree"]}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_hash_with_tree",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"tree hash should load: events={result.events}"
 
 
-def test_hash_invalid(tmp_path):
+def test_hash_invalid(tmp_path, fix_log_path):
     """Invalid hash algorithm: should fail."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "hash_algorithms": ["not_a_hash"]}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
-                             log_dir=conftest.log_dir, test_name="test_hash_invalid",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     _assert_has_error(result, name="config_error.loading.config.invalid_option.hash_algorithms")
 
 
 # --- Archive format ---
 
-def test_archive_format_zip(tmp_path):
+def test_archive_format_zip(tmp_path, fix_log_path):
     """archive.format: zip."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "archive": {"format": "zip"}}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_archive_format_zip",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"zip format should load: events={result.events}"
 
 
-def test_archive_format_tar(tmp_path):
+def test_archive_format_tar(tmp_path, fix_log_path):
     """archive.format: tar."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "archive": {"format": "tar"}}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_archive_format_tar",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"tar format should load: events={result.events}"
 
 
-def test_archive_format_tar_gz(tmp_path):
+def test_archive_format_tar_gz(tmp_path, fix_log_path):
     """archive.format: tar.gz."""
     _git_init(tmp_path)
     config = {**MINIMAL_CONFIG, "archive": {"format": "tar.gz"}}
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=conftest.log_dir, test_name="test_archive_format_tar_gz",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert has_step_ok(result.events, "config.checked"), \
         f"tar.gz format should load: events={result.events}"

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.github import GithubClient
 from tests.utils.ndjson import find_by_name, find_errors
@@ -61,7 +60,7 @@ _TEST_CONFIG = {"prompts": _PROMPTS, "verify_prompts": False}
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def override_env(repo_env, fix_log_dir, fix_gpg_uid):
+def override_env(repo_env, fix_gpg_uid):
     """Yield (repo_dir, git, gh, archive_dir, gpg_uid)."""
     repo_dir, git = repo_env
     gh = GithubClient(repo_dir)
@@ -94,7 +93,7 @@ def _create_pattern_file(repo_dir, git):
 # Tests: per-file sign_mode override
 # ---------------------------------------------------------------------------
 
-def test_per_file_sign_mode_override(override_env, fix_log_dir):
+def test_per_file_sign_mode_override(override_env, fix_log_path):
     """Global sign_mode=file_hash, per-file override to file on pattern.
 
     Project should use file_hash (global), pattern should use file (override).
@@ -124,7 +123,7 @@ def test_per_file_sign_mode_override(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_per_file_sign_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -144,7 +143,7 @@ def test_per_file_sign_mode_override(override_env, fix_log_dir):
     assert zip_sigs, f"Project should have .asc (file_hash mode). Got: {names}"
 
 
-def test_per_file_sign_mode_reversed(override_env, fix_log_dir):
+def test_per_file_sign_mode_reversed(override_env, fix_log_path):
     """Global sign_mode=file, per-file override to file_hash on pattern."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -171,7 +170,7 @@ def test_per_file_sign_mode_reversed(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_per_file_sign_mode_reversed",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -227,7 +226,7 @@ def test_per_file_sign_mode_reversed(override_env, fix_log_dir):
         f"Pattern sig should NOT verify project file"
 
 
-def test_both_file_mode_signatures_match_own_file(override_env, fix_log_dir):
+def test_both_file_mode_signatures_match_own_file(override_env, fix_log_path):
     """Both files signed in file mode: each signature verifies only its own file."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -251,7 +250,7 @@ def test_both_file_mode_signatures_match_own_file(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_both_file_mode_sigs",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -292,7 +291,7 @@ def test_both_file_mode_signatures_match_own_file(override_env, fix_log_dir):
     ).returncode != 0, "Project sig should NOT verify pattern file"
 
 
-def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_dir):
+def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_path):
     """Both files signed in file_hash mode: each signature verifies only its own hash file."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -317,7 +316,7 @@ def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_dir
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_both_hash_mode_sigs",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -384,7 +383,7 @@ def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_dir
     ("SHA512", 10),
     ("RIPEMD160", 3),
 ])
-def test_gpg_digest_algo_override(override_env, fix_log_dir, digest_algo, expected_code):
+def test_gpg_digest_algo_override(override_env, fix_log_path, digest_algo, expected_code):
     """Override GPG digest algorithm via extra_args and verify it's used in the signature."""
     repo_dir, _, _, archive_dir, gpg_uid = override_env
 
@@ -402,8 +401,7 @@ def test_gpg_digest_algo_override(override_env, fix_log_dir, digest_algo, expect
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir,
-                             test_name=f"test_gpg_digest_{digest_algo}",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -427,7 +425,7 @@ def test_gpg_digest_algo_override(override_env, fix_log_dir, digest_algo, expect
         f"gpg output: {packets.stdout}"
 
 
-def test_per_file_mixed_sign_on_off(override_env, fix_log_dir):
+def test_per_file_mixed_sign_on_off(override_env, fix_log_path):
     """Global sign=true, but pattern sign=false: only project signed."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -451,7 +449,7 @@ def test_per_file_mixed_sign_on_off(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_mixed_sign_on_off",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -477,7 +475,7 @@ def test_per_file_mixed_sign_on_off(override_env, fix_log_dir):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sign_hash_algo", ["md5", "sha1", "sha256", "sha512"])
-def test_file_hash_mode_signed_content_matches(override_env, fix_log_dir, sign_hash_algo):
+def test_file_hash_mode_signed_content_matches(override_env, fix_log_path, sign_hash_algo):
     """In file_hash mode, GPG signs 'algo:hexvalue'. Verify the hex matches the actual file.
 
     sign_hash_algo controls which hash of the file is written to the
@@ -505,8 +503,7 @@ def test_file_hash_mode_signed_content_matches(override_env, fix_log_dir, sign_h
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir,
-                             test_name=f"test_file_hash_content_{sign_hash_algo}",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -554,7 +551,7 @@ def test_file_hash_mode_signed_content_matches(override_env, fix_log_dir, sign_h
     hash_file.unlink()
 
 
-def test_file_mode_signature_verifiable(override_env, fix_log_dir):
+def test_file_mode_signature_verifiable(override_env, fix_log_path):
     """In file mode, GPG signs the actual file. Verify signature exists and file is intact."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
 
@@ -569,7 +566,7 @@ def test_file_mode_signature_verifiable(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_file_mode_verifiable",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -610,7 +607,7 @@ def test_file_mode_signature_verifiable(override_env, fix_log_dir):
 # Tests: env var override
 # ---------------------------------------------------------------------------
 
-def test_env_var_override_fake_token(override_env, fix_log_dir):
+def test_env_var_override_fake_token(override_env, fix_log_path):
     """Passing a fake ZENODO_TOKEN via os.environ should override .zenodo.env and cause auth failure."""
     repo_dir, _, _, archive_dir, _ = override_env
 
@@ -632,7 +629,7 @@ def test_env_var_override_fake_token(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config={"prompts": prompts_publish, "verify_prompts": False},
-                             log_dir=fix_log_dir, test_name="test_env_fake_token",
+                             log_path=fix_log_path,
                              fail_on="ignore",
                              env={"ZENODO_TOKEN": "fake_invalid_token_12345"})
 
@@ -646,7 +643,7 @@ def test_env_var_override_fake_token(override_env, fix_log_dir):
 # Tests: per-file rename override
 # ---------------------------------------------------------------------------
 
-def test_pattern_rename(override_env, fix_log_dir):
+def test_pattern_rename(override_env, fix_log_path):
     """Pattern with rename=true: file should be renamed to ProjectName-tag.ext."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -666,7 +663,7 @@ def test_pattern_rename(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_pattern_rename",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -683,7 +680,7 @@ def test_pattern_rename(override_env, fix_log_dir):
         f"Original name should not be present when rename=true. Got: {names}"
 
 
-def test_pattern_no_rename(override_env, fix_log_dir):
+def test_pattern_no_rename(override_env, fix_log_path):
     """Pattern with rename=false (default): file keeps original name."""
     repo_dir, git, gh, archive_dir, gpg_uid = override_env
     _create_pattern_file(repo_dir, git)
@@ -703,7 +700,7 @@ def test_pattern_no_rename(override_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_pattern_no_rename",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)

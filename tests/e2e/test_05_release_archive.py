@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.github import GithubClient
@@ -61,7 +60,7 @@ _TEST_CONFIG_WITH_BUILD = {
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def release_env(repo_env, fix_log_dir):
+def release_env(repo_env):
     """Create a tag + GitHub release on the test repo, clean up after.
 
     Yields (repo_dir, git, gh, archive_dir).
@@ -92,7 +91,7 @@ def release_env(repo_env, fix_log_dir):
 # Tests: generated_files combinations
 # ---------------------------------------------------------------------------
 
-def test_project_only(release_env, fix_log_dir):
+def test_project_only(release_env, fix_log_path):
     """generated_files with project only: should create project archive."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -102,7 +101,7 @@ def test_project_only(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_only",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     assert has_step_ok(result.events, "git.up_to_date")
@@ -117,7 +116,7 @@ def test_project_only(release_env, fix_log_dir):
     assert files[0].suffix == ".zip", f"Expected .zip, got: {files[0].name}"
 
 
-def test_pattern_only(release_env, fix_log_dir):
+def test_pattern_only(release_env, fix_log_path):
     """generated_files with pattern only: should copy matched file."""
     repo_dir, git, gh, archive_dir = release_env
 
@@ -144,7 +143,7 @@ def test_pattern_only(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_pattern_only",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     assert find_by_name(result.events, "archive.copy"), \
@@ -156,7 +155,7 @@ def test_pattern_only(release_env, fix_log_dir):
     assert "output.txt" in names, f"Expected output.txt in {names}"
 
 
-def test_project_and_pattern(release_env, fix_log_dir):
+def test_project_and_pattern(release_env, fix_log_path):
     """generated_files with both project and pattern."""
     repo_dir, git, gh, archive_dir = release_env
 
@@ -181,7 +180,7 @@ def test_project_and_pattern(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_and_pattern",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     assert find_by_name(result.events, "archive.copy")
@@ -194,7 +193,7 @@ def test_project_and_pattern(release_env, fix_log_dir):
     assert any(f.suffix == ".zip" for f in files), f"Expected .zip in {files}"
 
 
-def test_no_generated_files(release_env, fix_log_dir):
+def test_no_generated_files(release_env, fix_log_path):
     """No generated_files: pipeline should still complete (nothing to archive)."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={})
@@ -202,7 +201,7 @@ def test_no_generated_files(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_no_generated_files",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     assert has_step_ok(result.events, "git.up_to_date")
@@ -215,7 +214,7 @@ def test_no_generated_files(release_env, fix_log_dir):
 # Tests: hash verification on archived files
 # ---------------------------------------------------------------------------
 
-def test_project_archive_hashes(release_env, fix_log_dir):
+def test_project_archive_hashes(release_env, fix_log_path):
     """Hashes on project archive should match independently computed values."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -226,7 +225,7 @@ def test_project_archive_hashes(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_archive_hashes",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     # Find the persisted archive
@@ -242,7 +241,7 @@ def test_project_archive_hashes(release_env, fix_log_dir):
         assert hash_events, f"No file_hashes data events found"
 
 
-def test_pattern_file_hashes(release_env, fix_log_dir):
+def test_pattern_file_hashes(release_env, fix_log_path):
     """Hashes on pattern file should match independently computed values."""
     repo_dir, git, gh, archive_dir = release_env
 
@@ -268,7 +267,7 @@ def test_pattern_file_hashes(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_pattern_file_hashes",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     persist_dir = archive_dir / TAG
@@ -285,7 +284,7 @@ def test_pattern_file_hashes(release_env, fix_log_dir):
 # Tests: archive formats in release pipeline
 # ---------------------------------------------------------------------------
 
-def test_project_archive_tar(release_env, fix_log_dir):
+def test_project_archive_tar(release_env, fix_log_path):
     """Project archive as tar format."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -296,7 +295,7 @@ def test_project_archive_tar(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_archive_tar",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     persist_dir = archive_dir / TAG
@@ -304,7 +303,7 @@ def test_project_archive_tar(release_env, fix_log_dir):
     assert tar_files, f"Expected .tar in {list(fs.list_files(persist_dir))}"
 
 
-def test_project_archive_tar_gz(release_env, fix_log_dir):
+def test_project_archive_tar_gz(release_env, fix_log_path):
     """Project archive as tar.gz format."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -315,7 +314,7 @@ def test_project_archive_tar_gz(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_archive_tar_gz",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     persist_dir = archive_dir / TAG
@@ -328,7 +327,7 @@ def test_project_archive_tar_gz(release_env, fix_log_dir):
 # Tests: tree hash in release pipeline
 # ---------------------------------------------------------------------------
 
-def test_project_tree_hash(release_env, fix_log_dir):
+def test_project_tree_hash(release_env, fix_log_path):
     """Tree hash on project archive should match independently computed value."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -339,7 +338,7 @@ def test_project_tree_hash(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_tree_hash",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     # Extract the archive and compute tree hash independently
@@ -373,7 +372,7 @@ def test_project_tree_hash(release_env, fix_log_dir):
 # Tests: compile with Makefile
 # ---------------------------------------------------------------------------
 
-def test_compile_and_archive(release_env, fix_log_dir):
+def test_compile_and_archive(release_env, fix_log_path):
     """Makefile generates files, pipeline compiles then archives them."""
     repo_dir, git, gh, archive_dir = release_env
 
@@ -410,7 +409,7 @@ def test_compile_and_archive(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_WITH_BUILD,
-                             log_dir=fix_log_dir, test_name="test_compile_and_archive",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -436,7 +435,7 @@ def test_compile_and_archive(release_env, fix_log_dir):
 # Tests: archive contents verification
 # ---------------------------------------------------------------------------
 
-def test_project_archive_contents(release_env, fix_log_dir):
+def test_project_archive_contents(release_env, fix_log_path):
     """Project archive should contain repo files, not gitignored files."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
@@ -446,7 +445,7 @@ def test_project_archive_contents(release_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_project_archive_contents",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     persist_dir = archive_dir / TAG

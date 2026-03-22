@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.ndjson import find_by_name, find_errors
@@ -44,7 +43,7 @@ RELEASE_PROMPTS = {
 # Test
 # ---------------------------------------------------------------------------
 
-def test_run_release(tmp_path):
+def test_run_release(tmp_path, fix_log_path):
     """Run ZP release in a fresh git repo and dump all output."""
     _git_init(tmp_path)
 
@@ -53,8 +52,7 @@ def test_run_release(tmp_path):
         "release",
         config=MINIMAL_CONFIG,
         test_config={"prompts": RELEASE_PROMPTS, "verify_prompts": False},
-        log_dir=conftest.log_dir,
-        test_name="test_01_run",
+        log_path=fix_log_path,
         fail_on="ignore",
     )
 

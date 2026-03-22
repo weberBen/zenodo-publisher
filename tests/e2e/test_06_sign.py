@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.github import GithubClient
 from tests.utils.ndjson import (
@@ -72,7 +71,7 @@ _TEST_CONFIG_NO_PUBLISH = {
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def sign_env(repo_env, fix_log_dir, fix_gpg_uid):
+def sign_env(repo_env, fix_gpg_uid):
     """Yield (repo_dir, git, gh, archive_dir, gpg_uid). Cleanup release after test."""
     repo_dir, git = repo_env
     gh = GithubClient(repo_dir)
@@ -107,7 +106,7 @@ def _create_pattern_file(repo_dir, git):
 # Tests: signing on/off
 # ---------------------------------------------------------------------------
 
-def test_sign_project_file_mode(sign_env, fix_log_dir):
+def test_sign_project_file_mode(sign_env, fix_log_path):
     """Sign project archive in FILE mode: .asc signature should exist."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -121,7 +120,7 @@ def test_sign_project_file_mode(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_project_file_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -142,7 +141,7 @@ def test_sign_project_file_mode(sign_env, fix_log_dir):
         f"Signature should reference archive. zip={zip_files[0].name}, sigs={[s.name for s in sig_files]}"
 
 
-def test_sign_project_file_hash_mode(sign_env, fix_log_dir):
+def test_sign_project_file_hash_mode(sign_env, fix_log_path):
     """Sign project archive in FILE_HASH mode: .asc signature of hash should exist."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -156,7 +155,7 @@ def test_sign_project_file_hash_mode(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_project_file_hash_mode",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -170,7 +169,7 @@ def test_sign_project_file_hash_mode(sign_env, fix_log_dir):
     assert sig_files, f"Expected .asc signature. Got: {names}"
 
 
-def test_sign_pattern_only(sign_env, fix_log_dir):
+def test_sign_pattern_only(sign_env, fix_log_path):
     """Sign a pattern file only (no project): signature should exist."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -189,7 +188,7 @@ def test_sign_pattern_only(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_pattern_only",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -203,7 +202,7 @@ def test_sign_pattern_only(sign_env, fix_log_dir):
     assert "output.txt.asc" in names, f"Expected output.txt.asc. Got: {names}"
 
 
-def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
+def test_sign_both_project_and_pattern(sign_env, fix_log_path):
     """Sign both project and pattern: two signatures should exist."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -223,7 +222,7 @@ def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_both",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -236,7 +235,7 @@ def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
         f"Expected exactly 2 signatures. Got: {[f.name for f in files]}"
 
 
-def test_no_sign(sign_env, fix_log_dir):
+def test_no_sign(sign_env, fix_log_path):
     """signing.sign: false — no .asc files should be created."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -250,7 +249,7 @@ def test_no_sign(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_no_sign",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     persist_dir = archive_dir / TAG
@@ -259,7 +258,7 @@ def test_no_sign(sign_env, fix_log_dir):
     assert not sig_files, f"No signatures expected. Got: {[f.name for f in files]}"
 
 
-def test_sign_per_file_override(sign_env, fix_log_dir):
+def test_sign_per_file_override(sign_env, fix_log_path):
     """Per-file sign override: project signed, pattern not."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -283,7 +282,7 @@ def test_sign_per_file_override(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_per_file_override",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -308,7 +307,7 @@ def test_sign_per_file_override(sign_env, fix_log_dir):
 # Tests: signing with different hash algos
 # ---------------------------------------------------------------------------
 
-def test_sign_binary_sig_format(sign_env, fix_log_dir):
+def test_sign_binary_sig_format(sign_env, fix_log_path):
     """Without --armor: should produce binary .sig instead of .asc."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -326,7 +325,7 @@ def test_sign_binary_sig_format(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_binary_sig",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -343,7 +342,7 @@ def test_sign_binary_sig_format(sign_env, fix_log_dir):
     assert not asc_files, f"Should not have .asc with binary mode. Got: {names}"
 
 
-def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
+def test_sign_invalid_gpg_uid(sign_env, fix_log_path):
     """Invalid GPG UID: signing should fail with an error."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -361,7 +360,7 @@ def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_invalid_uid",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -371,7 +370,7 @@ def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
 
 
 
-def test_sign_without_uid_uses_default(sign_env, fix_log_dir):
+def test_sign_without_uid_uses_default(sign_env, fix_log_path):
     """Sign without gpg.uid in config: ZP should use the default GPG key."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -385,7 +384,7 @@ def test_sign_without_uid_uses_default(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_sign_default_uid",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -397,7 +396,7 @@ def test_sign_without_uid_uses_default(sign_env, fix_log_dir):
 
 
 @pytest.mark.parametrize("sign_hash_algo", ["md5", "sha1", "sha256", "sha512"])
-def test_sign_file_hash_algo(sign_env, fix_log_dir, sign_hash_algo):
+def test_sign_file_hash_algo(sign_env, fix_log_path, sign_hash_algo):
     """FILE_HASH mode with various hash algos: signature should exist."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -412,8 +411,7 @@ def test_sign_file_hash_algo(sign_env, fix_log_dir, sign_hash_algo):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir,
-                             test_name=f"test_sign_file_hash_{sign_hash_algo}",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -430,7 +428,7 @@ def test_sign_file_hash_algo(sign_env, fix_log_dir, sign_hash_algo):
 # Tests: manifest
 # ---------------------------------------------------------------------------
 
-def test_manifest_project_only_verify_hashes(sign_env, fix_log_dir):
+def test_manifest_project_only_verify_hashes(sign_env, fix_log_path):
     """Manifest with project only: verify file_hashes event matches locally computed values."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -450,7 +448,7 @@ def test_manifest_project_only_verify_hashes(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_project_hashes",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -490,7 +488,7 @@ def test_manifest_project_only_verify_hashes(sign_env, fix_log_dir):
                 f"{filename} {algo} mismatch: zp={reported_value}, local={local_hash}"
 
 
-def test_manifest_verify_commit_sha(sign_env, fix_log_dir):
+def test_manifest_verify_commit_sha(sign_env, fix_log_path):
     """Manifest commit.sha should match git rev-parse HEAD on the repo."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -509,7 +507,7 @@ def test_manifest_verify_commit_sha(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_commit_sha",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -532,7 +530,7 @@ def test_manifest_verify_commit_sha(sign_env, fix_log_dir):
         f"Epoch mismatch: manifest={manifest['commit']['date_epoch']}, local={local_epoch}"
 
 
-def test_manifest_with_pattern_and_project(sign_env, fix_log_dir):
+def test_manifest_with_pattern_and_project(sign_env, fix_log_path):
     """Manifest referencing both: verify each file entry has correct hashes."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -558,7 +556,7 @@ def test_manifest_with_pattern_and_project(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_both_hashes",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -592,7 +590,7 @@ def test_manifest_with_pattern_and_project(sign_env, fix_log_dir):
                     f"{filename} {algo} mismatch: manifest={entry[algo]}, local={local_hash}"
 
 
-def test_manifest_project_only_no_pattern(sign_env, fix_log_dir):
+def test_manifest_project_only_no_pattern(sign_env, fix_log_path):
     """Manifest with only project (no pattern): should have exactly 1 file entry."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -611,7 +609,7 @@ def test_manifest_project_only_no_pattern(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_project_only",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -625,7 +623,7 @@ def test_manifest_project_only_no_pattern(sign_env, fix_log_dir):
         f"Expected exactly 1 file. Got: {manifest['files']}"
 
 
-def test_manifest_signed(sign_env, fix_log_dir):
+def test_manifest_signed(sign_env, fix_log_path):
     """Manifest itself can be signed: .asc should exist for manifest."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -644,7 +642,7 @@ def test_manifest_signed(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_signed",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -660,7 +658,7 @@ def test_manifest_signed(sign_env, fix_log_dir):
     assert manifest_sigs, f"Expected manifest .asc. Got: {names}"
 
 
-def test_manifest_commit_info_all_fields(sign_env, fix_log_dir):
+def test_manifest_commit_info_all_fields(sign_env, fix_log_path):
     """All commit_info fields: verify values are non-empty and sha matches git."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -679,7 +677,7 @@ def test_manifest_commit_info_all_fields(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_all_commit_fields",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -701,7 +699,7 @@ def test_manifest_commit_info_all_fields(sign_env, fix_log_dir):
         f"SHA mismatch: manifest={commit['sha']}, local={local_sha}"
 
 
-def test_manifest_minimal_commit_info(sign_env, fix_log_dir):
+def test_manifest_minimal_commit_info(sign_env, fix_log_path):
     """Manifest with only sha in commit_info: other fields should be absent."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -720,7 +718,7 @@ def test_manifest_minimal_commit_info(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_minimal_commit",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -742,7 +740,7 @@ def test_manifest_minimal_commit_info(sign_env, fix_log_dir):
 # Tests: manifest with lightweight vs annotated tags
 # ---------------------------------------------------------------------------
 
-def test_manifest_lightweight_tag(sign_env, fix_log_dir):
+def test_manifest_lightweight_tag(sign_env, fix_log_path):
     """Lightweight tag (created by ZP): version.sha == commit.sha (same ref)."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
@@ -761,7 +759,7 @@ def test_manifest_lightweight_tag(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG_NO_PUBLISH,
-                             log_dir=fix_log_dir, test_name="test_manifest_lightweight_tag",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -787,7 +785,7 @@ def test_manifest_lightweight_tag(sign_env, fix_log_dir):
     assert commit_sha == local_sha
 
 
-def test_manifest_annotated_tag(repo_env, fix_log_dir):
+def test_manifest_annotated_tag(repo_env, fix_log_path):
     """Annotated tag: version.sha (tag object) != commit.sha."""
     repo_dir, git = repo_env
     gh = GithubClient(repo_dir)
@@ -827,7 +825,7 @@ def test_manifest_annotated_tag(repo_env, fix_log_dir):
         runner = ZpRunner(repo_dir)
         result = runner.run_test("release", config=config,
                                  test_config={"prompts": prompts_annotated, "verify_prompts": False},
-                                 log_dir=fix_log_dir, test_name="test_manifest_annotated_tag",
+                                 log_path=fix_log_path,
                                  fail_on="ignore")
 
         errors = find_errors(result.events)
@@ -867,7 +865,7 @@ def test_manifest_annotated_tag(repo_env, fix_log_dir):
 # Tests: GitHub asset publishing
 # ---------------------------------------------------------------------------
 
-def test_publish_pattern_as_github_asset(sign_env, fix_log_dir):
+def test_publish_pattern_as_github_asset(sign_env, fix_log_path):
     """Pattern file published to GitHub: verify asset exists via GithubClient."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -886,7 +884,7 @@ def test_publish_pattern_as_github_asset(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_publish_pattern_github",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -910,7 +908,7 @@ def test_publish_pattern_as_github_asset(sign_env, fix_log_dir):
         f"Downloaded asset hash mismatch: {local_hash} != {expected_hash}"
 
 
-def test_publish_manifest_as_github_asset(sign_env, fix_log_dir):
+def test_publish_manifest_as_github_asset(sign_env, fix_log_path):
     """Manifest published to GitHub: verify asset exists and content is valid JSON."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
 
@@ -930,7 +928,7 @@ def test_publish_manifest_as_github_asset(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_publish_manifest_github",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -964,7 +962,7 @@ def test_publish_manifest_as_github_asset(sign_env, fix_log_dir):
         f"Downloaded manifest hash mismatch: {dl_hash} != {local_hash}"
 
 
-def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_dir):
+def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_path):
     """Signed pattern + signature both uploaded to GitHub."""
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
@@ -986,7 +984,7 @@ def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_publish_signed_github",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)

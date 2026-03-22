@@ -105,7 +105,7 @@ def tag_env(fix_repo_dir, fix_repo_git):
 # Tests: release creation
 # ---------------------------------------------------------------------------
 
-def test_create_release(tag_env, fix_log_dir):
+def test_create_release(tag_env, fix_log_path):
     """ZP should create a new release with a lightweight tag."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -113,7 +113,7 @@ def test_create_release(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_create_release",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -128,7 +128,7 @@ def test_create_release(tag_env, fix_log_dir):
         f"Tag should be lightweight. Got: {tag_info}"
 
 
-def test_existing_release_reused(tag_env, fix_log_dir):
+def test_existing_release_reused(tag_env, fix_log_path):
     """If latest commit already has a release, ZP should reuse it (no new tag)."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -137,7 +137,7 @@ def test_existing_release_reused(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_existing_reuse_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result1.events)
     assert not errors, f"Run 1 errors: {errors}"
@@ -146,7 +146,7 @@ def test_existing_release_reused(tag_env, fix_log_dir):
     # Second run: should detect existing release, no prompts for tag
     result2 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_existing_reuse_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -159,7 +159,7 @@ def test_existing_release_reused(tag_env, fix_log_dir):
 # Tests: tag already exists on remote
 # ---------------------------------------------------------------------------
 
-def test_tag_exists_same_commit(tag_env, fix_log_dir):
+def test_tag_exists_same_commit(tag_env, fix_log_path):
     """Tag already exists on remote pointing to HEAD: ZP should accept it."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -171,7 +171,7 @@ def test_tag_exists_same_commit(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_tag_exists_same_commit",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -182,7 +182,7 @@ def test_tag_exists_same_commit(tag_env, fix_log_dir):
         f"Expected git.tag_exists warning. events={result.events}"
 
 
-def test_tag_exists_wrong_commit(tag_env, fix_log_dir):
+def test_tag_exists_wrong_commit(tag_env, fix_log_path):
     """Tag exists on remote pointing to a different commit: ZP should reject."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -198,7 +198,7 @@ def test_tag_exists_wrong_commit(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_tag_wrong_commit",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -211,7 +211,7 @@ def test_tag_exists_wrong_commit(tag_env, fix_log_dir):
 # Tests: tag delete/recreate scenarios
 # ---------------------------------------------------------------------------
 
-def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_dir):
+def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_path):
     """Delete remote tag (keep local): ZP should first reject (unpushed tag),
     then succeed after pushing the tag."""
     repo_dir, git, gh, archive_dir = tag_env
@@ -221,7 +221,7 @@ def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_del_remote_keep_local_1",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert not find_errors(result.events)
     assert gh.has_release(TAG)
@@ -238,7 +238,7 @@ def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_dir):
     # ZP should reject: local tag not pushed to remote
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_del_remote_keep_local_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert find_by_name(result2.events, "git.unpushed_tags"), \
@@ -248,13 +248,13 @@ def test_delete_remote_tag_keep_local_recreate(tag_env, fix_log_dir):
     git._run("push", "origin", TAG)
     result3 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_del_remote_keep_local_3",
+                              log_path=fix_log_path.with_suffix(".run2.log"),
                               fail_on="ignore")
     assert not find_errors(result3.events), f"Errors after push: {find_errors(result3.events)}"
     assert gh.has_release(TAG)
 
 
-def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_dir):
+def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_path):
     """Delete local tag (keep remote): ZP should detect tag on remote pointing to same commit."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -263,7 +263,7 @@ def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_del_local_keep_remote_1",
+                             log_path=fix_log_path,
                              fail_on="ignore")
     assert not find_errors(result.events)
 
@@ -274,7 +274,7 @@ def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_dir):
     # Re-run ZP: latest commit is already released → should reuse
     result2 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_del_local_keep_remote_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -285,7 +285,7 @@ def test_delete_local_tag_keep_remote_fail(tag_env, fix_log_dir):
 # Tests: commit/release alignment
 # ---------------------------------------------------------------------------
 
-def test_new_commit_not_released(tag_env, fix_log_dir):
+def test_new_commit_not_released(tag_env, fix_log_path):
     """After a new commit, ZP should detect HEAD is not released and prompt for new tag."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -294,7 +294,7 @@ def test_new_commit_not_released(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_new_commit_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
     assert gh.has_release(TAG)
@@ -307,7 +307,7 @@ def test_new_commit_not_released(tag_env, fix_log_dir):
     # Second run: HEAD is not released, ZP should ask for a new tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_dir=fix_log_dir, test_name="test_new_commit_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -318,7 +318,7 @@ def test_new_commit_not_released(tag_env, fix_log_dir):
     assert gh.has_release(TAG)
 
 
-def test_tag_on_old_commit(tag_env, fix_log_dir):
+def test_tag_on_old_commit(tag_env, fix_log_path):
     """Tag on an older (non-HEAD) commit: ZP should reject it as invalid."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -339,7 +339,7 @@ def test_tag_on_old_commit(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_tag_on_old_commit",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -348,7 +348,7 @@ def test_tag_on_old_commit(tag_env, fix_log_dir):
         f"Expected git.tag_invalid. Got: {errors}"
 
 
-def test_checkout_old_release(tag_env, fix_log_dir):
+def test_checkout_old_release(tag_env, fix_log_path):
     """On an old release's commit: ZP should detect it's already released (reuse)."""
     repo_dir, git, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -357,7 +357,7 @@ def test_checkout_old_release(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_old_release_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
 
@@ -370,7 +370,7 @@ def test_checkout_old_release(tag_env, fix_log_dir):
 
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_dir=fix_log_dir, test_name="test_old_release_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     assert not find_errors(result2.events)
     assert gh.has_release(TAG2)
@@ -382,14 +382,14 @@ def test_checkout_old_release(tag_env, fix_log_dir):
     # HEAD points to TAG2's commit → should detect existing release
     result3 = runner.run_test("release", config=config,
                               test_config=_EXISTING_RELEASE_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_old_release_3",
+                              log_path=fix_log_path.with_suffix(".run2.log"),
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"
     assert find_by_name(result3.events, "release.existing")
 
 
-def test_technical_commit_after_release(tag_env, fix_log_dir):
+def test_technical_commit_after_release(tag_env, fix_log_path):
     """Commit with no content change after release: ZP should still require a new tag.
 
     Even if the commit is purely technical (README, CI, etc.), ZP only
@@ -402,7 +402,7 @@ def test_technical_commit_after_release(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_technical_commit_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
     assert gh.has_release(TAG)
@@ -423,7 +423,7 @@ def test_technical_commit_after_release(tag_env, fix_log_dir):
     # → it should prompt for a new tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_dir=fix_log_dir, test_name="test_technical_commit_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -434,7 +434,7 @@ def test_technical_commit_after_release(tag_env, fix_log_dir):
         "Should NOT detect existing release — HEAD has changed"
 
 
-def test_release_tag_moved_to_old_commit(tag_env, fix_log_dir):
+def test_release_tag_moved_to_old_commit(tag_env, fix_log_path):
     """Release tag moved to an older commit on GitHub: ZP should require a new release.
 
     Simulates: someone edits the release on GitHub to point to an older commit.
@@ -459,7 +459,7 @@ def test_release_tag_moved_to_old_commit(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_moved_tag_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
     assert gh.has_release(TAG)
@@ -477,7 +477,7 @@ def test_release_tag_moved_to_old_commit(tag_env, fix_log_dir):
     # ZP should see HEAD != latest release commit → ask for new tag.
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_dir=fix_log_dir, test_name="test_moved_tag_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -488,7 +488,7 @@ def test_release_tag_moved_to_old_commit(tag_env, fix_log_dir):
         "New release should have been created"
 
 
-def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_dir):
+def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_path):
     """Local tag with different name but same SHA as existing remote release tag.
 
     Create a release with TAG, then create a local tag TAG3 pointing to the
@@ -502,7 +502,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_same_sha_diff_name_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
     assert gh.has_release(TAG)
@@ -517,7 +517,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_dir):
     # ZP should reject: TAG3 is a local unpushed tag
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG3),
-                              log_dir=fix_log_dir, test_name="test_same_sha_diff_name_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     assert find_by_name(result2.events, "git.unpushed_tags"), \
         f"Expected unpushed_tags error. Got: {find_errors(result2.events)}"
@@ -533,7 +533,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_dir):
                                   },
                                   "verify_prompts": False,
                               },
-                              log_dir=fix_log_dir, test_name="test_same_sha_diff_name_3",
+                              log_path=fix_log_path.with_suffix(".run2.log"),
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -542,7 +542,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_dir):
         f"Expected release.existing — commit is already released via {TAG}. events={result3.events}"
 
 
-def test_local_tag_same_sha_as_old_release(tag_env, fix_log_dir):
+def test_local_tag_same_sha_as_old_release(tag_env, fix_log_path):
     """Local tag on same commit as a previous (non-latest) release.
 
     Create release TAG, advance HEAD, create release TAG2 (latest).
@@ -556,7 +556,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_dir):
     # First release on current commit
     result1 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG),
-                              log_dir=fix_log_dir, test_name="test_old_release_tag3_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events)
     old_sha = git.rev_parse("HEAD")
@@ -568,7 +568,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_dir):
 
     result2 = runner.run_test("release", config=config,
                               test_config=_prompts(TAG2),
-                              log_dir=fix_log_dir, test_name="test_old_release_tag3_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     assert not find_errors(result2.events)
     assert gh.has_release(TAG2)
@@ -591,7 +591,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_dir):
                                   },
                                   "verify_prompts": False,
                               },
-                              log_dir=fix_log_dir, test_name="test_old_release_tag3_3",
+                              log_path=fix_log_path.with_suffix(".run2.log"),
                               fail_on="ignore")
     errors = find_errors(result3.events)
     assert not errors, f"Unexpected errors: {errors}"
@@ -599,7 +599,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_dir):
         f"Expected release.existing — HEAD matches TAG2, TAG3 is irrelevant. events={result3.events}"
 
 
-def test_draft_release_ignored(tag_env, fix_log_dir):
+def test_draft_release_ignored(tag_env, fix_log_path):
     """A draft release should be ignored by ZP — it should create a new release."""
     repo_dir, _, gh, archive_dir = tag_env
     config = _base_config(archive_dir)
@@ -611,7 +611,7 @@ def test_draft_release_ignored(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG2),
-                             log_dir=fix_log_dir, test_name="test_draft_ignored",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -624,7 +624,7 @@ def test_draft_release_ignored(tag_env, fix_log_dir):
         "ZP should have created a new non-draft release"
 
 
-def test_draft_release_tag_reuse_refused(tag_env, fix_log_dir):
+def test_draft_release_tag_reuse_refused(tag_env, fix_log_path):
     """Using a tag associated with a draft release: ZP should refuse.
 
     The tag exists on remote (created by the draft), so check_tag_validity
@@ -644,7 +644,7 @@ def test_draft_release_tag_reuse_refused(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_draft_tag_reuse",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     # ZP should detect the tag is associated with a draft release and refuse
@@ -654,7 +654,7 @@ def test_draft_release_tag_reuse_refused(tag_env, fix_log_dir):
         f"Expected git.tag_draft_release. Got: {errors}"
 
 
-def test_draft_release_check_disabled(tag_env, fix_log_dir):
+def test_draft_release_check_disabled(tag_env, fix_log_path):
     """With check_draft disabled: draft tag should be accepted (converted to published)."""
     repo_dir, _, gh, archive_dir = tag_env
     config = _base_config(archive_dir, github={"check_draft": False})
@@ -667,7 +667,7 @@ def test_draft_release_check_disabled(tag_env, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_prompts(TAG),
-                             log_dir=fix_log_dir, test_name="test_draft_check_disabled",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)

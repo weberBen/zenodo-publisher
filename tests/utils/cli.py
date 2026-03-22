@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -223,8 +222,7 @@ class ZpRunner:
                  config: dict | None = None,
                  test_config: dict | None = None,
                  extra_args: list[str] | None = None,
-                 log_dir: Path | None = None,
-                 test_name: str | None = None,
+                 log_path: Path | None = None,
                  fail_on: set[str] | list[str] | str | None = None,
                  env: dict | None = None) -> ZpResult:
         """Run zp with inline config dicts. Writes them to tmp files, runs zp, verifies prompts, logs output.
@@ -234,8 +232,7 @@ class ZpRunner:
             config: ZP config dict (written as zenodo_config.yaml).
             test_config: Test config dict with "prompts" and/or "cli" sections.
             extra_args: Additional CLI arguments.
-            log_dir: Directory for log files.
-            test_name: Test name for log file naming.
+            log_path: Path to log file (overwritten each run). Use fix_log_path fixture.
             fail_on: Event types that trigger AssertionError.
                      Default (None) = {"fatal", "error"}.
                      "ignore" = no auto-raise.
@@ -259,13 +256,6 @@ class ZpRunner:
             raise ValueError(
                 f"fail_on must be a set of types, 'ignore', or None. Got: {fail_on!r}")
         args = [command, "--test-mode"]
-
-        # Build log path
-        log_path = None
-        if log_dir:
-            log_dir.mkdir(exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_path = log_dir / f"{test_name or command}_{timestamp}.log"
 
         # Write config to tmp file and pass via --config
         tmpdir = Path(tempfile.mkdtemp())

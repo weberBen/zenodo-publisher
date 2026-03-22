@@ -8,7 +8,6 @@ Each test independently verifies the output (files on disk, hashes, contents).
 import subprocess
 from pathlib import Path
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.ndjson import find_data
@@ -68,7 +67,7 @@ def _setup_repo(tmp_path: Path) -> tuple[Path, Path]:
     return local, output
 
 
-def _run_archive(tmp_path, config_override=None, extra_args=None):
+def _run_archive(tmp_path, fix_log_path, config_override=None, extra_args=None):
     """Setup repo + run zp archive, return (result, output_dir)."""
     local, output = _setup_repo(tmp_path)
     config = {**MINIMAL_CONFIG, **(config_override or {})}
@@ -77,7 +76,7 @@ def _run_archive(tmp_path, config_override=None, extra_args=None):
     result = runner.run_test(
         "archive", config=config,
         extra_args=["--tag", TAG, "--output-dir", str(output)] + (extra_args or []),
-        log_dir=conftest.log_dir, test_name=None,
+        log_path=fix_log_path,
         fail_on="ignore",
     )
     return result, output
@@ -111,9 +110,9 @@ def _compute_tree_hash(content_dir: Path, object_format: str = "sha1") -> str:
 # Format tests — verify file exists on disk with correct extension
 # ---------------------------------------------------------------------------
 
-def test_archive_zip(tmp_path):
+def test_archive_zip(tmp_path, fix_log_path):
     """archive format zip: file should exist on disk as .zip."""
-    result, output = _run_archive(tmp_path, {"archive": {"format": "zip"}})
+    result, output = _run_archive(tmp_path, fix_log_path, {"archive": {"format": "zip"}})
 
     expected = output / f"{PROJECT_NAME}.zip"
     assert expected.exists(), f"Expected {expected} on disk. Contents: {list(output.iterdir())}"
@@ -124,9 +123,9 @@ def test_archive_zip(tmp_path):
     assert Path(data["path"]) == expected
 
 
-def test_archive_tar(tmp_path):
+def test_archive_tar(tmp_path, fix_log_path):
     """archive format tar: file should exist on disk as .tar."""
-    result, output = _run_archive(tmp_path, {"archive": {"format": "tar"}})
+    result, output = _run_archive(tmp_path, fix_log_path, {"archive": {"format": "tar"}})
 
     expected = output / f"{PROJECT_NAME}.tar"
     assert expected.exists(), f"Expected {expected} on disk. Contents: {list(output.iterdir())}"
@@ -137,9 +136,9 @@ def test_archive_tar(tmp_path):
     assert Path(data["path"]) == expected
 
 
-def test_archive_tar_gz(tmp_path):
+def test_archive_tar_gz(tmp_path, fix_log_path):
     """archive format tar.gz: file should exist on disk as .tar.gz."""
-    result, output = _run_archive(tmp_path, {"archive": {"format": "tar.gz"}})
+    result, output = _run_archive(tmp_path, fix_log_path, {"archive": {"format": "tar.gz"}})
 
     expected = output / f"{PROJECT_NAME}.tar.gz"
     assert expected.exists(), f"Expected {expected} on disk. Contents: {list(output.iterdir())}"
@@ -154,9 +153,9 @@ def test_archive_tar_gz(tmp_path):
 # Hash tests — compute hashes independently and compare with zp output
 # ---------------------------------------------------------------------------
 
-def test_archive_hash_sha256(tmp_path):
+def test_archive_hash_sha256(tmp_path, fix_log_path):
     """sha256: independently computed hash must match zp output."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["sha256"],
     })
@@ -169,9 +168,9 @@ def test_archive_hash_sha256(tmp_path):
         f"sha256 mismatch: zp={data['hashes']['sha256']}, local={local}"
 
 
-def test_archive_hash_md5(tmp_path):
+def test_archive_hash_md5(tmp_path, fix_log_path):
     """md5: independently computed hash must match zp output."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["md5"],
     })
@@ -183,9 +182,9 @@ def test_archive_hash_md5(tmp_path):
     assert data["hashes"]["md5"] == local
 
 
-def test_archive_hash_sha1(tmp_path):
+def test_archive_hash_sha1(tmp_path, fix_log_path):
     """sha1: independently computed hash must match zp output."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["sha1"],
     })
@@ -197,9 +196,9 @@ def test_archive_hash_sha1(tmp_path):
     assert data["hashes"]["sha1"] == local
 
 
-def test_archive_hash_sha512(tmp_path):
+def test_archive_hash_sha512(tmp_path, fix_log_path):
     """sha512: independently computed hash must match zp output."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["sha512"],
     })
@@ -211,10 +210,10 @@ def test_archive_hash_sha512(tmp_path):
     assert data["hashes"]["sha512"] == local
 
 
-def test_archive_hash_multiple(tmp_path):
+def test_archive_hash_multiple(tmp_path, fix_log_path):
     """Multiple algorithms: all independently computed hashes must match."""
     algos = ["md5", "sha1", "sha256", "sha512"]
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": algos,
     })
@@ -228,9 +227,9 @@ def test_archive_hash_multiple(tmp_path):
             f"{algo} mismatch: zp={data['hashes'][algo]}, local={local}"
 
 
-def test_archive_hash_tar_gz(tmp_path):
+def test_archive_hash_tar_gz(tmp_path, fix_log_path):
     """Hashes on tar.gz: verify independently on the actual .tar.gz file."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "tar.gz"},
         "hash_algorithms": ["md5", "sha256"],
     })
@@ -249,9 +248,9 @@ def test_archive_hash_tar_gz(tmp_path):
 # Tree hash tests — extract archive, compute git tree hash independently
 # ---------------------------------------------------------------------------
 
-def test_archive_tree_hash(tmp_path):
+def test_archive_tree_hash(tmp_path, fix_log_path):
     """tree (sha1 object format): extract archive, git write-tree, compare."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["sha256", "tree"],
     })
@@ -268,9 +267,9 @@ def test_archive_tree_hash(tmp_path):
         f"tree hash mismatch: zp={data['hashes']['tree']}, local={local_tree}"
 
 
-def test_archive_tree256_hash(tmp_path):
+def test_archive_tree256_hash(tmp_path, fix_log_path):
     """tree256 (sha256 object format): extract archive, git write-tree, compare."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "zip"},
         "hash_algorithms": ["sha256", "tree256"],
     })
@@ -287,9 +286,9 @@ def test_archive_tree256_hash(tmp_path):
         f"tree256 hash mismatch: zp={data['hashes']['tree256']}, local={local_tree}"
 
 
-def test_archive_tree_hash_tar(tmp_path):
+def test_archive_tree_hash_tar(tmp_path, fix_log_path):
     """tree hash on tar format: should still match extracted content."""
-    result, output = _run_archive(tmp_path, {
+    result, output = _run_archive(tmp_path, fix_log_path, {
         "archive": {"format": "tar"},
         "hash_algorithms": ["tree"],
     })
@@ -309,9 +308,9 @@ def test_archive_tree_hash_tar(tmp_path):
 # Content tests — verify actual archive contents on disk
 # ---------------------------------------------------------------------------
 
-def test_archive_contains_expected_files(tmp_path):
+def test_archive_contains_expected_files(tmp_path, fix_log_path):
     """Archive should contain all committed files."""
-    result, output = _run_archive(tmp_path, {"archive": {"format": "zip"}})
+    result, output = _run_archive(tmp_path, fix_log_path, {"archive": {"format": "zip"}})
     data = _get_archive_data(result)
 
     archive_path = Path(data["path"])
@@ -330,9 +329,9 @@ def test_archive_contains_expected_files(tmp_path):
             f"{rel_path} content mismatch"
 
 
-def test_archive_contents_tar_gz(tmp_path):
+def test_archive_contents_tar_gz(tmp_path, fix_log_path):
     """tar.gz archive should also contain all committed files with correct content."""
-    result, output = _run_archive(tmp_path, {"archive": {"format": "tar.gz"}})
+    result, output = _run_archive(tmp_path, fix_log_path, {"archive": {"format": "tar.gz"}})
     data = _get_archive_data(result)
 
     archive_path = Path(data["path"])
@@ -349,7 +348,7 @@ def test_archive_contents_tar_gz(tmp_path):
         assert extracted_file.read_text() == expected_content
 
 
-def test_archive_excludes_gitignored(tmp_path):
+def test_archive_excludes_gitignored(tmp_path, fix_log_path):
     """Files matching .gitignore should NOT be in the archive."""
     local, output = _setup_repo(tmp_path)
 
@@ -364,7 +363,7 @@ def test_archive_excludes_gitignored(tmp_path):
     result = runner.run_test(
         "archive", config=config,
         extra_args=["--tag", TAG, "--output-dir", str(output)],
-        log_dir=conftest.log_dir, test_name="test_archive_excludes_gitignored",
+        log_path=fix_log_path,
         fail_on="ignore",
     )
     data = _get_archive_data(result)

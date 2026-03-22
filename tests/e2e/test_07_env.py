@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from tests import conftest
 from tests.utils.cli import ZpRunner
 from tests.utils.github import GithubClient
 from tests.utils.ndjson import find_by_name, find_errors
@@ -82,7 +81,7 @@ def _parse_env_dump(path: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def env_test(repo_env, fix_log_dir):
+def env_test(repo_env):
     """Setup Makefile, yield (repo_dir, git, gh, archive_dir). Cleanup after."""
     repo_dir, git = repo_env
     gh = GithubClient(repo_dir)
@@ -116,14 +115,14 @@ def env_test(repo_env, fix_log_dir):
 # Tests: ZP_* env vars passed to make
 # ---------------------------------------------------------------------------
 
-def test_env_vars_passed_to_make(env_test, fix_log_dir):
+def test_env_vars_passed_to_make(env_test, fix_log_path):
     """All ZP_* env vars should be passed to make and be non-empty."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_env_vars_passed",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -150,14 +149,14 @@ def test_env_vars_passed_to_make(env_test, fix_log_dir):
         assert env[key], f"{key} should not be empty"
 
 
-def test_env_sha_matches_git(env_test, fix_log_dir):
+def test_env_sha_matches_git(env_test, fix_log_path):
     """ZP_COMMIT_SHA should match git rev-parse HEAD."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_env_sha",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -169,14 +168,14 @@ def test_env_sha_matches_git(env_test, fix_log_dir):
         f"SHA mismatch: env={env['ZP_COMMIT_SHA']}, git={local_sha}"
 
 
-def test_env_epoch_matches_commit(env_test, fix_log_dir):
+def test_env_epoch_matches_commit(env_test, fix_log_path):
     """ZP_COMMIT_DATE_EPOCH should match git log commit timestamp, not wall clock."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_env_epoch",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -195,7 +194,7 @@ def test_env_epoch_matches_commit(env_test, fix_log_dir):
         f"SOURCE_DATE_EPOCH mismatch: env={env['SOURCE_DATE_EPOCH']}, git={local_epoch}"
 
 
-def test_env_epoch_stable_across_runs(env_test, fix_log_dir):
+def test_env_epoch_stable_across_runs(env_test, fix_log_path):
     """Running twice on the same commit: epoch should be identical (not wall clock)."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
@@ -204,7 +203,7 @@ def test_env_epoch_stable_across_runs(env_test, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_env_stable_run1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result1.events)
     assert not errors, f"Run 1 errors: {errors}"
@@ -220,7 +219,7 @@ def test_env_epoch_stable_across_runs(env_test, fix_log_dir):
     runner2 = ZpRunner(repo_dir)
     result2 = runner2.run_test("release", config=config,
                                test_config=_TEST_CONFIG,
-                               log_dir=fix_log_dir, test_name="test_env_stable_run2",
+                               log_path=fix_log_path.with_suffix(".run1.log"),
                                fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -231,7 +230,7 @@ def test_env_epoch_stable_across_runs(env_test, fix_log_dir):
     assert env1["ZP_COMMIT_SHA"] == env2["ZP_COMMIT_SHA"]
 
 
-def test_env_epoch_changes_with_commit(env_test, fix_log_dir):
+def test_env_epoch_changes_with_commit(env_test, fix_log_path):
     """Different commits should produce different ZP_COMMIT_DATE_EPOCH."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
@@ -240,7 +239,7 @@ def test_env_epoch_changes_with_commit(env_test, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_env_change_run1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     errors = find_errors(result1.events)
     assert not errors, f"Run 1 errors: {errors}"
@@ -264,7 +263,7 @@ def test_env_epoch_changes_with_commit(env_test, fix_log_dir):
     runner2 = ZpRunner(repo_dir)
     result2 = runner2.run_test("release", config=config,
                                test_config=_TEST_CONFIG,
-                               log_dir=fix_log_dir, test_name="test_env_change_run2",
+                               log_path=fix_log_path.with_suffix(".run1.log"),
                                fail_on="ignore")
     errors = find_errors(result2.events)
     assert not errors, f"Run 2 errors: {errors}"
@@ -284,14 +283,14 @@ def test_env_epoch_changes_with_commit(env_test, fix_log_dir):
     assert env2["ZP_COMMIT_DATE_EPOCH"] == r.stdout.strip()
 
 
-def test_env_branch_and_origin(env_test, fix_log_dir):
+def test_env_branch_and_origin(env_test, fix_log_path):
     """ZP_BRANCH and ZP_ORIGIN_URL should match git state."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release", config=config,
                              test_config=_TEST_CONFIG,
-                             log_dir=fix_log_dir, test_name="test_env_branch_origin",
+                             log_path=fix_log_path,
                              fail_on="ignore")
 
     errors = find_errors(result.events)
@@ -310,7 +309,7 @@ def test_env_branch_and_origin(env_test, fix_log_dir):
 # Tests: persist overwrite
 # ---------------------------------------------------------------------------
 
-def test_persist_overwrite_accepted(env_test, fix_log_dir):
+def test_persist_overwrite_accepted(env_test, fix_log_path):
     """Second run to same archive_dir: confirm_persist_overwrite=yes should succeed."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
@@ -319,7 +318,7 @@ def test_persist_overwrite_accepted(env_test, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_persist_accept_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events), f"Run 1 errors: {find_errors(result1.events)}"
 
@@ -337,7 +336,7 @@ def test_persist_overwrite_accepted(env_test, fix_log_dir):
     # Second run with overwrite accepted
     result2 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_persist_accept_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
     assert not find_errors(result2.events), f"Run 2 errors: {find_errors(result2.events)}"
 
@@ -347,7 +346,7 @@ def test_persist_overwrite_accepted(env_test, fix_log_dir):
         f"Same files expected after overwrite. Before: {files_before}, After: {files_after}"
 
 
-def test_persist_overwrite_refused(env_test, fix_log_dir):
+def test_persist_overwrite_refused(env_test, fix_log_path):
     """Second run with confirm_persist_overwrite=no: should fail/warn."""
     repo_dir, git, gh, archive_dir = env_test
     config = _base_config(archive_dir, compile_dir=str(repo_dir))
@@ -356,7 +355,7 @@ def test_persist_overwrite_refused(env_test, fix_log_dir):
     runner = ZpRunner(repo_dir)
     result1 = runner.run_test("release", config=config,
                               test_config=_TEST_CONFIG,
-                              log_dir=fix_log_dir, test_name="test_persist_refuse_1",
+                              log_path=fix_log_path,
                               fail_on="ignore")
     assert not find_errors(result1.events), f"Run 1 errors: {find_errors(result1.events)}"
 
@@ -373,7 +372,7 @@ def test_persist_overwrite_refused(env_test, fix_log_dir):
     }
     result2 = runner.run_test("release", config=config,
                               test_config=refuse_config,
-                              log_dir=fix_log_dir, test_name="test_persist_refuse_2",
+                              log_path=fix_log_path.with_suffix(".run1.log"),
                               fail_on="ignore")
 
     # Should have skipped persist
