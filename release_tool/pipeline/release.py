@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
+from collections import Counter
 
 from ..latex_build import compile
 from ..git_operations import (
@@ -199,12 +200,22 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
 
     for entry in file_entries:
         if entry.kind == FileEntryKind.PATTERN:
+            # Count how many files share the same extension to detect collisions
+            ext_counts = Counter(p.suffix for p in entry.resolved_paths)
             for src_path in entry.resolved_paths:
                 if entry.rename:
                     ext = src_path.suffix
-                    dst = output_dir / f"{config.project_name}{ext}"
+                    # Only add original stem suffix when multiple files share the same extension
+                    suffix = f"_{src_path.stem}" if ext_counts[ext] > 1 else ""
+                    dst = output_dir / f"{config.project_name}{suffix}{ext}"
                 else:
                     dst = output_dir / src_path.name
+                if dst.exists():
+                    raise PipelineError(
+                        f"File name collision: '{dst.name}' already exists in "
+                        f"output directory (from generated_files.{entry.key})",
+                        name=f"archive.collision.{entry.key}",
+                    )
                 shutil.copy2(src_path, dst)
                 archived_files.append(ArchivedFile(
                     file_path=dst,
@@ -220,9 +231,12 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                 output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
         elif entry.kind == FileEntryKind.PROJECT:
+            # Use project_name (e.g. MyProject-v1.0.0) if rename=true,
+            # otherwise use the repo directory name (e.g. my-repo)
+            archive_name = config.project_name if entry.rename else config.project_root.name
             result = archive_zip_project(
                 config.project_root, tag_name,
-                config.project_name, output_dir,
+                archive_name, output_dir,
             )
             # Post-process: tree hashes + optional TAR conversion
             hash_algos = list(config.hash_algorithms or [])
