@@ -353,6 +353,16 @@ Methods:
 - `effective_sign(global_sign)` -- returns per-file `sign` or global
 - `effective_sign_mode(global_mode)` -- returns per-file `sign_mode` or global
 
+### Publishers (YAML)
+
+```yaml
+publishers:
+  file_destination: [zenodo, github]   # where to upload the file (default: [zenodo])
+  sig_destination: [github, zenodo]    # where to upload the signature (default: [] = not uploaded)
+```
+
+`sig_destination` requires `sign: true` on the entry. Valid destinations: `zenodo`, `github`.
+
 ### ArchivedFile dataclass
 
 ```python

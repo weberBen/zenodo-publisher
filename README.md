@@ -393,8 +393,8 @@ Each entry can specify:
 - `sign_mode`: per-file signing mode override
 - `rename`: rename using project name template (default: false)
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
-- `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both)
-- `publishers.sig_destination`: where to upload the signature
+- `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
+- `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
 - `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). Options:
   - `source: file` (default): hash of the file itself
   - `source: sig_file`: hash of the signature (requires `sign: true`)
