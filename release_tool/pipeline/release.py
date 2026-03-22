@@ -619,22 +619,22 @@ def _run_release(config, *, test=None) -> None:
 
     output.info_ok("Main branch: {branch}", branch=config.main_branch, name="config.main_branch")
 
-    # 1. Git check
+    # Git check
     _step_git_check(config)
 
-    # 2. Release check/creation
+    # Release check/creation
     tag_name = _step_release(config)
 
-    # 3. Commit info
+    # Commit info
     commit_env = _step_commit_info(config, tag_name)
 
-    # 4. Resolve project name
+    # Resolve project name
     _step_project_name(config, tag_name, commit_env)
 
-    # 5. Compile
+    # Compile
     _step_compile(config, env_vars=commit_env)
 
-    # 6. Re-check git + release still valid after compilation
+    # Re-check git + release still valid after compilation
     _step_git_check(config)
     verify_release_on_latest_commit(config.project_root, tag_name)
 
@@ -642,26 +642,29 @@ def _run_release(config, *, test=None) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         output_dir = Path(tmp)
 
-        # 7. Resolve generated files (scan compile_dir for patterns)
+        # Resolve generated files (scan compile_dir for patterns)
         file_entries = _step_resolve_generated_files(config)
 
-        # 8. Archive (create project ZIP, copy/rename generated files)
+        # Archive (create project ZIP, copy/rename generated files)
         archived_files = _step_archive(config, tag_name, output_dir, file_entries)
-
-        # 9. Manifest
+        
+        # Compute hashes
+        _step_compute_hashes(config, archived_files)
+        
+        # Manifest
         _step_manifest(config, tag_name, archived_files, commit_env, output_dir)
 
-        # 10. Compute hashes
+        # Compute manifest hash (manifest was just appended to archived_files)
         _step_compute_hashes(config, archived_files)
 
-        # 11. Sign files
+        # Sign files
         _step_sign(config, archived_files, output_dir)
 
-        # 12. Compute identifiers
+        # Compute identifiers
         _step_compute_identifiers(config, archived_files)
 
-        # 13. Publish (per-file routing)
+        # Publish (per-file routing)
         record_info = _step_publish(config, tag_name, archived_files)
 
-        # 14. Persist
+        # Persist
         persist_files(archived_files, config.archive_dir, tag_name)
