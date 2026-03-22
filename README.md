@@ -319,7 +319,7 @@ This is highly recommended, not mandatory, but without these the only reference 
 9. **Manifest**: generates JSON manifest (JCS/RFC 8785) if a `manifest` entry exists in `generated_files`
 10. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
 11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files
-12. **Compute identifiers**: per-file alternate identifiers for Zenodo. Identifier are the selected file hash
+12. **Compute identifiers**: per-file alternate identifiers pushed to Zenodo metadata (`metadata.identifiers`), computed from the file hash (e.g. `sha256:abc123...`)
 13. **Publish**: routes each file to zenodo and/or github based on `publishers` config
 14. **Persist**: copies files to `archive.dir/{tag_name}/`
 
@@ -330,7 +330,7 @@ This tool uses `git fetch` (not in dry run mode). If fetching regularly is a pro
 
 The `generated_files` section in `zenodo_config.yaml` declares which files to include in the release. Three types:
 
-- **pattern entries** (custom key): a compiled file matched by glob pattern in `compile.dir` (e.g. `main.pdf`). Can be renamed using the project name template.
+- **pattern entries** (custom key): a file matched by glob pattern. Can be renamed using the project name template.
 - **project** (reserved key): a git archive of the repository. Format controlled by `archive.format`.
 - **manifest** (reserved key): a JSON manifest in canonical format (JCS/RFC 8785) listing file hashes, commit info, and optional metadata.
 
@@ -339,7 +339,52 @@ Each entry can specify:
 - `sign_mode`: per-file signing mode override
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both)
 - `publishers.sig_destination`: where to upload the signature
-- `identifier`: compute an alternate identifier for Zenodo from the file hash
+- `identifier`: compute an alternate identifier from the file hash, pushed to Zenodo metadata (`metadata.identifiers`)
+
+#### Pattern path resolution
+
+Patterns are **always** resolved relative to **project root**, never `compile.dir`. Setting `compile.dir` does not change where patterns are matched. To match files inside the compile directory, you must use the `{compile_dir}` template variable explicitly in the pattern:
+
+```yaml
+compile:
+  dir: papers/latex
+
+generated_files:
+  paper:
+    pattern: "{compile_dir}/main.pdf"    # matches <project_root>/papers/latex/main.pdf
+  data:
+    pattern: "data/results.csv"          # matches <project_root>/data/results.csv
+  report:
+    pattern: "main.pdf"                  # matches <project_root>/main.pdf (NOT papers/latex/main.pdf)
+  nested:
+    pattern: "*ape*/*/*.pdf"             # wildcards in directory segments
+  all_logs:
+    pattern: "**/*.log"                  # recursive matching at any depth
+```
+
+Patterns support standard glob wildcards in any segment of the path: `*` (any chars), `?` (single char), `**` (recursive), `[...]` (char sets). Patterns starting with `/` are treated as relative to project root (not filesystem root).
+
+`{compile_dir}` is a text substitution: it is replaced by the value of `compile.dir` before glob matching. Without it, the pattern is matched from the project root regardless of what `compile.dir` is set to.
+
+Available template variables:
+- `{compile_dir}`: value of `compile.dir` from config (default set to project root)
+- `{project_root}`: absolute path to the project root (where `zenodo_config.yaml` is)
+- `{project_name}`: resolved at runtime as `prefix + suffix` (e.g. `MyProject-v1.0.0` with `prefix: "MyProject"`, `suffix: "-{tag_name}"`, tag `v1.0.0`)
+
+If a template variable is used but not set (e.g. `{compile_dir}` without `compile.dir` in config), the config will fail with an error.
+
+If a glob pattern matches multiple files (e.g. `*.pdf` matches 3 PDFs), each matched file becomes a separate archived file. In the manifest, each appears as its own entry with independent hashes.
+
+Matched files are copied to the output directory using their **filename only** (no subdirectory structure). If a glob matches files with the same name in different directories (e.g. `dir1/doc.txt` and `dir2/doc.txt`), the copies will collide. Use unique filenames or the `rename` option to avoid this.
+
+#### Pattern overlap detection
+
+Two patterns that could match the same file are rejected at configuration time. This prevents ambiguous file routing (which publisher gets which file?). Examples:
+
+- `*.pdf` and `*.pdf` : rejected (identical)
+- `*.pdf` and `main.pdf` : rejected (`main.pdf` is a subset of `*.pdf`)
+- `{compile_dir}/*.pdf` and `{compile_dir}/*.pdf` : rejected (same after template resolution)
+- `*.pdf` and `*.csv` : accepted (different extensions, no overlap)
 
 ### Tag validation
 
