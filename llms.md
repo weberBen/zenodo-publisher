@@ -388,9 +388,15 @@ Patterns resolve in two phases:
 - Leading `/` stripped
 - `base.glob(pattern)` from project_root
 
-### Flat copy limitation
+### Flat copy and collision detection
 
-Step 8 copies matched files as `output_dir / src_path.name` (filename only, no subdirectory). Two files named `doc.txt` from different directories collide.
+Step 8 copies matched files as `output_dir / src_path.name` (filename only, no subdirectory). If two files produce the same destination name, the pipeline fails with `PipelineError("pipeline.archive.collision.{key}")` instead of silently overwriting.
+
+### Rename behavior
+
+`rename: true` on a PATTERN entry renames the file to `{project_name}{ext}`. When multiple files share the same extension, the original stem is appended: `{project_name}_{original_stem}{ext}`. Files with a unique extension keep the clean name.
+
+`rename: true` on a PROJECT entry uses `project_name` as archive name/prefix (e.g. `MyProject-v1.0.0.zip`). `rename: false` (default) uses the repo directory name (e.g. `my-repo.zip`).
 
 ### Pattern overlap detection (`pattern_overlap.py`)
 

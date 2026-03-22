@@ -364,7 +364,21 @@ original: main.pdf  →  renamed: MyProject-v1.0.0.pdf
 
 The pattern is `{project_name}{original_extension}`, where `project_name` is built from `project_name.prefix` + `project_name.suffix` with template variables resolved (e.g. `{tag_name}` becomes `v1.0.0`).
 
-This only applies to **pattern** entries, not to `project` or `manifest` (which have their own naming conventions). If `rename: false` (default), the original filename is kept as-is.
+If a glob pattern matches multiple files with the **same extension**, the original filename is appended as suffix to avoid collisions:
+
+```
+a.pdf               →  MyProject-v1.0.0.pdf          (only PDF, no suffix)
+b.txt               →  MyProject-v1.0.0_b.txt        (two .txt, suffix added)
+c.txt               →  MyProject-v1.0.0_c.txt
+d.ko                →  MyProject-v1.0.0_d.ko         (two .ko, suffix added)
+j.ko                →  MyProject-v1.0.0_j.ko
+```
+
+Files with a unique extension keep the clean `{project_name}{ext}` name. Only files sharing an extension get the `_{original_stem}` suffix.
+
+Applies to **pattern** and **project** entries. For `project`, `rename: true` uses the project name as archive prefix (e.g. `MyProject-v1.0.0.zip`), while `rename: false` (default) uses the repository directory name (e.g. `my-repo.zip`).
+
+If two files end up with the same destination name (e.g. same-name files from different directories with `rename: false`), the pipeline fails with `pipeline.archive.collision` instead of silently overwriting.
 
 ### Generated files
 
