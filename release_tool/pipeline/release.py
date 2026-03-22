@@ -169,13 +169,10 @@ def _step_resolve_generated_files(config) -> list[FileEntry]:
             if "{project_name}" in pattern:
                 pattern = pattern.replace("{project_name}", config.project_name)
 
-            resolved_path = Path(pattern)
-            if not resolved_path.is_absolute():
-                resolved_path = (config.project_root or Path.cwd()) / resolved_path
-
-            parent = resolved_path.parent
-            glob_pat = resolved_path.name
-            matches = sorted(parent.glob(glob_pat))
+            # Strip leading / so patterns are always relative to project root
+            pattern = pattern.lstrip("/")
+            base = config.project_root or Path.cwd()
+            matches = sorted(base.glob(pattern))
 
             if not matches:
                 raise PipelineError(

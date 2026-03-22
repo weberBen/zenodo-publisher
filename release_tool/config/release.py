@@ -158,7 +158,12 @@ class ReleaseConfig(CommonConfig):
         """
         context = {}
         if self.compile_dir:
-            context["compile_dir"] = str(self.compile_dir)
+            # Relative to project_root: patterns are globbed from project_root,
+            # so {compile_dir} must be a relative path to avoid doubling.
+            if self.project_root:
+                context["compile_dir"] = str(self.compile_dir.relative_to(self.project_root))
+            else:
+                context["compile_dir"] = str(self.compile_dir)
         if self.project_root:
             context["project_root"] = str(self.project_root)
 
