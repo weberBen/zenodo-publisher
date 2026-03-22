@@ -28,6 +28,13 @@ TAG = "v-test-sign"
 TAG_ANNOTATED = "v-test-sign-annotated"
 
 
+def _signing_on(gpg_uid, **overrides):
+    """Build a signing config with the test GPG UID."""
+    cfg = {"sign": True, "gpg": {"uid": gpg_uid}}
+    cfg.update(overrides)
+    return cfg
+
+
 def _base_config(archive_dir: Path, **overrides) -> dict:
     config = {
         "project_name": {"prefix": "TestProject", "suffix": "-{tag_name}"},
@@ -65,8 +72,8 @@ _TEST_CONFIG_NO_PUBLISH = {
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def sign_env(repo_env, fix_log_dir):
-    """Yield (repo_dir, git, gh, archive_dir). Cleanup release after test."""
+def sign_env(repo_env, fix_log_dir, fix_gpg_uid):
+    """Yield (repo_dir, git, gh, archive_dir, gpg_uid). Cleanup release after test."""
     repo_dir, git = repo_env
     gh = GithubClient(repo_dir)
 
@@ -78,7 +85,7 @@ def sign_env(repo_env, fix_log_dir):
 
     archive_dir = Path(tempfile.mkdtemp())
 
-    yield repo_dir, git, gh, archive_dir
+    yield repo_dir, git, gh, archive_dir, fix_gpg_uid
 
     # Cleanup
     if gh.has_release(TAG):
@@ -102,10 +109,10 @@ def _create_pattern_file(repo_dir, git):
 
 def test_sign_project_file_mode(sign_env, fix_log_dir):
     """Sign project archive in FILE mode: .asc signature should exist."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file"},
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "project": {"publishers": {"file_destination": []}},
         },
@@ -137,10 +144,10 @@ def test_sign_project_file_mode(sign_env, fix_log_dir):
 
 def test_sign_project_file_hash_mode(sign_env, fix_log_dir):
     """Sign project archive in FILE_HASH mode: .asc signature of hash should exist."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file_hash", "sign_hash_algo": "sha256"},
+        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo="sha256"),
         generated_files={
             "project": {"publishers": {"file_destination": []}},
         },
@@ -165,12 +172,12 @@ def test_sign_project_file_hash_mode(sign_env, fix_log_dir):
 
 def test_sign_pattern_only(sign_env, fix_log_dir):
     """Sign a pattern file only (no project): signature should exist."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file"},
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",
@@ -198,12 +205,12 @@ def test_sign_pattern_only(sign_env, fix_log_dir):
 
 def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
     """Sign both project and pattern: two signatures should exist."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file"},
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",
@@ -231,7 +238,7 @@ def test_sign_both_project_and_pattern(sign_env, fix_log_dir):
 
 def test_no_sign(sign_env, fix_log_dir):
     """signing.sign: false — no .asc files should be created."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -254,12 +261,12 @@ def test_no_sign(sign_env, fix_log_dir):
 
 def test_sign_per_file_override(sign_env, fix_log_dir):
     """Per-file sign override: project signed, pattern not."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
         archive_dir,
-        signing={"sign": False},  # global off
+        signing={"sign": False, "gpg": {"uid": gpg_uid}},  # global off, but uid set for per-file
         generated_files={
             "paper": {
                 "pattern": "output.txt",
@@ -303,13 +310,13 @@ def test_sign_per_file_override(sign_env, fix_log_dir):
 
 def test_sign_binary_sig_format(sign_env, fix_log_dir):
     """Without --armor: should produce binary .sig instead of .asc."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={
             "sign": True,
             "sign_mode": "file",
-            "gpg": {"extra_args": ["--no-armor"]},  # removes default --armor
+            "gpg": {"uid": gpg_uid, "extra_args": ["--no-armor"]},  # removes default --armor
         },
         generated_files={
             "project": {"publishers": {"file_destination": []}},
@@ -338,7 +345,7 @@ def test_sign_binary_sig_format(sign_env, fix_log_dir):
 
 def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
     """Invalid GPG UID: signing should fail with an error."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={
@@ -366,13 +373,39 @@ def test_sign_invalid_gpg_uid(sign_env, fix_log_dir):
         f"Expected GPG-related error. Got: {errors}"
 
 
+
+def test_sign_without_uid_uses_default(sign_env, fix_log_dir):
+    """Sign without gpg.uid in config: ZP should use the default GPG key."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": True, "sign_mode": "file"},  # no gpg.uid
+        generated_files={
+            "project": {"publishers": {"file_destination": []}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_dir=fix_log_dir, test_name="test_sign_default_uid",
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors without UID (default key): {errors}"
+
+    persist_dir = archive_dir / TAG
+    sig_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".asc")]
+    assert sig_files, f"Expected .asc signature with default key"
+
+
 @pytest.mark.parametrize("sign_hash_algo", ["md5", "sha1", "sha256", "sha512"])
 def test_sign_file_hash_algo(sign_env, fix_log_dir, sign_hash_algo):
     """FILE_HASH mode with various hash algos: signature should exist."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file_hash", "sign_hash_algo": sign_hash_algo},
+        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo=sign_hash_algo),
         hash_algorithms=["sha256", sign_hash_algo],
         generated_files={
             "project": {"publishers": {"file_destination": []}},
@@ -402,7 +435,7 @@ def test_sign_file_hash_algo(sign_env, fix_log_dir, sign_hash_algo):
 
 def test_manifest_project_only_verify_hashes(sign_env, fix_log_dir):
     """Manifest with project only: verify file_hashes event matches locally computed values."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -462,7 +495,7 @@ def test_manifest_project_only_verify_hashes(sign_env, fix_log_dir):
 
 def test_manifest_verify_commit_sha(sign_env, fix_log_dir):
     """Manifest commit.sha should match git rev-parse HEAD on the repo."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -504,7 +537,7 @@ def test_manifest_verify_commit_sha(sign_env, fix_log_dir):
 
 def test_manifest_with_pattern_and_project(sign_env, fix_log_dir):
     """Manifest referencing both: verify each file entry has correct hashes."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
@@ -564,7 +597,7 @@ def test_manifest_with_pattern_and_project(sign_env, fix_log_dir):
 
 def test_manifest_project_only_no_pattern(sign_env, fix_log_dir):
     """Manifest with only project (no pattern): should have exactly 1 file entry."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -597,10 +630,10 @@ def test_manifest_project_only_no_pattern(sign_env, fix_log_dir):
 
 def test_manifest_signed(sign_env, fix_log_dir):
     """Manifest itself can be signed: .asc should exist for manifest."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file"},
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "project": {"publishers": {"file_destination": []}},
             "manifest": {
@@ -632,7 +665,7 @@ def test_manifest_signed(sign_env, fix_log_dir):
 
 def test_manifest_commit_info_all_fields(sign_env, fix_log_dir):
     """All commit_info fields: verify values are non-empty and sha matches git."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -673,7 +706,7 @@ def test_manifest_commit_info_all_fields(sign_env, fix_log_dir):
 
 def test_manifest_minimal_commit_info(sign_env, fix_log_dir):
     """Manifest with only sha in commit_info: other fields should be absent."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -714,7 +747,7 @@ def test_manifest_minimal_commit_info(sign_env, fix_log_dir):
 
 def test_manifest_lightweight_tag(sign_env, fix_log_dir):
     """Lightweight tag (created by ZP): version.sha == commit.sha (same ref)."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
         signing={"sign": False},
@@ -835,7 +868,7 @@ def test_manifest_annotated_tag(repo_env, fix_log_dir):
 
 def test_publish_pattern_as_github_asset(sign_env, fix_log_dir):
     """Pattern file published to GitHub: verify asset exists via GithubClient."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
@@ -878,7 +911,7 @@ def test_publish_pattern_as_github_asset(sign_env, fix_log_dir):
 
 def test_publish_manifest_as_github_asset(sign_env, fix_log_dir):
     """Manifest published to GitHub: verify asset exists and content is valid JSON."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
 
     config = _base_config(
         archive_dir,
@@ -932,12 +965,12 @@ def test_publish_manifest_as_github_asset(sign_env, fix_log_dir):
 
 def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_dir):
     """Signed pattern + signature both uploaded to GitHub."""
-    repo_dir, git, gh, archive_dir = sign_env
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     _create_pattern_file(repo_dir, git)
 
     config = _base_config(
         archive_dir,
-        signing={"sign": True, "sign_mode": "file"},
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",

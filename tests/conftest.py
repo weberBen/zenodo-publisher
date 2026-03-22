@@ -33,6 +33,7 @@ test_env: dict[str, str] = {}
 repo_dir: Path | None = None
 branch_name: str | None = None
 git_template_sha: str | None = None
+gpg_uid: str | None = None
 tests_dir: Path = TESTS_DIR
 log_dir: Path = TESTS_DIR / "logs"
 
@@ -88,7 +89,7 @@ def _load_branch_name(repo_path: Path) -> str | None:
 
 def pytest_sessionstart(session):
     """Load context and prompt for confirmation before running tests."""
-    global test_env, repo_dir, branch_name, git_template_sha
+    global test_env, repo_dir, branch_name, git_template_sha, gpg_uid
 
     test_env.update(_load_test_env(TESTS_DIR))
 
@@ -98,6 +99,7 @@ def pytest_sessionstart(session):
         sys.exit(1)
 
     git_template_sha = test_env.get("GIT_TEMPLATE_SHA")
+    gpg_uid = test_env.get("GPG_UID")
     branch_name = _load_branch_name(repo_dir)
 
     git = GitClient(repo_dir)
@@ -171,6 +173,11 @@ def fix_repo_git():
 @pytest.fixture(scope="session")
 def fix_branch_name():
     return branch_name
+
+
+@pytest.fixture(scope="session")
+def fix_gpg_uid():
+    return gpg_uid
 
 
 @pytest.fixture
