@@ -83,9 +83,12 @@ Some test files (e.g. `test_08_tag.py`) manage reset manually to control the ord
 | `test_06_sign` | GPG signing, manifest, GitHub assets | Real |
 | `test_07_env` | Environment variables passed to Makefile | Real |
 | `test_08_tag` | Tags, releases, drafts, conflict scenarios | Real |
+| `test_09_override` | Per-file sign_mode, hash_algo, GPG digest, rename | Real |
+| `test_10_pattern` | Pattern resolution, overlap, wildcards, compile_dir | Mixed |
 
 **tmp_path** = temporary repo created by pytest (bare remote + local clone), no GitHub interaction.
 **Real** = GitHub sandbox repo, real commits/tags/releases/assets.
+**Mixed** = overlap tests use tmp_path, pipeline tests use real repo.
 
 ## Test mode and NDJSON output
 
@@ -168,6 +171,54 @@ uv run pytest tests/e2e/test_08_tag.py::test_create_release -v
 # With print output visible
 uv run pytest tests/e2e/test_08_tag.py -v -s
 ```
+
+## Process and network isolation
+
+`ZpRunner` supports optional sandboxing and HTTP proxy capture. Not enabled by default in E2E tests, but available for debugging or stricter isolation.
+
+### Bubblewrap sandbox
+
+Runs the `zp` process inside a [bubblewrap (bwrap)](https://github.com/containers/bubblewrap) sandbox with:
+
+- Read-only root filesystem (`/`), writable paths explicitly whitelisted
+- Optional network isolation (`--unshare-net`)
+- Optional syscall tracing via strace (tracks file access, commands executed, network connections)
+
+```python
+from tests.utils.sandbox import SandboxConfig
+
+sandbox = SandboxConfig(
+    rw_paths=[repo_dir, archive_dir],  # writable paths
+    allow_network=True,                 # False to block network
+    trace=True,                         # enable strace
+)
+runner = ZpRunner(repo_dir, sandbox=sandbox)
+result = runner.run(...)
+
+# Inspect what the process did
+result.trace.files       # files accessed (openat)
+result.trace.commands    # external commands (execve)
+result.trace.connections # network connections (connect)
+```
+
+Requires `bwrap` and optionally `strace` installed on the system.
+
+### HTTP proxy capture
+
+Captures all HTTP requests made by `zp` (to Zenodo API, GitHub API) using [mitmproxy](https://mitmproxy.org/):
+
+```python
+runner = ZpRunner(repo_dir, use_proxy=True, proxy_port=8888)
+result = runner.run(...)
+
+# Inspect captured requests
+for req in result.http_requests:
+    print(req["method"], req["url"], req["status"])
+```
+
+Requires `mitmdump` installed and mitmproxy CA cert at `~/.mitmproxy/mitmproxy-ca-cert.pem`.
+
+Both features can be combined: sandbox with proxy captures requests while isolating filesystem and network.
 
 ## What tests modify on GitHub
 
