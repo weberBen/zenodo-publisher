@@ -401,10 +401,20 @@ Step 8 copies matched files as `output_dir / src_path.name` (filename only, no s
 
 Uses `interegular` FSM library. Checks segment-by-segment. Normalizes paths (resolve `..`, remove `.`). Different depth: checks if shorter is prefix of longer. Raises `ConfigError("config.generated_files.pattern_overlap")`.
 
-### Identifier constraints
+### Identifier config
 
-- Source can be `"file"` or `"sig_file"` (sig_file requires `sign: true`)
-- Glob patterns that match multiple files cannot use identifiers
+Computed from the file hash using `sign_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`.
+
+```yaml
+identifier:
+  use_as_alternate_identifier: true
+  source: file        # "file" (hash the file) or "sig_file" (hash the signature)
+  prefix: ""          # optional prefix prepended to the identifier value
+```
+
+Constraints:
+- `source: sig_file` requires `sign: true` on the entry
+- Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous source)
 - User keys must not end with `_sig` (reserved for signature references)
 
 ---

@@ -395,7 +395,11 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both)
 - `publishers.sig_destination`: where to upload the signature
-- `identifier`: compute an alternate identifier from the file hash, pushed to Zenodo metadata (`metadata.identifiers`)
+- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). Options:
+  - `source: file` (default): hash of the file itself
+  - `source: sig_file`: hash of the signature (requires `sign: true`)
+  - `prefix`: optional string prepended to the identifier value
+  - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous source)
 
 #### Pattern path resolution
 
