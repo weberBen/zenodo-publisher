@@ -1,4 +1,4 @@
-# CLAUDE.md -- zenodo-publisher
+# llms.md -- zenodo-publisher
 
 ## Project
 
@@ -10,6 +10,242 @@ Designed for a single maintainer with step-by-step console feedback.
 - **Build**: `hatchling`
 - **Entry points**: `zp` / `zenodo-publisher` -> `release_tool.cli:main`
 - **Tests**: E2E test suite via pytest (see `tests/README.md`)
+
+## How to navigate this codebase (for AI agents)
+
+This section helps you find the right code quickly without reading everything.
+
+### Where to look for what
+
+| Question | Where to look |
+|----------|---------------|
+| How a config option works | `release_tool/config/release.py` (RELEASE_OPTIONS), `config/common.py` (COMMON_OPTIONS), `config/archive.py` (ARCHIVE_OPTIONS) |
+| How a YAML field is parsed | Find the `yaml_path` in the ConfigOption definition, or check `config/signing.py` / `config/generated_files.py` for complex structures |
+| What a pipeline step does | `release_tool/pipeline/release.py` — steps are functions `_step_*` called sequentially in `_run_release()` |
+| What git/gh commands are run | `release_tool/git_operations.py` — every subprocess call is there |
+| How signing works | `release_tool/gpg_operations.py` (GPG calls), `config/signing.py` (config), `pipeline/release.py:_step_sign` (orchestration) |
+| How patterns match files | `pipeline/release.py:_step_resolve_generated_files` (glob), `config/release.py:_resolve_pattern_templates` (template vars) |
+| How files are published | `pipeline/release.py:_step_publish` (routing), `zenodo_operations.py` (Zenodo API), `git_operations.py:upload_release_asset` (GitHub) |
+| How archive/hashing works | `release_tool/archive_operation.py` (ArchivedFile, hashing, manifest), `git_operations.py` (git archive, tree hash) |
+| What error name ZP emits | `release_tool/errors.py` (base + normalize_name), then grep for the `name=` parameter in the relevant module |
+| How tests work | `tests/conftest.py` (fixtures, reset), `tests/utils/cli.py` (ZpRunner), `tests/utils/ndjson.py` (event parsing) |
+| How the CLI is built | `release_tool/cli.py` — auto-generated from ConfigOption lists |
+
+### Search patterns
+
+- **Find a config option**: grep for `ConfigOption("option_name"` or `yaml_path="section.key"`
+- **Find an error name**: grep for `name="error.name"` — errors use dotted names with class prefix (e.g. `git.`, `config.`, `pipeline.`)
+- **Find what a step does**: search for `def _step_` in `pipeline/release.py`
+- **Find a subprocess command**: grep for `run_git_command` or `run_gh_command` in `git_operations.py`
+- **Find how a YAML section is parsed**: complex sections (`signing:`, `generated_files:`) have dedicated `parse_*` functions in their config module
+- **Find test assertions**: tests assert on NDJSON event names using `find_by_name(events, "error.name")`, `has_step_ok(events, "step.name")`, `find_errors(events)`
+
+### Key patterns in the code
+
+- **Config resolution**: always CLI > YAML > os.environ > .zenodo.env > default. Check `_resolve_value()` in `config/common.py`
+- **Error naming**: `ZPError(name="foo")` with class prefix → `GitError("bar")` produces `git.bar`. Deduplication: `git.git.bar` → `git.bar`
+- **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
+- **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
+- **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive` can be set per generated_files entry. Signatures inherit `persist` and `publishers` from their parent file
+
+### Common pitfalls
+
+- `sign_hash_algo` is under `signing:` in YAML, not at root level
+- `compile.dir` is validated even if `compile.enabled: false` — must exist if set
+- `{compile_dir}` in patterns is a relative path (relative to project_root), not absolute
+- Manifest is generated AFTER hashes (step 10), not before — it includes file hashes
+- `git clean -fd` does not remove ignored files — the test reset uses a 2-pass approach for this reason
+- GitHub draft releases are invisible to `gh release list` — detection requires REST API pagination
+- Tree hashes only apply to archive files (PROJECT), not individual files like PDFs
+
+## Quick start example
+
+### 1. Clone the sandbox repo
+
+```bash
+git clone git@github.com:weberBen/zenodo-sandbox-publisher.git
+cd zenodo-sandbox-publisher
+```
+
+This repo has the expected structure: `papers/latex/` with a Makefile, `main.tex`, and a `releases/` directory.
+
+### 2. Create `.zenodo.env`
+
+```env
+ZENODO_TOKEN=your_sandbox_token
+```
+
+Get a token from https://sandbox.zenodo.org/account/settings/applications/tokens/new/ with scopes `deposit:actions` and `deposit:write`. The `concept_doi` is set in the YAML config below.
+
+### 3. Create `zenodo_config.yaml`
+
+```yaml
+project_name:
+  prefix: "MyProject"
+  suffix: "-{tag_name}"
+
+main_branch: main
+github:
+  check_draft: false
+
+compile:
+  enabled: true
+  dir: papers/latex
+
+archive:
+  format: zip
+  dir: papers/latex/releases
+
+hash_algorithms: [md5, sha256, tree]
+
+signing:
+  sign: true
+  sign_mode: file
+  sign_hash_algo: md5
+
+zenodo:
+  api_url: "https://sandbox.zenodo.org/api"
+  concept_doi: "432538"
+
+generated_files:
+  paper:
+    pattern: "{compile_dir}/main.pdf"
+    rename: true
+    publishers:
+      file_destination: [github, zenodo]
+  project:
+    rename: true
+    archive: false
+    publishers:
+      file_destination: [zenodo]
+  manifest:
+    files: [paper, project]
+    archive: false
+    identifier:
+      prefix: "manifest-"
+      use_as_alternate_identifier: true
+      source: file
+    commit_info: [sha, date_epoch]
+    sign: true
+    publishers:
+      file_destination: [github, zenodo]
+      sig_destination: [github, zenodo]
+
+prompt_validation_level: danger
+```
+
+### 4. What each option does
+
+**Project naming:**
+- `prefix: "MyProject"` + `suffix: "-{tag_name}"` → files named `MyProject-v1.0.0.pdf`, `MyProject-v1.0.0.zip` (when `rename: true`)
+
+**Compilation:**
+- `compile.enabled: true` + `compile.dir: papers/latex` → runs `make deploy` in `papers/latex/`, which compiles the LaTeX to `main.pdf`
+- ZP passes `ZP_COMMIT_DATE_EPOCH`, `ZP_COMMIT_SHA`, etc. as env vars to `make`, enabling reproducible PDF builds
+
+**Archive:**
+- `format: zip` → project archive as ZIP (via `git archive`)
+- `dir: papers/latex/releases` → persistent archive directory where files are copied after publish
+
+**Hashing:**
+- `hash_algorithms: [md5, sha256, tree]` → computes 3 hashes per file:
+  - `md5`: matches Zenodo's checksum for comparison without re-downloading
+  - `sha256`: cryptographic integrity check
+  - `tree`: git tree hash (SHA-1), format-independent content identifier (only for the ZIP archive; PDF falls back to sha1)
+
+**Signing:**
+- `sign: true` → all files with `sign` not explicitly set to `false` are signed
+- `sign_mode: file` → GPG signs the file directly (produces `.asc` detached signature), not the hash
+- `sign_hash_algo: md5` → used for identifiers (the hash algo ZP uses to compute the value pushed to Zenodo `metadata.identifiers`)
+
+**GitHub:**
+- `check_draft: false` → skip draft release detection (faster, default). Set to `true` if you need to prevent accidentally converting a draft to a published release
+
+**Zenodo:**
+- `api_url: "https://sandbox.zenodo.org/api"` → sandbox environment for testing (use `https://zenodo.org/api` for production)
+- `concept_doi: "432538"` → the concept DOI of the deposit (all versions share this). You get it after manually creating the first version on Zenodo
+
+**Prompt:**
+- `prompt_validation_level: danger` → just press Enter to confirm everything. Fast for development. Use `light` (y/yes) or `normal` (type "yes") for production
+
+### 5. Generated files breakdown
+
+#### `paper` entry
+- **Source**: `{compile_dir}/main.pdf` → `papers/latex/main.pdf` (compiled by `make deploy`)
+- **Rename**: `true` → renamed to `MyProject-v1.0.0.pdf`
+- **Published to**: GitHub release asset + Zenodo deposit
+- **Signatures**: signed (inherits global `sign: true`), but signature not uploaded anywhere (`sig_destination` not set)
+- **Persisted**: yes (default `archive: true`) → copied to `papers/latex/releases/v1.0.0/MyProject-v1.0.0.pdf`
+
+#### `project` entry
+- **Source**: `git archive` of the full repository → `MyProject-v1.0.0.zip` (rename: true)
+- **Published to**: Zenodo only
+- **Signatures**: signed, but signature not uploaded
+- **Persisted**: no (`archive: false`) → not copied to releases dir
+
+#### `manifest` entry
+- **Source**: auto-generated JSON (JCS/RFC 8785) containing:
+  - version label + commit SHA + date epoch
+  - hashes of `paper` (the PDF) and `project` (the ZIP) — md5, sha256, tree
+- **Identifier**: `prefix: "manifest-"` + `source: file` → computes `manifest-md5:{hex}` from the manifest file, pushed to Zenodo `metadata.identifiers`
+- **Published to**: GitHub + Zenodo (both file and signature via `sig_destination`)
+- **Persisted**: no (`archive: false`)
+
+### 6. What you get after `zp release` with tag `v1.0.0`
+
+#### On disk (`papers/latex/releases/v1.0.0/`)
+
+Only the PDF (the only entry with `archive: true`):
+```
+MyProject-v1.0.0.pdf
+MyProject-v1.0.0.pdf.asc
+```
+
+#### On GitHub release `v1.0.0`
+
+Assets:
+```
+MyProject-v1.0.0.pdf              (paper, file_destination: github)
+manifest-v1.0.0.json              (manifest, file_destination: github)
+manifest-v1.0.0.json.asc          (manifest signature, sig_destination: github)
+```
+
+#### On Zenodo deposit
+
+Files:
+```
+MyProject-v1.0.0.pdf              (paper, file_destination: zenodo)
+MyProject-v1.0.0.zip              (project, file_destination: zenodo)
+manifest-v1.0.0.json              (manifest, file_destination: zenodo)
+manifest-v1.0.0.json.asc          (manifest signature, sig_destination: zenodo)
+```
+
+Metadata updated:
+- `version`: `v1.0.0`
+- `publication_date`: today (UTC)
+- `identifiers`: `[{"scheme": "other", "identifier": "manifest-md5:abc123..."}]`
+
+### 7. Run it
+
+```bash
+zp release
+# or: zp release --sign   (if signing not enabled in config)
+# or: uv run zp release   (if not installed globally)
+```
+
+The pipeline will:
+1. Check git state (branch, sync, clean)
+2. Create GitHub release + tag (or reuse existing)
+3. Run `make deploy` in `papers/latex/`
+4. Copy and rename `main.pdf` → `MyProject-v1.0.0.pdf`
+5. Create `MyProject-v1.0.0.zip` via `git archive`
+6. Compute md5, sha256, tree hashes
+7. Generate `manifest-v1.0.0.json` with file hashes
+8. Hash the manifest itself
+9. Sign all files with GPG (detached `.asc` signatures)
+10. Compute `manifest-md5:...` identifier
+11. Upload to GitHub and Zenodo
+12. Persist PDF + signature to `papers/latex/releases/v1.0.0/`
 
 ## Structure
 
