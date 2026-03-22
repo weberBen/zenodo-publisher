@@ -106,16 +106,8 @@ def _run_archive(config, *, test=None) -> None:
     output.data("project_name", config.project_name)
     output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
 
-    # Resolve hash algos: config + CLI --hash
-    hash_algos = list(config.hash_algorithms or [])
-    cli_hash = getattr(config, "hash", None)
-    if cli_hash:
-        extra = [h.strip() for h in cli_hash.split(",") if h.strip()]
-        hash_algos += [a for a in extra if a not in hash_algos]
-
-    # Build algo lists
-    base = ['md5', 'sha256']
-    all_algos = base + [a for a in hash_algos if a not in base]
+    # Build algo list from config
+    all_algos = list(dict.fromkeys(config.hash_algorithms or []))  # deduplicate, preserve order
     tree_algos = [a for a in all_algos if a in TREE_ALGORITHMS]
 
     # Working directory for all generated files

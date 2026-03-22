@@ -23,9 +23,6 @@ ARCHIVE_OPTIONS: list[ConfigOption] = [
                  help="Fetch the tag from the remote origin instead of "
                       "using the local repo "
                       "(useful when the tag has not been fetched locally)"),
-    ConfigOption("hash", env_key=None,
-                 help="Additional hash algorithms, comma-separated "
-                      "(e.g. sha512,tree,tree256)"),
 ]
 
 
