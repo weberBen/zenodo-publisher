@@ -665,3 +665,7 @@ The content must match **byte-for-byte** : any extra newline, whitespace or form
 
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`
+
+## AI assistance
+
+For questions about the codebase, configuration, or usage, you can use the [`llms.md`](./llms.md) file as context for an AI agent. It contains a comprehensive reference of the project internals, options, pipeline steps, and subtleties.
