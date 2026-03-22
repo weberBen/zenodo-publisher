@@ -148,6 +148,14 @@ def reset_test_repo():
         if tag not in release_tags:
             gh.delete_tag(tag, dangerous_delete=True)
 
+    # Two-pass reset: the first pass restores template files but git clean -fd
+    # does not remove ignored files (e.g. files a test created then gitignored).
+    # After template restore, the original .gitignore no longer protects them,
+    # so add+commit+push makes them tracked. The second pass then removes them
+    # via git rm -rf since they are now tracked.
+    git.reset_repo(branch_name, git_template_sha)
+    git.add_and_commit()
+    git.push()
     git.reset_repo(branch_name, git_template_sha)
     git.add_and_commit()
     git.push()
