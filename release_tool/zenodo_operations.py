@@ -254,12 +254,10 @@ class ZenodoPublisher:
 
         if identifiers:
             existing = draft_record.data["metadata"].get("identifiers", [])
-            # Remove existing identifiers that would collide
+            # Remove all zp:/// identifiers from previous versions, then add current ones
+            existing = [i for i in existing
+                        if not i.get("identifier", "").startswith("zp:///")]
             for af in identifiers:
-                prefix = af.identifier_value.split(":")[0] if ":" in af.identifier_value else None
-                if prefix:
-                    existing = [i for i in existing
-                                if not i.get("identifier", "").startswith(f"{prefix}:")]
                 existing.append({"scheme": "other", "identifier": af.identifier_value})
             draft_record.data["metadata"]["identifiers"] = existing
 

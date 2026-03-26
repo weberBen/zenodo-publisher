@@ -78,11 +78,10 @@ class IdentifierConfig:
     """Per-file alternate identifier for Zenodo metadata.
 
     The hash of `source` (the file itself or its signature) is formatted
-    as "{prefix}{hash}" and added as an alternate identifier on Zenodo.
+    as "zp:///<filename>;{algo}:{hash}" and added as an alternate identifier on Zenodo.
     """
     use_as_alternate_identifier: bool = True
     source: str = "file"       # "file" = hash the file, "sig_file" = hash the signature
-    prefix: str = ""
 
 
 @dataclass
@@ -255,7 +254,6 @@ def _parse_identifier(raw: Any) -> IdentifierConfig | None:
     return IdentifierConfig(
         use_as_alternate_identifier=raw.get("use_as_alternate_identifier", True),
         source=raw.get("source", "file"),
-        prefix=str(raw.get("prefix", "")),
     )
 
 

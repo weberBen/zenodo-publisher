@@ -474,7 +474,8 @@ def _step_compute_identifiers(config, archived_files):
             continue
 
         formatted = hash_val['formatted_value']
-        identifier_value = f"{ic.prefix}{formatted}" if ic.prefix else formatted
+        filename = target.file_path.name
+        identifier_value = f"zp:///{filename};{formatted}"
         target.identifier_value = identifier_value
 
         if not has_identifiers:
