@@ -111,6 +111,54 @@ Then use the script at the root of your project.
 
 You have a functionning example of such a project repo [here](https://github.com/weberBen/zenodo-sandbox-publisher). See the associated readme for instruction.
 
+## Commands
+
+### `zp` / `zp release` — Full release pipeline
+
+Runs the full release pipeline (git check, GitHub release, compile, archive, Zenodo publish). This is the default behavior when no subcommand is specified.
+
+```bash
+zp                     # default (release)
+zp release             # explicit subcommand
+zp release --debug     # with flags
+```
+
+### `zp archive` — Create a standalone archive
+
+Creates a zip archive of the project at a given git tag using `git archive`, and prints checksums. Does **not** require the full Zenodo pipeline.
+
+```bash
+# Inside a ZP project (reads PROJECT_NAME from .zenodo.env)
+zp archive --tag v1.0.0
+zp archive --tag v1.0.0 --project-name MyProject
+zp archive --tag v1.0.0 --output-dir ./releases
+
+# --no-cache: fetch the tag from the remote origin instead of using the local repo
+# (useful when the tag has not been fetched locally)
+zp archive --tag v1.0.0 --no-cache
+
+# --remote: archive from any remote git repository (no .zenodo.env needed)
+zp archive --tag v1.0.0 --project-name MyProject --remote git@github.com:user/repo.git
+zp archive --tag v1.0.0 --project-name MyProject --remote https://github.com/user/repo.git --output-dir ./out
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--tag` | Yes | — | Git tag to archive |
+| `--project-name` | No* | `.zenodo.env` or dir name | Project name used as archive prefix. *Required with `--remote` outside a git repo |
+| `--output-dir` | No | Temporary directory | Output directory for the archive |
+| `--remote` | No | — | Git remote URL — performs a shallow clone instead of using the local repo |
+| `--no-cache` | No | `False` | Fetch the tag from the remote origin (avoids touching the local repo) |
+| `--format` | No | `zip` | Archive format: `zip`, `tar`, or `tar.gz` |
+| `--hash-algo` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`) |
+| `--hash` | No | — | Additional hash algorithms to display (e.g. `sha512,tree,tree256`) |
+| `--work-dir` | No | Current directory | Working directory |
+
+> **Important — project name and checksums:** The project name is embedded in the archive prefix (`ProjectName-tag/`). Changing the project name changes the archive content and therefore its MD5/SHA256 checksums. If you want to compare a locally-created archive with the one published on Zenodo, you **must** use the exact same project name that was configured when the archive was published to Zenodo.
+
+If run inside a ZP project that has `HASH_ALGORITHMS` configured in `.zenodo.env`, the command also prints the identifier hashes for each configured algorithm.
+
+> **Standalone script:** For a lightweight alternative that doesn't require the full tool, the [`remote_repo_to_archive.sh`](./examples/remote_repo_to_archive.sh) script fetches a git archive (ZIP) from any remote repository at a given tag or commit, without cloning the full history.
 
 ## Project Setup
 
@@ -131,18 +179,23 @@ You have a functionning example of such a project repo [here](https://github.com
 | `ZENODO_TOKEN` | Yes | - | Your Zenodo API token |
 | `ZENODO_CONCEPT_DOI` | Yes | - | Concept DOI of your Zenodo deposit |
 | `ZENODO_API_URL` | No | `https://zenodo.org/api` | Use `https://sandbox.zenodo.org/api` for testing |
+| `ARCHIVE_FORMAT` | No | `zip` | Archive format: `zip`, `tar`, or `tar.gz`. Use `tar`/`tar.gz` for [reproducible archives](#archive-reproducibility) |
+| `ARCHIVE_TAR_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for tar, comma-separated (override [default reproducible args](#archive-reproducibility)) |
+| `ARCHIVE_GZIP_EXTRA_ARGS` | No | (reproducible defaults) | Extra args for gzip, comma-separated (override default `--no-name,--best`) |
 | `ARCHIVE_TYPES` | No | `project` (zip file) | What to archive: `<extension>`, `project`, or `pdf,project` |
 | `PERSIST_TYPES` | No | - | What to save to `ARCHIVE_DIR` (rest goes to temporary dir) |
 | `ARCHIVE_DIR` | No | - | Directory to save persistent archives |
 | `PUBLICATION_DATE` | No | Current UTC date | Publication date (format ISO YYYY-MM-DD) |
-| `ZENODO_INFO_TO_RELEASE` | No | `False` | Add zenodo publication info (DOI, URL, checksums) as a GitHub release asset |
-| `ZENODO_IDENTIFIER_HASH` | No | `False` | Add hash identifiers in Zenodo metadata (alternate identifiers) |
-| `ZENODO_IDENTIFIER_TYPES` | No | - | File types to include in identifier hash (e.g. `pdf`, `project`, `pdf,project`). If multiple, hashes are sorted, concatenated and re-hashed |
-| `ZENODO_IDENTIFIER_HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for identifiers (comma-separated, e.g. `sha256,md5`). Any `hashlib` algorithm |
+| `MANIFEST` | No | `True` | Generate a manifest JSON listing all archives with hashes, commit info, and optional metadata |
+| `MANIFEST_IDENTIFIER_HASH` | No | `sha256` | Algorithm to hash the manifest for Zenodo alternate identifier |
+| `MANIFEST_COMMIT_FIELDS` | No | `sha,date_epoch` | Commit fields in manifest: `sha`, `date_epoch`, `subject`, `author_name`, `author_email`, `branch`, `origin` |
+| `MANIFEST_METADATA_FIELDS` | No | - | Metadata fields from `.zenodo.json` to include in manifest (e.g. `title,creators`) |
+| `MANIFEST_TO_RELEASE` | No | `True` | Upload manifest to GitHub release (with Zenodo info injected after publication) |
+| `HASH_ALGORITHMS` | No | `sha256` | Hash algorithms for file checksums in the manifest (comma-separated, e.g. `md5,sha256,tree256`). Any `hashlib` algorithm plus `tree`/`tree256` |
 | `DEBUG` | No | `False` | Enable debug mode (shows full stack traces on errors) |
 | `PROMPT_VALIDATION_LEVEL` | No | `strict` | Prompt validation level: `strict` (type project name) or `light` (y/n) |
 | `ZENODO_FORCE_UPDATE` | No | `False` | Force Zenodo update even if already up to date |
-| `GPG_SIGN` | No | `False` | Enable GPG signing of archived files before upload |
+| `GPG_SIGN` | No | `False` | Enable GPG signing of the manifest before upload |
 | `GPG_UID` | No | - | GPG key UID to use for signing (empty = system default key) |
 | `GPG_OVERWRITE` | No | `False` | Overwrite existing signature files without prompting |
 | `GPG_EXTRA_ARGS` | No | `--armor` | Extra args passed to gpg (comma-separated). E.g. use `--no-armor` for binary `.sig` |
@@ -166,7 +219,7 @@ The script calls `make deploy` in the directory specified by `COMPILE_DIR`. Your
 deploy: cleanall all
 ```
 
-See `Makefile.example` for a complete template.
+See [`Makefile.example`](./examples/Makefile.example) for a complete template.
 For latex project , we recommand doing a deep clean (including the pdf) on the deploy action to handle possible outdated version artifact.
 But if your base compile time is too long, you can skip the clean, which will use your already compiled file.
 You can also disable the compile `COMPILE=False` but be aware that in case of missing compiled file, the script will raise exception.
@@ -181,11 +234,13 @@ The script passes the following environment variables to `make deploy`, containi
 | `ZP_COMMIT_SHA` | Full SHA hash of the commit |
 | `ZP_COMMIT_TAG` | Tag name (set by the pipeline to the release tag) |
 | `ZP_COMMIT_SUBJECT` | Commit message subject line |
-| `ZP_BRANCH` | Branch name (set by the pipeline to the main branch) |
 | `ZP_COMMIT_COMMITTER_NAME` | Name of the committer |
 | `ZP_COMMIT_COMMITTER_EMAIL` | Email of the committer |
 | `ZP_COMMIT_AUTHOR_NAME` | Name of the author |
 | `ZP_COMMIT_AUTHOR_EMAIL` | Email of the author |
+| `ZP_BRANCH` | Current branch name |
+| `ZP_ORIGIN_URL` | Remote origin URL |
+| `ZP_TAG_SHA` | Tag object SHA (differs from commit SHA for annotated tags) |
 
 All variables are prefixed with `ZP_` to avoid collisions with git's own environment variables (e.g. `GIT_AUTHOR_NAME`).
 
@@ -233,14 +288,41 @@ This tool use `git fetch` (not in dry run mode). Thus if it's a problem to fetch
 Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.github.com/)). This automatically creates and pushes the tag.
 
 ### 5. Archive & Upload
-- Creates file archive (and optionally project ZIP)
-- The project ZIP uses `git archive` ( ≈ same as GitHub's ZIP), so untracked local files are excluded
+- Creates file archive (and optionally project archive)
+- The project archive uses `git archive`, so untracked local files are excluded
+- Archive format is controlled by `ARCHIVE_FORMAT`: `zip` (default), `tar`, or `tar.gz`
+- TAR/TAR.GZ archives are built with [reproducible parameters](#archive-reproducibility) for deterministic output
 
-### 5b. GPG Signing (optional)
-- If `GPG_SIGN=True`, signs each archived file with a detached GPG signature
-- Verifies each signature after creation
-- Signature files (`.asc`/`.sig`) follow the same persist/temp rules as the signed files
+### 5b. Manifest
+
+When `MANIFEST=True` (default), the pipeline generates a **manifest.json** file in [JCS (RFC 8785)](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON format. The manifest provides a single, verifiable record of everything published:
+
+- **Version info**: tag label, tag object SHA, and annotation (if annotated tag)
+- **Commit info**: configurable via `MANIFEST_COMMIT_FIELDS` (default: `sha,date_epoch`)
+- **File checksums**: for each archived file (signature files are excluded)
+- **Optional metadata**: fields from `.zenodo.json` via `MANIFEST_METADATA_FIELDS`
+
+The manifest is hashed (default: SHA-256) and this hash becomes the Zenodo alternate identifier for the record. If `MANIFEST_TO_RELEASE=True`, the manifest is also uploaded as a GitHub release asset.
+
+The canonical JSON format (JCS) ensures deterministic serialization: the same manifest content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
+
+### 5c. GPG Signing (optional)
+- If `GPG_SIGN=True`, signs the **manifest** with a detached GPG signature (not individual archives)
+- Verifies the signature after creation
+- Signature files (`.asc`/`.sig`) are uploaded alongside the manifest but excluded from the manifest itself
 - Signature files are excluded from Zenodo MD5 comparison (timestamps make them non-reproducible)
+
+### 5d. Recommended hash algorithms
+
+The `HASH_ALGORITHMS` option controls which checksums are computed for each file listed in the manifest. The recommended configuration is:
+
+```bash
+HASH_ALGORITHMS=md5,sha256,tree256
+```
+
+- **`md5`**: matches Zenodo's default file checksum, allowing comparison between local files and the Zenodo record without re-downloading
+- **`sha256`**: cryptographically secure hash for integrity verification
+- **`tree256`**: git tree hash (SHA-256) that depends only on file content, not the archive format. This provides a reproducible content proof that ZIP or TAR archives may not guarantee on their own (see [Content identification with tree hash](#content-identification-with-tree-hash))
 
 ### 7. Zenodo Checks
 - Verifies the version doesn't already exist on Zenodo
@@ -248,8 +330,133 @@ Creates a GitHub release using `gh release create` ([GitHub CLI](https://cli.git
 
 ### 8. Zenodo Publishing
 - Uploads files to Zenodo
-- Update metadata
+- Applies metadata overrides from `.zenodo.json` if present (see below)
+- Sets `version`, `publication_date`, and `identifiers`
 - Publish ([InvenioRDM API](https://inveniordm.docs.cern.ch/))
+
+### Metadata overrides (`.zenodo.json`)
+
+Place a `.zenodo.json` file at your project root to update Zenodo metadata on each publication. The file follows the [InvenioRDM metadata schema](https://inveniordm.docs.cern.ch/reference/metadata/) (the format used by Zenodo's current API, not the legacy format).
+
+Only the fields present in the file are updated. Missing fields keep their value from the previous version.
+
+- **`version`**: not allowed. The pipeline sets it from the git tag. The process will stop if present.
+- **`publication_date`**: allowed. Overrides the config value (with a warning).
+- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any collide with pipeline-generated hash identifiers (e.g. `sha256:...`, `md5:...`).
+
+Example `.zenodo.json`:
+
+```json
+{
+  "metadata": {
+    "title": "My Project",
+    "description": "<p>A short description.</p>",
+    "creators": [
+      {
+        "person_or_org": {
+          "type": "personal",
+          "given_name": "John",
+          "family_name": "Doe",
+          "identifiers": [
+            { "scheme": "orcid", "identifier": "0000-0002-1234-5678" }
+          ]
+        },
+        "affiliations": [{ "name": "CNRS" }]
+      }
+    ],
+    "resource_type": { "id": "publication-article" },
+    "rights": [{ "id": "cc-by-4.0" }],
+    "subjects": [
+      { "subject": "physics" }
+    ]
+  }
+}
+```
+
+See [`.zenodo.json.example`](./examples/zenodo.json.example) for a more complete template.
+
+> **Note:** This is not the legacy `.zenodo.json` format used by Zenodo's GitHub integration. It uses the InvenioRDM metadata structure directly (e.g. `person_or_org` instead of `name`, `rights` instead of `license`, `resource_type.id` instead of `upload_type`).
+
+### Archive reproducibility
+
+By default, archives are created in **ZIP** format via `git archive`. However, ZIP is **not reproducible**: internal metadata (timestamps, OS flags, compression implementation details) vary between runs, producing different checksums for identical content.
+
+For **reproducible archives** — archives that can be reconstructed bit-for-bit by anyone from the same source — use `tar` or `tar.gz` format:
+
+```bash
+ARCHIVE_FORMAT=tar.gz   # in .zenodo.env
+# or
+zp archive --tag v1.0.0 --format tar.gz
+```
+
+**How it works:** The pipeline first creates a ZIP via `git archive` (the only format git natively supports for prefix-based archives), then extracts it and repacks as TAR using deterministic parameters.
+
+Default TAR args:
+```python
+TAR_DEFAULT_ARGS = [
+    "--sort=name", "--format=posix",
+    "--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime",
+    "--mtime=1970-01-01 00:00:00Z",
+    "--numeric-owner", "--owner=0", "--group=0",
+    "--mode=go+u,go-w",
+]
+```
+
+Default gzip args (for `tar.gz`):
+```python
+GZIP_DEFAULT_ARGS = ["--no-name", "--best"]
+```
+
+These defaults follow the [Reproducible Builds](https://reproducible-builds.org/docs/archives/) guidelines and [GNU tar reproducibility recommendations](https://www.gnu.org/software/tar/manual/html_section/Reproducibility.html). They strip all non-deterministic metadata (timestamps, owner info, ordering) so that the same content always produces the same archive.
+
+You can override these defaults with `ARCHIVE_TAR_EXTRA_ARGS` and `ARCHIVE_GZIP_EXTRA_ARGS`, but a warning will be emitted as this may break reproducibility.
+
+> Use `--debug` to see every command executed with its arguments, so you can verify exactly which `tar`/`gzip` invocations are run.
+
+### Git reference and archive reproducibility
+
+### Git reference and archive reproducibility
+
+`git archive` embeds the **commit ID** in the archive metadata (pax extended headers for TAR, comment field for ZIP), regardless of the reference passed to it (tag name, commit sha). This means the archive bytes depend solely on the commit being archived (not on the type of reference used).
+
+**How git tags work internally:**
+
+- A **lightweight tag** is simply a pointer to a commit. Its "SHA" is the commit SHA itself.
+- An **annotated tag** is a separate git object with its own SHA, distinct from the commit it points to. It stores additional metadata: tagger name, date, and message. However, `git archive` dereferences it to the underlying commit before writing the archive.
+
+`git archive` always embeds the **commit ID** in the archive metadata when passed
+a commit or tag reference, including annotated tags, which are automatically
+dereferenced to their underlying commit
+([git-archive docs](https://git-scm.com/docs/git-archive),
+[git-get-tar-commit-id docs](https://git-scm.com/docs/git-get-tar-commit-id)).
+
+Thus the practical risk of using a tag name instead of a commit SHA is not a byte-level difference, but a **stability of reference** issue: a tag can be force-pushed to point to a different commit at any time, causing a pipeline to silently archive different content.
+
+### Content identification with tree hash
+
+Even with reproducible TAR archives, hashing the archive file itself ties the identifier to the archive format and parameters. A more robust approach is to **hash the content independently of the archive** using git tree hashes.
+
+A **git tree hash** is a hash of the file tree (content + permissions + file names) that **excludes** commits, tags, and all git metadata. It is computed by initialising a temporary git repository, staging all files, and running `git write-tree`. This produces a deterministic identifier for the content regardless of how it was archived or compressed.
+
+Available tree hash algorithms:
+- `tree` — SHA-1 (git's default object format)
+- `tree256` — SHA-256 (via `git init --object-format=sha256`)
+
+```bash
+# In zp archive:
+zp archive --tag v1.0.0 --hash tree,tree256
+
+# In .zenodo.env for release pipeline:
+HASH_ALGORITHMS=tree,tree256,sha256
+```
+
+**Why tree hash is the most robust identifier for reproducibility:** It depends only on the actual file content, not on the archive format, compression settings, or any external tooling. Anyone with the same source files can compute the same tree hash, making it ideal for cross-platform verification and long-term content identification.
+
+**Symlink caveat:** Git stores symlinks as-is on Linux/macOS, but on Windows they may be resolved to regular files depending on git and OS configuration. If your project contains symlinks and you need cross-platform reproducibility, be aware that tree hashes may differ between platforms.
+
+**Non-archive files (e.g. PDF):** Files that are not git archives (like compiled PDFs) cannot have a tree hash. For these files, the tool falls back to the corresponding `hashlib` algorithm: `sha1` for `tree`, `sha256` for `tree256`.
+
+**Standalone script:** The [`archive_to_tree_hash.sh`](./examples/archive_to_tree_hash.sh) script lets you compute the git tree hash of any archive (ZIP, TAR, TAR.GZ, ...) outside of the pipeline. This is useful for independently verifying the tree hash of an archive downloaded from Zenodo or GitHub.
 
 ## Limitations
 
@@ -264,7 +471,8 @@ Always test with `ZENODO_API_URL=https://sandbox.zenodo.org/api` before using pr
 The script **discards existing drafts** on the Zenodo identified deposit by the concept DOI. If you're collaborating on Zenodo through the web interface while using this script, drafts may be lost.
 
 ### Zenodo metadata
-- Metadata is copied from the previous version. Only `version` and `publication_date` are modified.
+- Metadata is copied from the previous version. `version`, `publication_date`, and `identifiers` are set by the pipeline.
+- Other metadata fields (title, creators, description, keywords, license, ...) can be overridden via a `.zenodo.json` file (see below).
 - Each version gets a new DOI (no custom DOI per release)
 
 ### First Version Required
@@ -296,9 +504,40 @@ The script detects file differences (MD5) between local archives and Zenodo even
 
 This locks `\today` and PDF metadata to the commit date, making the PDF identical across runs. Also make sure you have the [reproducible PDF settings](#3-configure-latex-for-reproducible-pdfs) in your `.tex` file.
 
+### `.zenodo.json` format errors
+This tool uses the **new InvenioRDM metadata format**, not the legacy `.zenodo.json` format from Zenodo's GitHub integration. Common mistakes:
+- `"name": "Doe, John"` → use `"person_or_org": { "given_name": "John", "family_name": "Doe" }`
+- `"upload_type": "software"` → use `"resource_type": { "id": "software" }`
+- `"license": "mit"` → use `"rights": [{ "id": "mit" }]`
+- `"access_right": "open"` → not needed (set via `access` at the record level, not in metadata)
+- `"keywords": [...]` → use `"subjects": [{ "subject": "..." }]`
+
+See the [InvenioRDM metadata reference](https://inveniordm.docs.cern.ch/reference/metadata/) for the full schema, or the [example file](./examples/zenodo.json.example).
+
+### Archive checksums differ from Zenodo
+
+The project name is part of the archive prefix (`ProjectName-tag/`), so changing the project name changes the archive content and therefore its MD5 and SHA256 checksums. The project name given to `zp archive` may not match the actual git repository name.
+
+To reproduce the exact same archive as the one on Zenodo, use the **exact same project name** that was configured when publishing (the `PROJECT_NAME` value in `.zenodo.env` at the time of publication, or the directory name if it was not set).
+
+This applies to `zp archive`, `zp archive --no-cache`, and `zp archive --remote`.
+
+### GPG signature verification fails on the manifest
+
+The GPG signature is **not** on the manifest file itself : it signs the manifest's **identifier hash**. The identifier is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a text file, and that file is what gets signed.
+
+To verify the signature:
+
+1. The identifier file (`identifier-*.txt`) and its signature (`identifier-*.txt.asc` or `.sig`) are persisted alongside the manifest when `sig` and `identifier` is in `PERSIST_TYPES`.
+2. Verify directly: `gpg --verify identifier-v1.0.0.txt.asc identifier-v1.0.0.txt`
+
+If you want to verify from scratch (without the persisted identifier file):
+
+1. Compute the manifest hash: for example `sha256sum manifest-v1.0.0.json` (or whichever algorithm is configured in `MANIFEST_IDENTIFIER_HASH`)
+2. Write `algorithm:hex_value` into a file **with no trailing newline**: `printf 'sha256:abc123...' > identifier.txt` or `echo -n 'sha256:abc123...' > identifier.txt` (note that only using `echo` without `-n` add an extra line break thus result in a different hash)
+3. Verify: `gpg --verify identifier-v1.0.0.txt.asc identifier.txt`
+
+The content must match **byte-for-byte** : any extra newline, whitespace or formating (other than `ascii`) will cause verification to fail.
+
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`
-
-## To do
-
-- [ ] Integrate `.zenodo.json` file for richer metadata update

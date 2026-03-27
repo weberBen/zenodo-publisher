@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from . import output
+from .subprocess_utils import run as run_cmd
 
 
 def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dict | None = None) -> None:
@@ -30,7 +31,7 @@ def compile(compile_dir: Path, make_args: list[str] | None = None, env_vars: dic
 
     cmd = ["make", "deploy"] + (make_args or [])
     try:
-        subprocess.run(
+        run_cmd(
             cmd,
             cwd=compile_dir,
             check=True,

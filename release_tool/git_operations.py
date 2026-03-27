@@ -1,13 +1,25 @@
 """Git operations and GitHub release management for the release tool."""
 
-import subprocess
 import json
-import random
+import subprocess
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import tempfile
+import shutil
 
 from . import output
+from .subprocess_utils import run as run_cmd
+
+
+@dataclass
+class ArchiveResult:
+    """Result of a git archive operation."""
+    file_path: Path
+    archive_name: str
+    format: str  # "zip", "tar", "tar.gz"
+
 
 class GitError(Exception):
     """Git operation error."""
@@ -34,12 +46,12 @@ def run_git_command(args: list[str], cwd: Path) -> str:
         GitError: If command fails
     """
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ["git"] + args,
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -134,12 +146,12 @@ def run_gh_command(args: list[str], cwd: Path) -> str:
         GitHubError: If command fails
     """
     try:
-        result = subprocess.run(
+        result = run_cmd(
             ["gh"] + args,
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -187,9 +199,27 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
 
 
 def get_commit_of_tag(project_root: Path, tag: str) -> str:
-    """Get the commit hash that a tag points to."""
-    return run_git_command(["rev-list", "-n", "1", tag], project_root)
+    """Get the commit hash that a tag points to.
+    
+    Works for both lightweight and annotated tags : the ^{commit} suffix
+    explicitly dereferences annotated tag objects to their underlying commit.
+    """
+    return run_git_command(["rev-parse", f"{tag}^{{commit}}"], project_root)
 
+
+def fetch_tag(project_root: Path, tag: str) -> None:
+    """Fetch a single tag from origin into the local repo."""
+    run_git_command(["fetch", "origin", "tag", tag], project_root)
+
+
+def get_tag_info(project_root: Path, tag: str) -> str:
+    """Get tag object SHA.
+
+    For annotated tags, sha is the tag object hash and annotation is the message.
+    For lightweight tags, sha equals the commit hash and annotation is empty.
+    """
+    # Tag object SHA (differs from commit SHA for annotated tags)
+    return run_git_command(["rev-parse", tag], project_root)
 
 def get_commit(project_root: Path, commit: str = "HEAD")  -> str:
     """Get the commit hash."""
@@ -200,8 +230,8 @@ def get_latest_commit(project_root: Path) -> str:
     return get_commit(project_root, commit="HEAD")
 
 
-def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
-    """Get timestamp (epoch), SHA, committer name and email of a commit.
+def get_commit_info(project_root: Path, commit: str = "HEAD", tag_name=None) -> dict:
+    """Get commit metadata, current branch, and remote origin URL.
 
     Args:
         project_root: Path to project root
@@ -213,7 +243,10 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
     )
     sha, timestamp, c_name, c_email, a_name, a_email, subject = result.split("\n", 6)
 
-    return {
+    branch = get_current_branch(project_root)
+    origin_url = get_remote_url(project_root)
+
+    result = {
         "ZP_COMMIT_DATE_EPOCH": timestamp,
         "ZP_COMMIT_SHA": sha,
         "ZP_COMMIT_SUBJECT": subject,
@@ -221,10 +254,20 @@ def get_commit_info(project_root: Path, commit: str = "HEAD") -> dict:
         "ZP_COMMIT_COMMITTER_EMAIL": c_email,
         "ZP_COMMIT_AUTHOR_NAME": a_name,
         "ZP_COMMIT_AUTHOR_EMAIL": a_email,
+        "ZP_BRANCH": branch,
+        "ZP_ORIGIN_URL": origin_url,
     }
+    
+    if tag_name:
+        result["ZP_COMMIT_TAG"] = tag_name
+        fetch_tag(project_root, tag_name)
+        tag_sha = get_tag_info(project_root, tag_name)
+        result["ZP_TAG_SHA"] = tag_sha
+    
+    return result
 
-def get_last_commit_info(project_root: Path):
-    return get_commit_info(project_root, commit="HEAD")
+def get_last_commit_info(project_root: Path, tag_name=None):
+    return get_commit_info(project_root, commit="HEAD", tag_name=tag_name)
 
 def get_remote_latest_commit(project_root: Path, main_branch: str) -> str:
     """Get the latest commit hash from the remote main branch."""
@@ -290,7 +333,7 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         f"Tag '{tag_name}' already exists but doesn't point to the latest remote commit\n"
         f"Tag points to: {tag_commit}\n"
         f"Latest remote commit (origin/{main_branch}): {remote_latest}\n"
-        f"Please use a different tag name or delete the existing tag"
+        f"Please use a different tag name"
     )
 
 
@@ -368,45 +411,176 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
             f"Latest commit: {latest_commit}"
         )
 
-    output.info_ok(f"Release '{tag_name}' points to the latest commit")
-
-def archive_project(
+def get_git_ref(project_root, tag_name):    
+    return get_commit_of_tag(project_root, tag_name)
+            
+def archive_zip_project(
     project_root: Path,
     tag_name: str,
     project_name: str,
-    archive_dir: Optional[Path] = None,
-    persist: bool = False
-) -> Path:
+    output_dir: Path,
+) -> ArchiveResult:
     """
     Create a zip archive of the project at the given tag.
 
+    Always creates the archive in a temporary directory. The caller is
+    responsible for moving the file to a persistent location if needed.
+
     Args:
         project_root: Path to project root
-        tag_name: Git tag to archive
+        tag_name: Git tag to archive (used for naming)
         project_name: Project name for the archive
-        archive_dir: Directory to save the archive (required if persist=True)
-        persist: If True, save to archive_dir; if False, create temp file
+        output_dir: Directory for the output zip file
 
     Returns:
-        Path to the zip file
+        ArchiveResult with file path and metadata
 
     Raises:
         GitError: If archive creation fails
     """
-    archive_name = f"{project_name}-{tag_name}"
+    output_file = output_dir / f"{project_name}.zip"
 
-    if persist and archive_dir:
-        output_file = archive_dir / f"{archive_name}.zip"
-    else:
-        output_file = Path(tempfile.gettempdir()) / f"{archive_name}.zip"
-
+    git_ref = get_git_ref(project_root, tag_name)
     run_git_command(
-        ["archive", "--format=zip", f"--prefix={archive_name}/", "-o", str(output_file), tag_name],
+        ["archive", "--format=zip", f"--prefix={project_name}/", "-o", str(output_file), git_ref],
         project_root
     )
 
     output.info_ok(f"Created archive: {output_file}")
-    return output_file, archive_name, "zip"
+    return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
+
+
+def archive_zip_remote_project(
+    repo_url: str,
+    tag_name: str,
+    project_name: str,
+    output_dir: Path,
+) -> ArchiveResult:
+    """
+    Create a zip archive from a remote git repository at the given tag.
+
+    Performs a shallow fetch of the tag into a temporary repository,
+    runs git archive, then cleans up. No .zenodo.env required.
+
+    Args:
+        repo_url: Git remote URL (HTTPS or SSH)
+        tag_name: Git tag to archive (used for naming)
+        project_name: Full formatted project name for the archive
+        output_dir: Directory for the output zip file
+    Returns:
+        ArchiveResult with file path and metadata
+
+    Raises:
+        GitError: If any git operation fails
+    """
+
+    output_file = output_dir / f"{project_name}.zip"
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_repo = tmp_dir / "tmp_repo"
+
+    try:
+        refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
+
+        run_git_command(["init", str(tmp_repo)], cwd=tmp_dir)
+        run_git_command(["remote", "add", "origin", repo_url], cwd=tmp_repo)
+        run_git_command(["fetch", "--depth=1", "origin", refspec], cwd=tmp_repo)
+
+        git_ref = get_git_ref(tmp_repo, tag_name)
+        run_git_command(
+            ["archive", "--format=zip", f"--prefix={project_name}/", "-o", str(output_file), git_ref],
+            cwd=tmp_repo,
+        )
+
+        output.info_ok(f"Created archive: {output_file}")
+        return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def get_remote_url(project_root: Path) -> str:
+    """Get the remote 'origin' URL of a local git repository.
+
+    Raises:
+        GitError: If the remote URL cannot be retrieved
+    """
+    return run_git_command(["remote", "get-url", "origin"], project_root)
+
+
+# ---------------------------------------------------------------------------
+# Post-archive utilities (extract, tree hash, reproducible tar)
+# ---------------------------------------------------------------------------
+
+def extract_zip(zip_path: Path, dest_dir: Path) -> Path:
+    """Extract a ZIP archive into dest_dir.
+
+    If the ZIP contains a single root directory (e.g. ProjectName-tag/),
+    returns that subdirectory. Otherwise returns dest_dir.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest_dir)
+
+    entries = list(dest_dir.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return dest_dir
+
+
+def compute_tree_hash(content_dir: Path, object_format: str = "sha1") -> str:
+    """Compute a git tree hash by initing git directly in content_dir.
+
+    Initialises a temporary git repo in *content_dir* with the requested
+    object format (sha1 or sha256), stages everything with ``git add --all``,
+    and returns the output of ``git write-tree``.
+
+    The ``.git`` directory is removed in the ``finally`` block so the caller
+    gets the directory back in its original state.
+
+    Raises:
+        GitError: If content_dir already contains a .git directory.
+    """
+    git_dir = content_dir / ".git"
+    if git_dir.exists():
+        raise GitError(f"content_dir already contains .git: {content_dir}")
+    
+    run_git_command(["init", f"--object-format={object_format}", "."], cwd=content_dir)
+    run_git_command(["config", "user.email", "noop@noop.local"], cwd=content_dir)
+    run_git_command(["config", "user.name", "noop"], cwd=content_dir)
+    run_git_command(["add", "--all"], cwd=content_dir)
+    return run_git_command(["write-tree"], cwd=content_dir)
+
+
+def pack_tar(
+    content_dir: Path,
+    output_path: Path,
+    compress_gz: bool = False,
+    tar_args: list[str] | None = None,
+    gzip_args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Create a TAR (or TAR.GZ) from *content_dir* using ``tar``.
+
+    *content_dir* is expected to be e.g. ``/tmp/xxx/ProjectName-tag/``.
+    The directory name itself becomes the archive prefix.
+
+    *tar_args* and *gzip_args* are the final merged argument lists
+    (defaults + user overrides), built by config_schema transforms.
+
+    *env* is the subprocess environment (e.g. for reproducibility vars).
+    """
+    parent = content_dir.parent
+    dirname = content_dir.name
+
+    # 1. Always produce the .tar first
+    tar_path = output_path if not compress_gz else output_path.with_suffix("")
+    tar_cmd = ["tar"] + (tar_args or []) + ["-cf", str(tar_path), "-C", str(parent), dirname]
+    run_cmd(tar_cmd, check=True, env=env)
+
+    # 2. Compress with gzip if tar.gz requested
+    #    gzip replaces file.tar with file.tar.gz automatically
+    if compress_gz:
+        run_cmd(["gzip"] + (gzip_args or []) + [str(tar_path)], check=True, env=env)
+
 
 
 def get_release_asset_digest(
@@ -430,35 +604,6 @@ def get_release_asset_digest(
         pass
     return None
 
-
-def build_zenodo_info_json(
-    doi: str,
-    record_url: str,
-    archived_files: list,
-    identifiers: list | None = None,
-    debug: bool = False,
-) -> Path:
-    """Build zenodo_publication_info.json in a temp directory and return its path."""
-    doi_url = f"https://doi.org/{doi}"
-
-    info = {
-        "doi": doi_url,
-        "record_url": record_url,
-        "files": [
-            {"key": e["file_path"].name, "md5": e["md5"], "sha256": e["sha256"]}
-            for e in archived_files
-            if not e.get("is_signature")
-        ],
-    }
-    if identifiers:
-        info["identifiers"] = identifiers
-
-    info_path = Path(tempfile.gettempdir()) / "zenodo_publication_info.json"
-    with open(info_path, "w") as f:
-        json.dump(info, f, indent=2)
-        f.write("\n")
-
-    return info_path
 
 
 def upload_release_asset(

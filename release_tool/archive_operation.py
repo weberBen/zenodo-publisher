@@ -1,23 +1,26 @@
+import json
+import os
 import shutil
 import hashlib
-import tempfile
+import jcs
 from pathlib import Path
 
-from .git_operations import archive_project
+from .git_operations import archive_zip_project, extract_zip, compute_tree_hash, pack_tar
+from .config_transform_common import TREE_ALGORITHMS
+from .config_transform_release import COMMIT_FIELD_MAP
 from . import output
 
 
-def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
+def archive_preview_file(config, output_dir: Path) -> Path:
     """
-    Copy main.pdf to {base_name}-{tag_name}.{extension}.
+    Copy main file to {project_name}.{extension}.
 
     Args:
-        config: Configuration object
-        tag_name: Tag name (version)
-        persist: If True, save to archive_dir; if False, create temp file
+        config: Configuration object (project_name must be set)
+        output_dir: Directory to write the copy to
 
     Returns:
-        Path to the preview file
+        Tuple of (file_path, filename, extension)
 
     Raises:
         FileNotFoundError: If file doesn't exist
@@ -31,14 +34,10 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
             f"Make sure compilation completed successfully"
         )
 
-    filename = f"{config.project_name}-{tag_name}"
+    filename = config.project_name
     extension = config.main_file_extension
     new_name = f"{filename}.{extension}"
-
-    if persist and config.archive_dir:
-        new_file = config.archive_dir / new_name
-    else:
-        new_file = Path(tempfile.gettempdir()) / new_name
+    new_file = output_dir / new_name
 
     output.info(f"📝 Copying preview file: {main_file.name} → {new_file}")
     shutil.copy(main_file, new_file)
@@ -46,129 +45,229 @@ def archive_preview_file(config, tag_name: str, persist: bool = True) -> Path:
 
     return new_file, filename, extension
 
+def format_hash_info(algorithm, hex_value):
+    return {
+        "type": algorithm,
+        "value": hex_value,
+        "formatted_value": f"{algorithm}:{hex_value}"
+    }
 
-
-def compute_md5(file_path: Path) -> str:
-    """Compute MD5 checksum of a file."""
-    md5_hash = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            md5_hash.update(chunk)
-    return md5_hash.hexdigest()
-
-
-def compute_sha256(file_path: Path) -> str:
-    """Compute SHA256 checksum of a file."""
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256_hash.update(chunk)
-    return sha256_hash.hexdigest()
-
-def _compute_file_hash(file_path: Path, algorithm: str) -> str:
-    """Compute hash of a file using the given hashlib algorithm."""
+def compute_file_hash(file_path: Path, algorithm: str) -> dict:
+    """Compute hash of a file. Returns {"value": hex, "formatted_value": "algo:hex"}."""
     h = hashlib.new(algorithm)
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return h.hexdigest()
+    hex_value = h.hexdigest()
+    
+    return format_hash_info(algorithm, hex_value)
 
 
-def _compute_identifiers(config, results) -> list | None:
-    """Compute identifier hashes from selected archived files for each configured algorithm.
+def process_project_archive(zip_path, filename, tree_algos=None, archive_format="zip",
+                            tar_args=None, gzip_args=None):
+    """Extract zip once for tree hashes and/or TAR conversion.
 
-    For each algorithm, if multiple files match, their hashes are sorted and concatenated,
-    then hashed again to produce a single deterministic value.
+    Extracts into the zip's parent directory (reusing the same tmp dir)
+    to avoid creating a second temporary directory.
 
-    Returns a list of identifier dicts, one per algorithm, or None if no files match.
+    Returns (final_path, final_format, tree_hashes) where tree_hashes is {algo: hash}.
     """
-    id_types = set(config.zenodo_identifier_types)
+    tree_algos = tree_algos or []
+    need_tar = archive_format in ("tar", "tar.gz")
+    tree_hashes = {}
 
-    matching_entries = [
-        entry for entry in results
-        if (entry["extension"] in id_types) or (entry["type"] in id_types)
-    ]
+    if not tree_algos and not need_tar:
+        return zip_path, "zip", tree_hashes
 
-    if not matching_entries:
-        return None
+    extract_dir = zip_path.parent / "_content"
+    extract_dir.mkdir()
+    try:
+        content_dir = extract_zip(zip_path, extract_dir)
 
-    identifiers = []
-    for algorithm in config.zenodo_identifier_hash_algorithms:
-        # Reuse pre-computed hash if available, otherwise compute on the fly
-        file_hashes = [
-            entry.get(algorithm) or _compute_file_hash(entry["file_path"], algorithm)
-            for entry in matching_entries
-        ]
+        for algo in tree_algos:
+            tree_hashes[algo] = compute_tree_hash(content_dir, TREE_ALGORITHMS[algo])
 
-        if len(file_hashes) == 1:
-            identifier_hash = file_hashes[0]
-        else:
-            combined = "".join(sorted(file_hashes))
-            identifier_hash = hashlib.new(algorithm, combined.encode()).hexdigest()
+        if need_tar:
+            compress_gz = archive_format == "tar.gz"
+            ext = "tar.gz" if compress_gz else "tar"
+            tar_path = zip_path.parent / f"{filename}.{ext}"
+            env = {**os.environ, "LC_ALL": "C", "TZ": "UTC", "SOURCE_DATE_EPOCH": "0"}
+            pack_tar(content_dir, tar_path, compress_gz=compress_gz,
+                     tar_args=tar_args, gzip_args=gzip_args, env=env)
+            zip_path.unlink()
+            return tar_path, archive_format, tree_hashes
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
 
-        identifiers.append({
-            "value": identifier_hash,
-            "formatted_value": f"{algorithm}:{identifier_hash}",
-            "type": algorithm,
-            "files": file_hashes,
-            "description": "sorted by hash value",
-        })
-
-    return identifiers
+    return zip_path, "zip", tree_hashes
 
 
-def archive(config, tag_name: str) -> tuple[list, list | None]:
+
+def compute_hashes(results, algorithms=None):
+    """Compute all required hashes for each archived entry.
+
+    Always computes md5 and sha256. Adds any extra algorithms from config.
+    For tree algorithms on project entries, expects pre-computed values in entry dict.
+    For tree algorithms on non-project entries, falls back to the corresponding hashlib algo.
+
+    Stores results as entry["hashes"] dict of {algo: {value, formatted_value}}.
     """
-    Create archives, compute checksums, and optionally compute identifier hashes.
+    all_algos = {"md5", "sha256"} | set(algorithms or [])
+    tree_algos = {a for a in all_algos if a in TREE_ALGORITHMS}
+    file_algos = all_algos - tree_algos
 
-    Uses config.archive_types to determine what to archive (pdf, project).
-    Uses config.persist_types to determine what to persist to archive_dir.
+    for entry in results:
+        hashes = {}
+
+        for algo in file_algos:
+            hashes[algo] = compute_file_hash(entry["file_path"], algo)
+
+        for algo in tree_algos:
+            if entry["type"] == "project":
+                # tree hashes must be pre-computed by caller (single extraction)
+                if algo not in entry:
+                    raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
+                value = entry.pop(algo)
+                hashes[algo] = format_hash_info(algo, value)
+            else:
+                # hashlib algo (e.g. sha1) but label with tree algo name
+                raw = compute_file_hash(entry["file_path"], TREE_ALGORITHMS[algo])
+                hashes[algo] = format_hash_info(algo, raw['value'])
+
+        entry["hashes"] = hashes
+
+
+def archive(config, tag_name: str, output_dir: Path) -> list:
+    """
+    Create archives and compute checksums.
+
+    Args:
+        config: Configuration object
+        tag_name: Tag name (version)
+        output_dir: Directory for all output files
 
     Returns:
-        Tuple of (archived_files list, identifiers list or None)
+        List of archived file entries
     """
     results = []
 
     if config.main_file_extension in config.archive_types:
-        persist_file = config.main_file_extension in config.persist_types
-        file_path, filename, extension = archive_preview_file(config, tag_name, persist=persist_file)
-        is_preview = (config.main_file_extension == extension)
+        file_path, filename, extension = archive_preview_file(config, output_dir)
         results.append({
             "file_path": file_path,
-            "md5": compute_md5(file_path),
-            "sha256": compute_sha256(file_path),
-            "is_preview": is_preview,
+            "is_preview": (config.main_file_extension == extension),
             "filename": filename,
             "extension": extension,
             "type": "main_file",
-            "persist": persist_file,
+            "persist": config.main_file_extension in config.persist_types,
             "is_signature": False,
         })
 
     if "project" in config.archive_types:
-        persist_file = "project" in config.persist_types
-        file_path, filename, extension = archive_project(
+        result = archive_zip_project(
             config.project_root,
             tag_name,
             config.project_name,
-            archive_dir=config.archive_dir,
-            persist=persist_file
+            output_dir
         )
-        is_preview = (config.main_file_extension == extension)
         results.append({
-            "file_path": file_path,
-            "md5": compute_md5(file_path),
-            "sha256": compute_sha256(file_path),
-            "is_preview": is_preview,
-            "filename": filename,
-            "extension": extension,
+            "file_path": result.file_path,
+            "is_preview": (config.main_file_extension == result.format),
+            "filename": result.archive_name,
+            "extension": result.format,
             "type": "project",
-            "persist": persist_file,
+            "persist": "project" in config.persist_types,
             "is_signature": False,
         })
 
-    identifiers = None
-    if config.zenodo_identifier_hash and config.zenodo_identifier_types:
-        identifiers = _compute_identifiers(config, results)
+    _postprocess(config, results)
 
-    return results, identifiers
+    return results
+
+
+def _postprocess(config, results):
+    """Process project archive (tree hashes, TAR) and compute all hashes."""
+    hash_algos = list(config.hash_algorithms or [])
+    tree_algos = [a for a in hash_algos if a in TREE_ALGORITHMS]
+    project_entry = next((e for e in results if e["type"] == "project"), None)
+
+    if project_entry:
+        final_path, final_format, tree_hashes = process_project_archive(
+            project_entry["file_path"], project_entry["filename"],
+            tree_algos=tree_algos, archive_format=config.archive_format,
+            tar_args=config.archive_tar_extra_args,
+            gzip_args=config.archive_gzip_extra_args,
+        )
+        project_entry["file_path"] = final_path
+        project_entry["extension"] = final_format
+        project_entry.update(tree_hashes)
+
+    compute_hashes(results, hash_algos)
+
+
+def generate_manifest(archived_files, version, commit_info,
+                      commit_fields=None, metadata=None) -> dict:
+    """Generate a manifest dict listing all archives with their hashes.
+
+    Args:
+        archived_files: List of entry dicts (with hashes computed).
+        version: Tag name / version string.
+        commit_info: Dict with ZP_* keys from the pipeline.
+        commit_fields: List of field names to include (keys of COMMIT_FIELD_MAP).
+                       Defaults to ["sha", "date_epoch"].
+        metadata: Optional dict of metadata fields to include.
+
+    Returns:
+        Manifest dict.
+    """
+    
+    commit = {}
+    has_tag_sha = False
+    
+    for field in commit_fields:
+        zp_key = COMMIT_FIELD_MAP.get(field)
+        if zp_key == "ZP_TAG_SHA":
+            has_tag_sha = True
+            continue
+        if zp_key and zp_key in commit_info:
+            commit[field] = commit_info[zp_key]
+
+    version_info = {"label": version}
+    if has_tag_sha:
+        version_info["sha"] = commit_info["ZP_TAG_SHA"]
+
+    manifest = {
+        "version": version_info,
+        "commit": commit,
+        "files": [
+            {
+                "key": e["file_path"].name,
+                **{algo: h["value"] for algo, h in e["hashes"].items()},
+            }
+            for e in archived_files
+            if not e.get("is_signature")
+        ],
+    }
+
+    if metadata:
+        manifest["metadata"] = metadata
+
+    return manifest
+
+def manifest_to_file(config, manifest: dict, output_dir: Path) -> Path:
+    """Write manifest dict to a canonical JSON file (JCS / RFC 8785).
+
+    Args:
+        manifest: Manifest dict to serialize.
+        output_dir: Directory for the file.
+
+    Returns:
+        Path to the written file.
+    """
+    output_file = output_dir / f"manifest{config.project_name_template[-1]}.json"
+    canonical = jcs.canonicalize(manifest)
+
+    with open(output_file, "wb") as f:
+        f.write(canonical)
+
+    return output_file
