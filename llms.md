@@ -122,7 +122,6 @@ generated_files:
     files: [paper, project]
     archive: false
     identifier:
-      prefix: "manifest-"
       use_as_alternate_identifier: true
       source: file
     commit_info: [sha, date_epoch]
@@ -157,6 +156,7 @@ prompt_validation_level: danger
 - `sign: true` → all files with `sign` not explicitly set to `false` are signed
 - `sign_mode: file` → GPG signs the file directly (produces `.asc` detached signature), not the hash
 - `sign_hash_algo: md5` → used for identifiers (the hash algo ZP uses to compute the value pushed to Zenodo `metadata.identifiers`)
+- CLI flags (`--sign`/`--no-sign`, `--sign-mode`, etc.) override the **global** `signing.*` config only. Per-file `sign`/`sign_mode` in `generated_files` entries are not affected
 
 **GitHub:**
 - `check_draft: false` → skip draft release detection (faster, default). Set to `true` if you need to prevent accidentally converting a draft to a published release
@@ -187,7 +187,7 @@ prompt_validation_level: danger
 - **Source**: auto-generated JSON (JCS/RFC 8785) containing:
   - version label + commit SHA + date epoch
   - hashes of `paper` (the PDF) and `project` (the ZIP) — md5, sha256, tree
-- **Identifier**: `prefix: "manifest-"` + `source: file` → computes `manifest-md5:{hex}` from the manifest file, pushed to Zenodo `metadata.identifiers`
+- **Identifier**: `source: file` → computes `zp:///manifest-v1.0.0.json;md5:{hex}` from the manifest file, pushed to Zenodo `metadata.identifiers`
 - **Published to**: GitHub + Zenodo (both file and signature via `sig_destination`)
 - **Persisted**: no (`archive: false`)
 
@@ -223,7 +223,7 @@ manifest-v1.0.0.json.asc          (manifest signature, sig_destination: zenodo)
 Metadata updated:
 - `version`: `v1.0.0`
 - `publication_date`: today (UTC)
-- `identifiers`: `[{"scheme": "other", "identifier": "manifest-md5:abc123..."}]`
+- `identifiers`: `[{"scheme": "other", "identifier": "zp:///manifest-v1.0.0.json;md5:abc123..."}]`
 
 ### 7. Run it
 
@@ -243,7 +243,7 @@ The pipeline will:
 7. Generate `manifest-v1.0.0.json` with file hashes
 8. Hash the manifest itself
 9. Sign all files with GPG (detached `.asc` signatures)
-10. Compute `manifest-md5:...` identifier
+10. Compute `zp:///manifest-v1.0.0.json;md5:...` identifier
 11. Upload to GitHub and Zenodo
 12. Persist PDF + signature to `papers/latex/releases/v1.0.0/`
 
@@ -399,7 +399,7 @@ Used for: `make_args`, `tar_extra_args`, `gzip_extra_args`, `gpg_extra_args`.
 | `publication_date` | `zenodo.publication_date` | str | None | nullable, YYYY-MM-DD |
 | `zenodo_force_update` | `zenodo.force_update` | bool | False | |
 | `archive_dir` | `archive.dir` | str | None | nullable, resolved as Path |
-| `gpg_sign` | `signing.sign` | bool | False | CLI alias: `--sign`/`--no-sign` |
+| `sign` | `signing.sign` | bool | False | CLI: `--sign`/`--no-sign` |
 | `check_gh_draft` | `github.check_draft` | bool | False | cli=False (slow, paginates all releases) |
 | `prompt_validation_level` | `prompt_validation_level` | str | `light` | Choices: danger, light, normal, secure |
 
@@ -541,7 +541,7 @@ Signature files are appended to `archived_files` list as `ArchivedFile(kind="sig
 
 ### Step 12: Compute identifiers (`_step_compute_identifiers`)
 
-Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: `{prefix}{algo}:{hex}` (e.g. `sha256:abc123...`). Not related to manifest.
+Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Not related to manifest. On each run, all existing `zp:///` entries on Zenodo are replaced.
 
 ### Step 13: Publish (`_step_publish`)
 
@@ -655,16 +655,15 @@ Computed from the file hash using `signing.sign_hash_algo` (single algo, default
 identifier:
   use_as_alternate_identifier: true
   source: file        # "file" (hash the file) or "sig_file" (hash the signature)
-  prefix: ""          # prefix prepended: "" -> "sha256:abc...", "manifest-" -> "manifest-sha256:abc..."
 ```
 
-Format: `{prefix}{sign_hash_algo}:{hex_value}`.
+Format: `zp:///{filename};{sign_hash_algo}:{hex_value}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc...`). The filename is the actual output filename after renaming.
 
 Constraints:
 - `source: sig_file` requires `sign: true` on the entry
 - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file?)
 - User keys must not end with `_sig` (reserved for signature references)
-- Multiple identifiers with the same algo prefix overwrite each other on Zenodo. Use different `prefix` values per file to distinguish them (e.g. `prefix: "paper-"`, `prefix: "manifest-"`)
+- All ZP identifiers use the `zp:///` scheme. On each run, all `zp:///` entries on the Zenodo record are removed and replaced with the current ones
 
 ---
 
@@ -828,7 +827,7 @@ Uses `inveniordm-py` library (`InvenioAPI`).
 
 - `is_up_to_date(tag_name, archived_files)` -> `(bool, msg, record_info)`:
   - Compares version (tag) and MD5 hashes
-  - Excludes signatures if gpg_sign enabled (timestamps differ between runs)
+  - Excludes signatures if signing enabled (timestamps differ between runs)
 - `publish_new_version(archived_files, tag_name, identifiers)`:
   1. Get last record version
   2. Check/discard existing draft
@@ -844,7 +843,7 @@ Uses `inveniordm-py` library (`InvenioAPI`).
 - `.zenodo.json` uses InvenioRDM format (NOT legacy Zenodo)
 - `version` forbidden in .zenodo.json (pipeline sets it)
 - `publication_date` allowed (overrides config, with warning)
-- `identifiers` allowed but must not collide with pipeline hash identifiers (prefix match)
+- `identifiers` allowed but must not use the `zp:` scheme (reserved for pipeline-generated identifiers)
 
 ### Draft handling
 

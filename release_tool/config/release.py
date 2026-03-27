@@ -8,7 +8,7 @@ from .transform_release import (
 )
 from .common import COMMON_OPTIONS, CommonConfig
 from .env import ConfigError
-from .signing import parse_signing_config, SigningConfig
+from .signing import parse_signing_config, SigningConfig, SIGNING_OPTIONS
 from .generated_files import parse_generated_files, FileEntry, FileEntryKind
 from .generated_files import validate_no_pattern_overlap
 
@@ -60,12 +60,6 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  yaml_path="archive.dir", nullable=True,
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),
-
-    # Signing on/off (rest of signing config is in SigningConfig from YAML)
-    ConfigOption("gpg_sign", env_key=None,
-                 yaml_path="signing.sign",
-                 type="bool", default=False,
-                 help="Enable GPG signing"),
 
     # GitHub checks
     ConfigOption("check_gh_draft", env_key=None,
@@ -123,9 +117,9 @@ class ReleaseConfig(CommonConfig):
     Complex structures (signing, generated_files) are parsed from YAML directly.
     """
 
-    _options = COMMON_OPTIONS + RELEASE_OPTIONS
+    _options = COMMON_OPTIONS + RELEASE_OPTIONS + SIGNING_OPTIONS
     _required: list[str] = []
-    _cli_aliases: dict[str, str] = {"gpg_sign": "sign"}
+    _cli_aliases: dict[str, str] = {}
 
     signing: SigningConfig
     generated_files: list[FileEntry]
@@ -133,14 +127,13 @@ class ReleaseConfig(CommonConfig):
     def __init__(self, project_root, yaml_config, env_vars, cli_overrides=None):
         super().__init__(project_root, yaml_config, env_vars, cli_overrides)
 
-        # Parse complex structures from YAML
-        self.signing = parse_signing_config(yaml_config.get("signing", {}))
+        signing_keys = {opt.name for opt in SIGNING_OPTIONS}
+        signing_overrides = {k: v for k, v in (cli_overrides or {}).items() if k in signing_keys}
+        self.signing = parse_signing_config(yaml_config.get("signing", {}), signing_overrides)
+
         self.generated_files = parse_generated_files(
             yaml_config.get("generated_files", {}),
         )
-
-        # Sync signing.sign from ConfigOption (handles CLI > YAML > default)
-        self.signing.sign = self.gpg_sign
 
         # Resolve {compile_dir}, {project_root} in pattern templates
         self._resolve_pattern_templates()
@@ -192,17 +185,5 @@ class ReleaseConfig(CommonConfig):
     # --- Convenience properties for pipeline code ---
 
     @property
-    def gpg_uid(self) -> str | None:
-        return self.signing.gpg_uid
-
-    @property
     def gpg_extra_args(self) -> list[str]:
         return self.signing.gpg_extra_args
-
-    @property
-    def sign_mode(self) -> str:
-        return self.signing.sign_mode.value
-
-    @property
-    def sign_hash_algo(self) -> str:
-        return self.signing.sign_hash_algo

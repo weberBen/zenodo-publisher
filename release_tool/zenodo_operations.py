@@ -129,7 +129,7 @@ class ZenodoPublisher:
         }
         new_md5s = {(af.hashes["md5"]["value"], af.is_signature) for af in archived_files}
 
-        if self.config.gpg_sign:
+        if self.config.signing.sign:
             # Exclude signature files from comparison: GPG signatures contain
             # a timestamp, so their MD5 changes on every run even when the
             # signed content is identical.
@@ -140,7 +140,7 @@ class ZenodoPublisher:
         files_changes = new_md5s - previous_version_md5s
 
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        sig_note = " *signature files ignored" if self.config.gpg_sign else ""
+        sig_note = " *signature files ignored" if self.config.signing.sign else ""
         files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
 
         if files_equal and versions_equal:

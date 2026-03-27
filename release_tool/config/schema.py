@@ -17,7 +17,7 @@ class ConfigOption:
     Used to auto-generate both config loading from .zenodo.env
     and CLI arguments from argparse.
     """
-    name: str                  # Config attribute name: "gpg_sign"
+    name: str                  # Config attribute name: "sign"
     env_key: str | None        # Env var key: "GPG_SIGN" (None = not in .zenodo.env)
     yaml_path: str | None = None  # Dot-separated YAML path: "compile.dir"
     type: str = "str"          # "str", "bool", "list", "store_true"

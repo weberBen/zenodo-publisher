@@ -7,7 +7,7 @@ from typing import Any
 import hashlib
 
 from .env import ConfigError
-from .schema import dedup_args
+from .schema import ConfigOption, dedup_args
 
 
 class SignMode(Enum):
@@ -16,6 +16,27 @@ class SignMode(Enum):
 
 
 GPG_DEFAULT_ARGS = ["--armor"]
+
+
+SIGNING_OPTIONS: list[ConfigOption] = [
+    ConfigOption("sign", env_key=None,
+                 yaml_path="signing.sign",
+                 type="bool", default=False,
+                 help="Enable GPG signing"),
+    ConfigOption("sign_mode", env_key=None,
+                 yaml_path="signing.sign_mode",
+                 default=SignMode.FILE_HASH.value,
+                 choices=[m.value for m in SignMode],
+                 help="Signing mode: file or file_hash"),
+    ConfigOption("sign_hash_algo", env_key=None,
+                 yaml_path="signing.sign_hash_algo",
+                 default="sha256",
+                 help="Hash algorithm for signing"),
+    ConfigOption("gpg_uid", env_key=None,
+                 yaml_path="signing.gpg.uid",
+                 nullable=True,
+                 help="GPG user ID"),
+]
 
 
 @dataclass
@@ -44,37 +65,58 @@ def _validate_hash_algo(algo: str) -> None:
         raise ConfigError(f"Unknown hash algorithm '{algo}'", name="signing.algo.unknown")
 
 
-def parse_signing_config(raw: Any) -> SigningConfig:
-    """Parse the 'signing' section from YAML into SigningConfig."""
+def parse_signing_config(raw: Any, cli_overrides: dict | None = None) -> SigningConfig:
+    """Parse the 'signing' section from YAML into SigningConfig.
+
+    Priority: cli_overrides > YAML > dataclass defaults.
+    """
     if not raw:
-        return SigningConfig()
+        raw = {}
     if not isinstance(raw, dict):
         raise ConfigError("'signing' must be a YAML mapping", name="signing.invalid_format")
 
+    cli = cli_overrides or {}
     cfg = SigningConfig()
 
-    if "sign" in raw:
-        cfg.sign = bool(raw["sign"])
+    # sign
+    if "sign" in cli and cli["sign"] is not None:
+        cfg.sign = cli["sign"]
+    elif "sign" in raw:
+        cfg.sign = raw["sign"]
 
-    if "sign_mode" in raw:
+    # sign_mode
+    if "sign_mode" in cli and cli["sign_mode"] is not None:
+        cfg.sign_mode = _parse_sign_mode(cli["sign_mode"])
+    elif "sign_mode" in raw:
         cfg.sign_mode = _parse_sign_mode(raw["sign_mode"])
 
-    if "sign_hash_algo" in raw:
+    # sign_hash_algo
+    if "sign_hash_algo" in cli and cli["sign_hash_algo"] is not None:
+        algo = str(cli["sign_hash_algo"])
+        _validate_hash_algo(algo)
+        cfg.sign_hash_algo = algo
+    elif "sign_hash_algo" in raw:
         algo = str(raw["sign_hash_algo"])
         _validate_hash_algo(algo)
         cfg.sign_hash_algo = algo
 
-    gpg = raw.get("gpg", {})
-    if isinstance(gpg, dict):
-        if "uid" in gpg:
+    # gpg_uid
+    if "gpg_uid" in cli and cli["gpg_uid"] is not None:
+        cfg.gpg_uid = str(cli["gpg_uid"]).strip()
+    else:
+        gpg = raw.get("gpg", {})
+        if isinstance(gpg, dict) and "uid" in gpg:
             uid = gpg["uid"]
             cfg.gpg_uid = str(uid).strip() if uid else None
-        if "extra_args" in gpg:
-            user_args = gpg["extra_args"]
-            if isinstance(user_args, list):
-                cfg.gpg_extra_args = dedup_args(GPG_DEFAULT_ARGS, user_args)
-            elif isinstance(user_args, str):
-                parts = [a.strip() for a in user_args.split(",") if a.strip()]
-                cfg.gpg_extra_args = dedup_args(GPG_DEFAULT_ARGS, parts)
+
+    # gpg_extra_args (YAML only)
+    gpg = raw.get("gpg", {})
+    if isinstance(gpg, dict) and "extra_args" in gpg:
+        user_args = gpg["extra_args"]
+        if isinstance(user_args, list):
+            cfg.gpg_extra_args = dedup_args(GPG_DEFAULT_ARGS, user_args)
+        elif isinstance(user_args, str):
+            parts = [a.strip() for a in user_args.split(",") if a.strip()]
+            cfg.gpg_extra_args = dedup_args(GPG_DEFAULT_ARGS, parts)
 
     return cfg

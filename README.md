@@ -179,7 +179,6 @@ archive:
   # gzip_extra_args: []       # override default gzip args
 
 hash_algorithms: [md5, sha256, tree]
-sign_hash_algo: sha256
 
 signing:
   sign: true
@@ -395,12 +394,11 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
 - `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
-- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `signing.sign_hash_algo` (not `hash_algorithms`). Options:
+- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `signing.sign_hash_algo` (not `hash_algorithms`). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
   - `source: file` (default): hash of the file itself
   - `source: sig_file`: hash of the signature (requires `sign: true`)
-  - `prefix`: string prepended to the identifier value. Default: `""` (produces `sha256:abc...`). Use different prefixes per file to avoid collisions on Zenodo (e.g. `prefix: "manifest-"` produces `manifest-sha256:abc...`)
   - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file to use?)
-  - When multiple entries have identifiers, ZP replaces existing Zenodo identifiers that share the same algo prefix (e.g. two `sha256:` entries overwrite each other). Use `prefix` to distinguish them
+  - All ZP-generated identifiers use the `zp:///` scheme. On each run, existing `zp:///` entries on Zenodo are removed and replaced with the current ones
 
 #### Pattern path resolution
 
@@ -478,6 +476,8 @@ Per-file overrides available in `generated_files` entries:
 - `sign: true/false` : enable/disable signing for this file (overrides global `signing.sign`)
 - `sign_mode: file/file_hash` : override the signing mode for this file
 
+> **Note**: CLI flags (`--sign`/`--no-sign`, `--sign-mode`, etc.) override the **global** `signing.*` config only. Per-file `sign` and `sign_mode` set in `generated_files` entries are not affected — a file with `sign: true` in its entry will still be signed even if `--no-sign` is passed.
+
 Signature format: `.asc` (ASCII-armored, default) or `.sig` (binary, when `gpg.extra_args` includes `--no-armor`).
 
 The `gpg.extra_args` list is merged with defaults (`["--armor"]`) via `dedup_args`: `--no-armor` removes `--armor`, `--flag=value` overrides `--flag=old`.
@@ -534,7 +534,7 @@ Only the fields present in the file are updated. Missing fields keep their value
 
 - **`version`**: not allowed. The pipeline sets it from the git tag. The process will stop if present.
 - **`publication_date`**: allowed. Overrides the config value (with a warning).
-- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any collide with pipeline-generated hash identifiers (e.g. `sha256:...`, `md5:...`).
+- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any use the `zp:` scheme, which is reserved for pipeline-generated identifiers.
 
 Example `.zenodo.json`:
 
