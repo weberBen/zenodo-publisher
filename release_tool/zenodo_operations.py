@@ -1,19 +1,20 @@
 """Zenodo operations for publishing releases using inveniordm-py."""
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import output
+from .errors import ZPError
 
 from inveniordm_py import InvenioAPI
 from inveniordm_py.files.metadata import FilesListMetadata, OutgoingStream
 from requests.exceptions import HTTPError
 
 
-class ZenodoError(Exception):
+class ZenodoError(ZPError):
     """Zenodo operation error."""
-    pass
+    _prefix = "zenodo"
 
 def get_zenodo_id_from_doi(doi: str) -> str:
     """Extract Zenodo record ID from a DOI string."""
@@ -24,34 +25,32 @@ def get_zenodo_id_from_doi(doi: str) -> str:
 class ZenodoPublisher:
     """Zenodo publisher using InvenioRDM API."""
 
-    def __init__(
-        self,
-        config,
-    ):
-        """
-        Initialize the Zenodo publisher.
-
-        Args:
-            access_token: Zenodo access token
-            zenodo_api_url: Zenodo API base URL
-            concept_doi: Concept DOI of the record
-            publication_date: Optional publication date (YYYY-MM-DD), defaults to today UTC
-        """
+    def __init__(self, config):
         self.client = InvenioAPI(config.zenodo_api_url, config.zenodo_token)
         self.concept_doi = config.zenodo_concept_doi
         self.concept_id = get_zenodo_id_from_doi(config.zenodo_concept_doi)
         self._publication_date = config.publication_date
         self.config = config
-        
+        self._setup_http_logging()
+
+    def _setup_http_logging(self):
+        def _on_response(response, *args, **kwargs):
+            output.data("http_request", {
+                "method": response.request.method,
+                "url": response.request.url,
+                "status": response.status_code,
+            })
+        self.client.session.hooks["response"].append(_on_response)
+
     def get_publication_date(self):
         return self._publication_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
+
     def _get_last_record(self):
         try:
             concept_record = self.client.records(self.concept_id).versions.latest()
             return self.client.records(concept_record.data["id"]).get()
         except Exception as e:
-            raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}")
+            raise ZenodoError(f"Failed to find record with id {self.concept_id}: {e}", name="record.not_found")
 
     def _is_draft(self, record_id: str) -> bool:
         try:
@@ -61,37 +60,35 @@ class ZenodoPublisher:
             if e.response.status_code == 404:
                 return False
             raise
-    
+
     def _get_exsiting_draft_id(self):
-        """
-            Check if a draft already existed (not just created).
-        """
+        """Check if a draft already existed (not just created)."""
         response = self.client.session.get(
             f"{self.client._base_url}/user/records",
             params={
-                "q": f'conceptrecid:"{self.concept_id}"' 
+                "q": f'conceptrecid:"{self.concept_id}"'
             }
         )
         response.raise_for_status()
         response_data = response.json()
-        
+
         hits = response_data["hits"]["hits"]
         if len(hits) == 0:
-            raise ZenodoError(f"Cannot found deposit associated to record {self.concept_id}")
-        
+            raise ZenodoError(f"Cannot found deposit associated to record {self.concept_id}", name="deposit.not_found")
+
         record_data = hits[0]
-        
+
         if record_data["status"] == "draft":
             return record_data["id"]
-        
+
         return None
 
     def _discard_draft_version(self, record_id):
         self.client.records(record_id).draft.delete()
-    
+
     def _create_new_draft_version(self, last_record):
-        # API only allow one draft new version per repo, return the same draft
-        # at each call before draft is published or discarded
+        # API only allows one draft new version per record. Calling new_version()
+        # returns the same draft until it is published or discarded.
         record = last_record.new_version()
         new_draft = self.client.records(record.data["id"]).draft.get()
         return new_draft
@@ -101,54 +98,28 @@ class ZenodoPublisher:
             "doi": record.data["doi"],
             "record_url": record.data["links"]["self_html"],
         }
-        
-    def is_up_to_date(
-        self,
-        tag_name: str,
-        archived_files: list
-    ) -> tuple[bool, str, dict | None]:
+
+    def is_up_to_date(self, tag_name: str, archived_files: list) -> tuple[bool, str, dict | None]:
         """Returns (up_to_date, msg, record_info or None)."""
         last_record = self._get_last_record()
         up_to_date, msg = self._is_up_to_date(tag_name, last_record, archived_files)
-        
+
         record_info = None
         if up_to_date:
             record_info = self._format_record_info(last_record)
-        
+
         return up_to_date, msg, record_info
-    
-    def _is_up_to_date(
-        self,
-        tag_name: str,
-        last_record,
-        archived_files: list
-    ) -> str:
-        """
-        Check if an update is needed by comparing version names and file checksums.
 
-        Args:
-            tag_name: New version name to publish
-            archived_files: List of tuples to upload
-
-        Returns:
-            Record ID of the latest version if update is needed
-
-        Raises:
-            ZenodoNoUpdateNeeded: If version already exists or files are identical
-        """
+    def _is_up_to_date(self, tag_name: str, last_record, archived_files: list) -> tuple[bool, str]:
+        """Check if an update is needed by comparing version names and file checksums."""
         output.detail("Checking if update is needed...")
-        
-        # Check version
+
         current_version = last_record.data["metadata"].get("version", None)
         versions_equal = (current_version == tag_name)
-        
-        # print(f" \tGit version: '{tag_name}' | Zenodo version: '{current_version}'")
 
-        # Compare MD5 checksums - use the proper API to get files
         files_metadata = last_record.files.get()
         previous_version_files = files_metadata.data["entries"]
-        
-        # Build sets of (md5, is_signature) tuples for both sides
+
         sig_extensions = {".asc", ".sig"}
         previous_version_md5s = {
             (f["checksum"].replace("md5:", ""),
@@ -156,21 +127,20 @@ class ZenodoPublisher:
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {(e["hashes"]["md5"]["value"], e["is_signature"]) for e in archived_files}
+        new_md5s = {(af.hashes["md5"]["value"], af.is_signature) for af in archived_files}
 
-        if self.config.gpg_sign:
+        if self.config.signing.sign:
             # Exclude signature files from comparison: GPG signatures contain
             # a timestamp, so their MD5 changes on every run even when the
             # signed content is identical.
             previous_version_md5s = {md5 for md5, is_sig in previous_version_md5s if not is_sig}
             new_md5s = {md5 for md5, is_sig in new_md5s if not is_sig}
 
-
         files_equal = (previous_version_md5s == new_md5s)
         files_changes = new_md5s - previous_version_md5s
 
         versions_msg = f"Git: '{tag_name}' | Zenodo: '{current_version}"
-        sig_note = " *signature files ignored" if self.config.gpg_sign else ""
+        sig_note = " *signature files ignored" if self.config.signing.sign else ""
         files_msg = f"Changes : +/- {len(files_changes)}{sig_note}"
 
         if files_equal and versions_equal:
@@ -178,58 +148,39 @@ class ZenodoPublisher:
         if files_equal and not versions_equal:
             return (True, f"Files are identical to previous version '{current_version}' on Zenodo\n⚠️ But version names are different ({versions_msg})")
         if not files_equal and versions_equal:
-            return (False, f"Version names are identifial ('{tag_name}'). ⚠️ But files contents are different (Files {files_msg})")
-        
+            return (False, f"Version names are identical ('{tag_name}'). ⚠️ But files contents are different (Files {files_msg})")
+
         return (False, f"Files and version are different.\nVersion {versions_msg}\nFiles {files_msg}")
 
-    def _upload_files(
-        self,
-        draft_record,
-        archived_files: list,
-    ) -> None:
-        """
-        Upload files to the cached draft.
-
-        Args:
-            archived_files: List of tuples
-            default_preview_file: Filename to set as default preview (usually PDF)
-        """
-
-        # Register all files
-        file_entries = [{"key": e["file_path"].name} for e in archived_files]
+    def _upload_files(self, draft_record, archived_files: list) -> None:
+        """Upload ArchivedFile entries to the draft."""
+        file_entries = [{"key": af.file_path.name} for af in archived_files]
         draft_record.files.create(FilesListMetadata(file_entries))
 
         default_preview_file = None
-        # Upload content and commit each file
-        for entry in archived_files:
-            if entry["is_preview"]:
-                default_preview_file = entry["file_path"].name
+        for af in archived_files:
+            if af.is_preview:
+                default_preview_file = af.file_path.name
 
-            output.detail(f"Uploading {entry['file_path'].name}...")
-            with open(entry["file_path"], "rb") as f:
+            output.detail("Uploading {filename}...", filename=af.file_path.name, name="uploading")
+            with open(af.file_path, "rb") as f:
                 file_content = f.read()
 
-            draft_file = draft_record.files(entry["file_path"].name)
+            draft_file = draft_record.files(af.file_path.name)
             stream = OutgoingStream()
             stream._data = file_content
             draft_file.set_contents(stream)
             draft_file.commit()
-            output.detail_ok(f"{entry['file_path'].name} uploaded")
+            output.detail_ok("{filename} uploaded", filename=af.file_path.name, name="uploaded")
 
-        # Set default preview
         if default_preview_file:
             draft_record.data["files"]["default_preview"] = default_preview_file
             draft_record.update()
 
-    def _load_metadata_overrides(self, identifier: dict | None = None) -> dict | None:
-        """Load metadata overrides from .zenodo.json at the project root.
+    def _load_metadata_overrides(self, identifiers: list | None = None) -> dict | None:
+        """Load metadata overrides from .zenodo.json.
 
-        Expected format (InvenioRDM metadata):
-        { "metadata": { "title": "...", "creators": [...], ... } }
-
-        Raises ZenodoError if:
-        - 'version' is present (must be set by the pipeline via git tag)
-        - identifiers collide with pipeline-generated manifest identifier
+        Raises ZenodoError if 'version' is present or identifiers collide.
         """
         zenodo_json = self.config.project_root / ".zenodo.json"
         if not zenodo_json.exists():
@@ -240,54 +191,60 @@ class ZenodoPublisher:
             with open(zenodo_json) as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            raise ZenodoError(f"Failed to read .zenodo.json: {e}")
+            raise ZenodoError(f"Failed to read .zenodo.json: {e}", name="metadata.read.fail")
 
         overrides = data.get("metadata", data)
 
-        # version must not be overridden
         if "version" in overrides:
             raise ZenodoError(
                 ".zenodo.json contains 'version' — this is set by the pipeline (git tag). "
-                "Remove it from .zenodo.json to continue."
+                "Remove it from .zenodo.json to continue.",
+                name="metadata.version.conflict",
             )
 
-        # publication_date: allow but warn
         if "publication_date" in overrides:
             output.warn(
-                f".zenodo.json overrides publication_date to '{overrides['publication_date']}' "
-                f"(config value '{self._publication_date or 'today UTC'}' will be ignored)"
+                ".zenodo.json overrides publication_date to '{override_date}' "
+                "(config value '{config_date}' will be ignored)",
+                override_date=overrides['publication_date'],
+                config_date=self._publication_date or 'today UTC',
+                name="publication_date.override",
             )
 
-        # identifiers: check for collisions with manifest identifier
-        if "identifiers" in overrides and identifier:
-            prefix = identifier["type"]
+        # Check for identifier collisions
+        if "identifiers" in overrides and identifiers:
+            id_prefixes = set()
+            for af in identifiers:
+                prefix = af.identifier_value.split(":")[0] if ":" in af.identifier_value else None
+                if prefix:
+                    id_prefixes.add(prefix)
+
             collisions = [
                 i for i in overrides["identifiers"]
-                if i.get("identifier", "").startswith(f"{prefix}:")
+                if any(i.get("identifier", "").startswith(f"{p}:") for p in id_prefixes)
             ]
             if collisions:
                 collision_values = [c["identifier"] for c in collisions]
                 raise ZenodoError(
-                    f".zenodo.json identifiers conflict with manifest identifier: "
-                    f"{collision_values}. Remove them from .zenodo.json to continue."
+                    f".zenodo.json identifiers conflict with pipeline identifiers: "
+                    f"{collision_values}. Remove them from .zenodo.json to continue.",
+                    name="identifier.conflict",
                 )
 
         return overrides if overrides else None
 
     def _update_metadata(self, draft_record, publication_date, version: str,
-                         identifier: dict | None = None,
+                         identifiers: list | None = None,
                          metadata_overrides: dict | None = None) -> None:
-        """
-        Update the metadata of the cached draft.
+        """Update the metadata of the draft.
 
         Args:
-            version: Version string
-            identifier: Optional single identifier dict (manifest hash) with type/formatted_value
-            metadata_overrides: Optional dict of metadata fields from .zenodo.json
+            version: Version string (git tag)
+            identifiers: List of ArchivedFile with identifier_value set
+            metadata_overrides: Dict from .zenodo.json
         """
         if metadata_overrides:
-            output.detail(f"Applying metadata overrides: {list(metadata_overrides.keys())}")
-            # publication_date from .zenodo.json takes priority over config
+            output.detail("Applying metadata overrides: {keys}", keys=str(list(metadata_overrides.keys())), name="metadata.overrides")
             if "publication_date" in metadata_overrides:
                 publication_date = metadata_overrides.pop("publication_date")
             draft_record.data["metadata"].update(metadata_overrides)
@@ -295,12 +252,13 @@ class ZenodoPublisher:
         draft_record.data["metadata"]["version"] = version
         draft_record.data["metadata"]["publication_date"] = publication_date
 
-        if identifier:
+        if identifiers:
             existing = draft_record.data["metadata"].get("identifiers", [])
-            prefix = identifier["type"]
+            # Remove all zp:/// identifiers from previous versions, then add current ones
             existing = [i for i in existing
-                        if not i.get("identifier", "").startswith(f"{prefix}:")]
-            existing.append({"scheme": "other", "identifier": identifier["formatted_value"]})
+                        if not i.get("identifier", "").startswith("zp:///")]
+            for af in identifiers:
+                existing.append({"scheme": "other", "identifier": af.identifier_value})
             draft_record.data["metadata"]["identifiers"] = existing
 
         draft_record.update()
@@ -309,15 +267,14 @@ class ZenodoPublisher:
         self,
         archived_files: list,
         tag_name: str,
-        identifier: dict | None = None,
+        identifiers: list | None = None,
     ) -> dict:
-        """
-        Publish a new version on Zenodo.
+        """Publish a new version on Zenodo.
 
         Args:
-            archived_files: List of entry dicts to upload
+            archived_files: List of ArchivedFile entries to upload
             tag_name: Tag name (used as version)
-            identifier: Optional single identifier dict (manifest hash)
+            identifiers: List of ArchivedFile with identifier_value set
 
         Returns:
             Record info dict with 'doi' and 'record_url'
@@ -326,61 +283,53 @@ class ZenodoPublisher:
             ZenodoError: If publication fails
         """
         output.info("📤 Publishing new version to Zenodo...")
-        output.detail(f"Concept DOI: {self.concept_doi}")
-        output.detail(f"Version: {tag_name}")
+        output.detail("Concept DOI: {doi}", doi=self.concept_doi, name="concept_doi")
+        output.detail("Version: {version}", version=tag_name, name="version")
 
         publication_date = self.get_publication_date()
         last_record = self._get_last_record()
 
-        output.detail(f"Publication date: {publication_date}")
+        output.detail("Publication date: {date}", date=publication_date, name="publication_date")
 
         try:
-
             output.detail("Creating new draft version...")
             existing_draft_id = self._get_exsiting_draft_id()
             if existing_draft_id is not None:
-                output.warn(f"Detecting existing draft version {existing_draft_id}, discarding...")
+                output.warn("Detecting existing draft version {draft_id}, discarding...", draft_id=existing_draft_id, name="draft.discard")
                 self._discard_draft_version(existing_draft_id)
             else:
                 output.detail_ok("No existing draft detected")
 
             draft_record = self._create_new_draft_version(last_record)
 
-            # verification
             if (
                 (not self._is_draft(draft_record.data["id"]))
                 or
                 (draft_record.data["id"] == last_record.data["id"])
             ):
-                raise ZenodoError("Cannot create draft new version...")
+                raise ZenodoError("Cannot create draft new version...", name="draft_creation_failed")
 
-            # Upload files
             output.detail("Uploading files...")
-            self._upload_files(
-                draft_record,
-                archived_files
-            )
+            self._upload_files(draft_record, archived_files)
 
-            # Update metadata
-            output.detail(f"Updating metadata (version: {tag_name})...")
-            metadata_overrides = self._load_metadata_overrides(identifier=identifier)
+            output.detail("Updating metadata (version: {version})...", version=tag_name, name="metadata.update")
+            metadata_overrides = self._load_metadata_overrides(identifiers=identifiers)
             self._update_metadata(draft_record, publication_date, tag_name,
-                                  identifier=identifier,
+                                  identifiers=identifiers,
                                   metadata_overrides=metadata_overrides)
             output.detail_ok("Metadata updated")
 
-            # Publish
             output.detail("Publishing...")
             published_record = draft_record.publish()
             record_info = self._format_record_info(published_record)
 
             output.info_ok("Published to Zenodo!")
-            output.detail(f"DOI: https://doi.org/{record_info['doi']}")
-            output.detail(f"URL: {record_info['record_url']}")
+            output.detail("DOI: https://doi.org/{doi}", doi=record_info['doi'], name="published.doi")
+            output.detail("URL: {url}", url=record_info['record_url'], name="published.url")
 
             return record_info
 
         except Exception as e:
             if self.config.debug:
                 raise e
-            raise ZenodoError(f"Failed to publish new version: {e}")
+            raise ZenodoError(f"Failed to publish new version: {e}", name="publish.fail")

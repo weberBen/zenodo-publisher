@@ -11,22 +11,21 @@ from ..git_operations import (
     get_remote_url, get_commit_of_tag, GitError,
 )
 from ..archive_operation import compute_file_hash, process_project_archive
-from ..config_transform_common import TREE_ALGORITHMS
+from ..config.transform_common import TREE_ALGORITHMS
 from .. import output
 from ._common import setup_pipeline
 
 
-def run_archive(config) -> None:
+def run_archive(config, *, test=None) -> None:
     """Run the archive pipeline with error handling."""
     try:
-        _run_archive(config)
+        _run_archive(config, test=test)
     except KeyboardInterrupt:
         output.info("\nExited.")
     except Exception as e:
         if config.debug:
             raise
-        output.fatal("Error during archive:")
-        output.error(str(e))
+        output.fatal("Error during archive:", exc=e)
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +47,7 @@ def _step_archive(
 
     if no_cache:
         origin_url = get_remote_url(project_root)
-        output.info(f"Cloning from {origin_url}")
+        output.info("Cloning from {origin_url}", origin_url=origin_url, name="archive.clone_remote")
         return archive_zip_remote_project(
             origin_url, tag_name, project_name, output_dir)
 
@@ -72,22 +71,31 @@ def _step_display(
     labels = ["Archive"] + all_algos
     pad = max(len(l) for l in labels)
 
-    output.info(f"\n{'Archive':<{pad}}:  {result.file_path}")
+    hashes = {}
+    output.info("\n{label}:  {archive_path}", label=f"{'Archive':<{pad}}",
+                archive_path=str(result.file_path), name="archive.path")
     for algo in all_algos:
         if algo in tree_hashes:
             h = tree_hashes[algo]
         else:
             h = compute_file_hash(result.file_path, algo)["value"]
-        output.info(f"{algo:<{pad}}:  {h}")
+        hashes[algo] = h
+        output.info("{label}:  {hash}", label=f"{algo:<{pad}}", hash=h, name="archive.hash")
+
+    output.data("archive_result", {
+        "path": str(result.file_path),
+        "format": result.format,
+        "hashes": hashes,
+    })
 
 
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
 
-def _run_archive(config) -> None:
+def _run_archive(config, *, test=None) -> None:
     """Main archive pipeline."""
-    setup_pipeline(config.project_name_prefix, config.debug, config.project_root)
+    setup_pipeline(config, test=test)
 
     # Resolve project name template
     template_context = {"tag_name": config.tag}
@@ -95,18 +103,11 @@ def _run_archive(config) -> None:
         template_context["sha_commit"] = get_commit_of_tag(
             config.project_root, config.tag)
     config.generate_project_name(template_context)
-    output.info_ok(f"Formatted project name: {config.project_name}")
+    output.data("project_name", config.project_name)
+    output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
 
-    # Resolve hash algos: config + CLI --hash
-    hash_algos = list(config.hash_algorithms or [])
-    cli_hash = getattr(config, "hash", None)
-    if cli_hash:
-        extra = [h.strip() for h in cli_hash.split(",") if h.strip()]
-        hash_algos += [a for a in extra if a not in hash_algos]
-
-    # Build algo lists
-    base = ['md5', 'sha256']
-    all_algos = base + [a for a in hash_algos if a not in base]
+    # Build algo list from config
+    all_algos = list(dict.fromkeys(config.hash_algorithms or []))  # deduplicate, preserve order
     tree_algos = [a for a in all_algos if a in TREE_ALGORITHMS]
 
     # Working directory for all generated files

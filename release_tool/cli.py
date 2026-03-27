@@ -4,9 +4,12 @@ import argparse
 import os
 import sys
 
-from .config_env import ConfigError
-from .config_release import ReleaseConfig
-from .config_archive import ArchiveConfig
+from . import output
+from .config.env import ConfigError
+from .config.yaml import CONFIG_FILENAME
+from .config.test import TestConfig
+from .config.release import ReleaseConfig
+from .config.archive import ArchiveConfig
 
 
 # ---------------------------------------------------------------------------
@@ -69,12 +72,22 @@ def _add_options(parser: argparse.ArgumentParser, config_cls) -> None:
 
 
 def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
-    """Add --work-dir + all config options to a subparser."""
-    # --work-dir is not a ConfigOption: it's consumed before config construction
-    # (chdir must happen before find_project_root).
+    """Add common flags + all config options to a subparser."""
     parser.add_argument(
         "--work-dir", type=str, default=None,
         help="Working directory (default: current directory)",
+    )
+    parser.add_argument(
+        "--config", type=str, default=None,
+        help="Path to config file (overrides auto-discovered)",
+    )
+    parser.add_argument(
+        "--test-mode", action="store_true", default=False,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--test-config", type=str, default=None,
+        help=argparse.SUPPRESS,
     )
     _add_options(parser, config_cls)
 
@@ -93,7 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
     release_p = subparsers.add_parser(
         "release", help="Run the full release pipeline")
     _setup_subparser(release_p, ReleaseConfig)
-    release_p.set_defaults(func=cmd_release)
 
     # --- zp archive --------------------------------------------------------
     archive_p = subparsers.add_parser(
@@ -107,7 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _setup_subparser(archive_p, ArchiveConfig)
-    archive_p.set_defaults(func=cmd_archive)
 
     return parser
 
@@ -120,49 +131,67 @@ def setup_work_dir(args):
     if getattr(args, "work_dir", None):
         os.chdir(args.work_dir)
 
-
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
 
 def cmd_release(args):
     """Run the full release pipeline."""
-    setup_work_dir(args)
+
     try:
         config = ReleaseConfig.from_args(args)
+        test = TestConfig.from_args(args)
     except ConfigError as e:
         if args.debug:
             raise
-        print(f"\n\u274c {e}", file=sys.stderr)
+        output.fatal(str(e), name="config_error.loading", exc=e)
         return
 
     if not config.is_zp_project:
-        env_path = (config.project_root / ".zenodo.env") if config.project_root else ".zenodo.env"
-        print(
-            f"\n\u274c Project not initialized for Zenodo publisher.\n"
-            f"Missing: {env_path}",
-            file=sys.stderr,
+        config_path = (config.project_root / CONFIG_FILENAME) if config.project_root else CONFIG_FILENAME
+        output.fatal(
+            f"Project not initialized for Zenodo publisher. Missing: {config_path}",
+            name="config_error.not_initialized",
         )
         return
 
     from .pipeline import run_release
-    run_release(config)
+    run_release(config, test=test)
 
 
 def cmd_archive(args):
     """Create a git archive at a given tag and print checksums."""
-    setup_work_dir(args)
+
     try:
         config = ArchiveConfig.from_args(args)
+        test = TestConfig.from_args(args)
     except ConfigError as e:
         if args.debug:
             raise
-        print(f"\n\u274c {e}", file=sys.stderr)
+        output.fatal(str(e), name="config_error.loading", exc=e)
         return
 
     from .pipeline import run_archive
-    run_archive(config)
+    run_archive(config, test=test)
 
+
+def run_cmd(args, fn):
+    setup_work_dir(args)
+    test_mode = getattr(args, "test_mode", False)
+    debug = getattr(args, "debug", False)
+    output.before_init_setup(test_mode=test_mode, debug=debug)
+    
+    try:
+        fn(args)
+    except Exception as e:
+        if debug:
+            raise
+        output.fatal(str(e), name="config_error.loading", exc=e)
+
+CMD = {
+    "release": cmd_release,
+    "archive": cmd_archive
+}
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -173,8 +202,9 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    if hasattr(args, "func"):
-        args.func(args)
-    else:
+    if args.command not in CMD:
         parser.print_help()
         sys.exit(1)
+    
+    fn = CMD[args.command]
+    run_cmd(args, fn)

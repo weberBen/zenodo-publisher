@@ -5,14 +5,23 @@ from .. import output
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
 
-def setup_pipeline(project_name, debug=False, project_root=None):
+def setup_pipeline(config, *, test=None):
     """Common pipeline startup: setup output, print project info."""
-    output.setup(project_name, debug)
-    if project_root:
-        output.info_ok(f"Project root: {project_root}")
-        output.info_ok(f"Project root name: {RED_UNDERLINE}{project_root.name}{RESET}")
+    test_mode = test is not None
+    output.setup(config.project_name_prefix, config.debug,
+                 test_mode=test_mode, test_config=test)
+    if config.config_path_overrided:
+        output.warn("Config override: using '{path}' instead of repo config",
+                     path=config.config_path, name="config.path_overrided")
+    if test_mode:
+        output.warn("Running in test mode", name="config.test_mode")
+    if config.project_root:
+        output.info_ok("Project root: {project_root}", project_root=str(config.project_root), name="config.project_root")
+        output.info_ok("Project root name: {project_root_name}",
+                       project_root_name=f"{RED_UNDERLINE}{config.project_root.name}{RESET}",
+                       name="config.project_root_name")
     else:
-        output.warn(f"No local project root detected")
-    
-    output.info_ok(f"Project name: {project_name}")
-    output.step_ok("Project configuration checked")
+        output.warn("No local project root detected", name="config.no_project_root")
+
+    output.info_ok("Project name: {project_name}", project_name=config.project_name_prefix, name="config.project_name_prefix")
+    output.step_ok("Project configuration checked", name="config.checked")

@@ -3,7 +3,7 @@
 import shutil
 from pathlib import Path
 
-from . import output
+from . import output, prompts
 
 
 def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> None:
@@ -16,14 +16,14 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     Updates each entry's file_path in-place after moving.
 
     Args:
-        entries: List of entry dicts with file_path, persist, etc.
+        entries: List of ArchivedFile entries.
         archive_dir: Base directory for persistent archives (None = skip).
         tag_name: Tag name used as subdirectory.
     """
     if not archive_dir:
         return
 
-    to_persist = [e for e in entries if e.get("persist")]
+    to_persist = [e for e in entries if e.persist]
     if not to_persist:
         return
 
@@ -31,39 +31,35 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     persist_dir.mkdir(parents=True, exist_ok=True)
 
     # Check which files already exist
-    existing = [e for e in to_persist if (persist_dir / e["file_path"].name).exists()]
+    existing = [e for e in to_persist if (persist_dir / e.file_path.name).exists()]
     if existing:
-        output.info(f"Files already exist in {persist_dir}:")
+        output.info("Files already exist in {dir}:", dir=str(persist_dir), name="persist.existing")
         for e in existing:
-            output.detail(f"  • {e['file_path'].name}")
+            output.detail("  {filename}", filename=e.file_path.name, name="persist.existing_file")
 
-    confirm = output.ConfirmPrompt(
-        [output.YES, output.NO, output.YES_ALL, output.NO_ALL],
-        level="light",
-    )
     apply_all = None  # None = ask each time, True = overwrite all, False = skip all
     for entry in to_persist:
-        src = entry["file_path"]
+        src = entry.file_path
         dst = persist_dir / src.name
 
         if dst.exists():
             if apply_all is not None:
                 overwrite = apply_all
             else:
-                result = confirm.ask(f"Overwrite {dst.name}?")
-                if result.name == "yall":
+                result = prompts.confirm_persist_overwrite.ask(f"Overwrite {dst.name}?")
+                if result.value == "yall":
                     overwrite = True
                     apply_all = True
-                elif result.name == "nall":
+                elif result.value == "nall":
                     overwrite = False
                     apply_all = False
                 else:
                     overwrite = result.is_accept
 
             if not overwrite:
-                output.detail(f"Skipped {dst.name}")
+                output.detail("Skipped {filename}", filename=dst.name, name="persist.skipped")
                 continue
 
         shutil.move(str(src), str(dst))
-        entry["file_path"] = dst
-        output.detail(f"Persisted {dst.name} → {persist_dir}")
+        entry.file_path = dst
+        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(persist_dir), name="persist.done")

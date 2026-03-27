@@ -11,6 +11,7 @@ import shutil
 
 from . import output
 from .subprocess_utils import run as run_cmd
+from .errors import ZPError
 
 
 @dataclass
@@ -21,14 +22,14 @@ class ArchiveResult:
     format: str  # "zip", "tar", "tar.gz"
 
 
-class GitError(Exception):
+class GitError(ZPError):
     """Git operation error."""
-    pass
+    _prefix = "git"
 
 
-class GitHubError(Exception):
+class GitHubError(ZPError):
     """GitHub operation error."""
-    pass
+    _prefix = "github"
 
 
 def run_git_command(args: list[str], cwd: Path) -> str:
@@ -53,9 +54,10 @@ def run_git_command(args: list[str], cwd: Path) -> str:
             capture_output=True,
             text=True,
         )
+        # git dryrun write on stderr not stdout
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise GitError(f"Git command failed: {' '.join(args)}\n{e.stderr}") from e
+        raise GitError(f"Git command failed: {' '.join(args)}\n{e.stderr}", name="command_failed") from e
 
 
 def get_current_branch(project_root: Path) -> str:
@@ -74,7 +76,8 @@ def check_on_main_branch(project_root: Path, main_branch: str) -> None:
     if current != main_branch:
         raise GitError(
             f"Not on {main_branch} branch (currently on {current})\n"
-            f"Please checkout {main_branch} first"
+            f"Please checkout {main_branch} first",
+            name="not_on_main",
         )
 
 
@@ -106,7 +109,46 @@ def has_local_modifs(project_root: Path, main_branch: str) -> bool:
     """
     result = run_git_command(["status", "--porcelain"], project_root)
     return result.strip() != ""
+
+def has_unpushed_commits(project_root: Path, main_branch: str) -> bool:
+    """
+    Check if there are local commits not pushed to remote.
+    Compares refs directly via git log, no text parsing.
+
+    Returns:
+        True if there are unpushed commits, False otherwise
+    """
+    result = run_git_command(
+        ["log", f"origin/{main_branch}..HEAD", "--oneline"],
+        project_root
+    )
+    return result.strip() != ""
+
+
+def has_unpushed_tags(project_root: Path) -> bool:
+    """
+    Check if there are local tags not pushed to remote.
+    Compares local refs vs remote refs directly, no text parsing.
+
+    Returns:
+        True if there are unpushed tags, False otherwise
+    """
+    local_tags = set(
+        run_git_command(["tag", "-l"], project_root).splitlines()
+    )
     
+    # --refs allow to remove ^{} defference like 'v0.3.0^{}'
+    remote_out = run_git_command(
+        ["ls-remote", "--tags", "--refs", "origin"], project_root
+    )
+    remote_tags = {
+        line.split("/")[-1]
+        for line in remote_out.splitlines()
+        if line and "^{}" not in line  # ignorer les lignes de déréférencement
+    }
+    
+    return bool(local_tags - remote_tags)
+
 
 def check_up_to_date(project_root: Path, main_branch: str) -> None:
     """
@@ -117,18 +159,35 @@ def check_up_to_date(project_root: Path, main_branch: str) -> None:
     """
     fetch_remote(project_root)
 
+    if has_local_modifs(project_root, main_branch):
+        raise GitError(
+            f"Local branch has local modifications/commits\n"
+            f"Please commit or stash your changes first",
+            name="local_modifications",
+        )
+
+    if has_unpushed_commits(project_root, main_branch):
+        raise GitError(
+            "Local commits are not pushed to remote\n"
+            "Please push first: git push",
+            name="unpushed_commits",
+        )
+
     if not is_up_to_date_with_remote(project_root, main_branch):
         raise GitError(
             f"Local branch is not up to date with origin/{main_branch}\n"
-            f"Please pull/push the latest changes first"
+            f"Please pull the latest changes first",
+            name="not_up_to_date",
         )
-    if has_local_modifs(project_root, main_branch):
+
+    if has_unpushed_tags(project_root):
         raise GitError(
-            f"Local branch has local modififs/commit\n"
-            f"Please pull/push the latest changes first"
+            "Local tags are not pushed to remote\n"
+            "Please push tags first: git push --tags",
+            name="unpushed_tags",
         )
         
-    output.info_ok(f"Repository is up to date with origin/{main_branch}")
+    output.info_ok("Repository is up to date with origin/{branch}", branch=main_branch, name="git.repo_up_to_date")
 
 
 def run_gh_command(args: list[str], cwd: Path) -> str:
@@ -156,11 +215,13 @@ def run_gh_command(args: list[str], cwd: Path) -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         raise GitHubError(
-            f"GitHub CLI command failed: {' '.join(args)}\n{e.stderr}"
+            f"GitHub CLI command failed: {' '.join(args)}\n{e.stderr}",
+            name="command_failed",
         ) from e
     except FileNotFoundError:
         raise GitHubError(
-            "GitHub CLI (gh) not found. Please install it: https://cli.github.com/"
+            "GitHub CLI (gh) not found. Please install it: https://cli.github.com/",
+            name="cli_not_found",
         )
 
 
@@ -172,9 +233,9 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
         Dictionary with release info (tagName, name, body) or None if no releases
     """
     try:
-        # First, get the list of releases (without body field)
+        # Get the list of releases, excluding drafts
         result = run_gh_command(
-            ["release", "list", "--limit", "1", "--json", "tagName,name"],
+            ["release", "list", "--exclude-drafts", "--limit", "1", "--json", "tagName,name"],
             project_root
         )
         if not result:
@@ -187,13 +248,16 @@ def get_latest_release(project_root: Path) -> Optional[dict]:
         # Get the latest release tag
         latest_tag = releases[0]["tagName"]
 
-        # Now get full details including body
+        # Get full details including body, verify it's not a draft
         details = run_gh_command(
-            ["release", "view", latest_tag, "--json", "tagName,name,body"],
+            ["release", "view", latest_tag, "--json", "tagName,name,body,isDraft"],
             project_root
         )
+        release = json.loads(details)
+        if release.get("isDraft"):
+            return None
 
-        return json.loads(details)
+        return release
     except (GitHubError, json.JSONDecodeError, KeyError, IndexError):
         return None
 
@@ -303,7 +367,8 @@ def tag_exists(project_root: Path, tag_name: str) -> bool:
         return False
 
 
-def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> None:
+def check_tag_validity(project_root: Path, tag_name: str, main_branch: str,
+                       check_draft: bool = False) -> None:
     """
     Verify that the tag either doesn't exist, or if it exists,
     points to the latest commit on the remote main branch.
@@ -312,29 +377,62 @@ def check_tag_validity(project_root: Path, tag_name: str, main_branch: str) -> N
         project_root: Path to project root
         tag_name: Name of the tag to check
         main_branch: Name of the main branch
+        check_draft: If True, reject tags associated with draft releases.
+                     Requires scanning all releases via API (slower).
 
     Raises:
         GitError: If tag exists but doesn't point to the latest remote commit
     """
+    # Check for draft release first (drafts don't create git tags,
+    # so tag_exists would return False, but gh release create would
+    # silently convert the draft into a published release)
+    if check_draft:
+        _check_no_draft_release(project_root, tag_name)
+
     if not tag_exists(project_root, tag_name):
-        output.info_ok(f"Tag '{tag_name}' does not exist yet")
+        output.info_ok("Tag '{tag}' does not exist yet", tag=tag_name, name="git.tag_new")
         return
 
     # Tag exists, check if it points to the latest remote commit
-    output.warn(f"Tag '{tag_name}' already exists, verifying it points to latest commit...")
+    output.warn("Tag '{tag}' already exists, verifying it points to latest commit...", tag=tag_name, name="git.tag_exists")
+
     tag_commit = get_commit_of_tag(project_root, tag_name)
     remote_latest = get_remote_latest_commit(project_root, main_branch)
 
     if tag_commit == remote_latest:
-        output.info_ok(f"Tag '{tag_name}' points to the latest remote commit")
+        output.info_ok("Tag '{tag}' points to the latest remote commit", tag=tag_name, name="git.tag_valid")
         return
 
     raise GitError(
         f"Tag '{tag_name}' already exists but doesn't point to the latest remote commit\n"
         f"Tag points to: {tag_commit}\n"
         f"Latest remote commit (origin/{main_branch}): {remote_latest}\n"
-        f"Please use a different tag name"
+        f"Please use a different tag name",
+        name="tag_invalid",
     )
+
+
+def _check_no_draft_release(project_root: Path, tag_name: str) -> None:
+    """Reject a tag if it is associated with a draft release on GitHub.
+
+    Draft releases are invisible to both gh release list and the
+    /releases/tags/{tag} API endpoint. The only way to find them is
+    to scan all releases via /releases and filter by tag_name + draft.
+    """
+    try:
+        result = run_gh_command(
+            ["api", "repos/{owner}/{repo}/releases", "--paginate",
+             "--jq", f'.[] | select(.draft == true and .tag_name == "{tag_name}") | .id'],
+            project_root,
+        )
+        if result.strip():
+            raise GitError(
+                f"Tag '{tag_name}' is associated with a draft release on GitHub\n"
+                f"Please delete the draft release first or use a different tag name",
+                name="tag_draft_release",
+            )
+    except GitHubError:
+        pass
 
 
 def is_latest_commit_released(project_root: Path) -> tuple[bool, Optional[dict]]:
@@ -373,14 +471,14 @@ def create_github_release(
         title: Release title
         notes: Release notes/description
     """
-    output.info(f"🚀 Creating GitHub release '{tag_name}'...")
+    output.info("Creating GitHub release '{tag}'...", tag=tag_name, name="github.creating_release")
 
     run_gh_command(
         ["release", "create", tag_name, "--title", title, "--notes", notes],
         project_root
     )
 
-    output.info_ok(f"Release '{tag_name}' created and published")
+    output.info_ok("Release '{tag}' created and published", tag=tag_name, name="github.release_published")
 
 
 def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
@@ -393,12 +491,13 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
     latest_release = get_latest_release(project_root)
 
     if not latest_release:
-        raise GitHubError("No releases found")
+        raise GitHubError("No releases found", name="no_releases")
 
     if latest_release["tagName"] != tag_name:
         raise GitHubError(
             f"Latest release tag '{latest_release['tagName']}' "
-            f"doesn't match expected '{tag_name}'"
+            f"doesn't match expected '{tag_name}'",
+            name="tag_mismatch",
         )
 
     tag_commit = get_commit_of_tag(project_root, tag_name)
@@ -408,7 +507,8 @@ def verify_release_on_latest_commit(project_root: Path, tag_name: str) -> None:
         raise GitHubError(
             f"Release '{tag_name}' does not point to the latest commit\n"
             f"Release commit: {tag_commit}\n"
-            f"Latest commit: {latest_commit}"
+            f"Latest commit: {latest_commit}",
+            name="release_commit_mismatch",
         )
 
 def get_git_ref(project_root, tag_name):    
@@ -446,7 +546,7 @@ def archive_zip_project(
         project_root
     )
 
-    output.info_ok(f"Created archive: {output_file}")
+    output.info_ok("Created archive: {output_file}", output_file=str(output_file), name="archive.created")
     return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
 
 
@@ -492,7 +592,7 @@ def archive_zip_remote_project(
             cwd=tmp_repo,
         )
 
-        output.info_ok(f"Created archive: {output_file}")
+        output.info_ok("Created archive: {output_file}", output_file=str(output_file), name="archive.created")
         return ArchiveResult(file_path=output_file, archive_name=project_name, format="zip")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -541,7 +641,7 @@ def compute_tree_hash(content_dir: Path, object_format: str = "sha1") -> str:
     """
     git_dir = content_dir / ".git"
     if git_dir.exists():
-        raise GitError(f"content_dir already contains .git: {content_dir}")
+        raise GitError(f"content_dir already contains .git: {content_dir}", name="tree_hash_conflict")
     
     run_git_command(["init", f"--object-format={object_format}", "."], cwd=content_dir)
     run_git_command(["config", "user.email", "noop@noop.local"], cwd=content_dir)
