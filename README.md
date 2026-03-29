@@ -183,7 +183,6 @@ hash_algorithms: [md5, sha256, tree]
 signing:
   sign: true
   # sign_mode: file_hash      # file (sign file directly) or file_hash (sign hash of file)
-  # sign_hash_algo: sha256    # hash algo used in file_hash mode
   # gpg:
   #   uid: "key@example.com"  # GPG key UID (optional, default key if omitted)
   #   extra_args: ["--armor"] # default, use ["--no-armor"] for binary .sig
@@ -203,27 +202,36 @@ generated_files:
     # rename: true            # rename to ProjectName-tag.pdf
     # sign: true              # per-file signing override
     # sign_mode: file         # per-file sign mode override (file or file_hash)
+    # archive_types: [file]   # override global archive.types ([] = do not persist)
     publishers:
-      file_destination: [github, zenodo]
-      # sig_destination: [zenodo]  # where to upload signature
-  
+      destination:
+        file: [github, zenodo]
+        # sig: [zenodo]       # where to upload the GPG signature
+
   myfile:
-    # handle all file individually that match the pattern
+    # handle all files individually that match the pattern
     pattern: "*.md"
     publishers:
-      file_destination: [zenodo]
-  
+      destination:
+        file: [zenodo]
+
   project:
     publishers:
-      file_destination: [zenodo]
-  
+      destination:
+        file: [zenodo]
+
   manifest:
-    files: [paper, project, myfile]
+    content:                  # which entries/types to include in the manifest JSON
+      paper: [file, sig]      # include paper + its signature hash
+      project: [file]         # include project file hash
+      myfile: [file]
     commit_info: [sha, date_epoch]
     zenodo_metadata: [title, creators]
     sign: true
     publishers:
-      file_destination: [zenodo, github]
+      destination:
+        file: [zenodo, github]
+        sig: [zenodo, github]
 
 prompt_validation_level: danger  # danger, light, normal, secure
 ```

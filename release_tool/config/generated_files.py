@@ -25,15 +25,13 @@ Example YAML:
           destination:
             file: [zenodo]
       manifest:                     # MANIFEST — JSON with hashes + metadata
-        files: [paper, project]     # which entries to include
         sign: true
+        content:                    # which entries/types to include (None = all non-sig files)
+          paper: [file, sig]        # include paper file + its signature
+          project: [file]           # include project file only
         identifier:
           use_as_alternate_identifier: true
           source: file              # hash of this file becomes Zenodo identifier
-
-Convention: the suffix '_sig' is reserved for referencing signature files
-in configs (e.g. "paper_sig" in manifest.files). User keys must not end
-with '_sig'.
 """
 
 from dataclasses import dataclass, field
@@ -164,15 +162,6 @@ class FileConfigEntry:
 # ---------------------------------------------------------------------------
 # Validators
 # ---------------------------------------------------------------------------
-
-def _validate_no_sig_keys(keys: list[str]) -> None:
-    """No user key can end with _sig (reserved for signature references)."""
-    bad = [k for k in keys if k.endswith("_sig")]
-    if bad:
-        raise ConfigError(
-            f"Keys ending with '_sig' are reserved for signature references: {bad}",
-            name="generated_files.reserved_key",
-        )
 
 
 def _validate_manifest_refs(manifest_entry: FileConfigEntry, all_keys: set[str]) -> None:
@@ -398,18 +387,14 @@ def parse_generated_files(raw: Any) -> list[FileConfigEntry]:
     """Parse the 'generated_files' section from YAML into a list of FileConfigEntry.
 
     Processing order:
-      1. Validate no key ends with '_sig' (reserved suffix)
-      2. Parse each key into a FileConfigEntry (dispatch by type)
-      3. Validate manifest file references exist
-      4. Validate identifier constraints per entry
+      1. Parse each key into a FileConfigEntry (dispatch by type)
+      2. Validate manifest content references exist
+      3. Validate identifier constraints per entry
     """
     if not raw:
         return []
     if not isinstance(raw, dict):
         raise ConfigError("'generated_files' must be a YAML mapping", name="generated_files.invalid_format")
-
-    keys = list(raw.keys())
-    _validate_no_sig_keys(keys)
 
     entries: list[FileConfigEntry] = []
     for key, value in raw.items():

@@ -604,10 +604,10 @@ def _step_modules(ctx: PipelineContext) -> None:
         for rf in raw_files:
             publishers_raw = rf.get("publishers", {})
             dest_raw = publishers_raw.get("destination", {})
-            parent_key = rf.get("parent_key")
+            config_key = rf["config_key"]
             parent_fce = next(
-                (fce for fce in ctx.config.generated_files if fce.key == parent_key), None
-            ) if parent_key else None
+                (fce for fce in ctx.config.generated_files if fce.key == config_key), None
+            )
             # Module output can override archive via archive_types list in JSON
             module_archive_types = rf.get("archive_types")
             if module_archive_types is not None:
@@ -638,10 +638,6 @@ def _step_modules(ctx: PipelineContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step: Resolve persist flag
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Step: Publish
 # ---------------------------------------------------------------------------
 
@@ -659,10 +655,14 @@ def _step_publish(ctx: PipelineContext) -> None:
 
 def _files_for_destination(archived_files: list[FileEntry], destination: str) -> list[FileEntry]:
     """Get files destined for a specific publisher."""
-    return [
-        fe for fe in archived_files
-        if fe.publishers and destination in fe.publishers.destinations_for(fe.type)
-    ]
+    result = []
+    for fe in archived_files:
+        if not fe.publishers:
+            continue
+        type_key = fe.module_name if fe.type == FileEntryType.MODULE_ENTRY else fe.type
+        if destination in fe.publishers.destinations_for(type_key):
+            result.append(fe)
+    return result
 
 
 def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict | None:
@@ -742,7 +742,7 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
 # ---------------------------------------------------------------------------
 
 def _step_persist(ctx: PipelineContext) -> None:
-    """Move files with persist=True to the archive directory."""
+    """Move files with archive=True to the archive directory."""
     persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name)
 
 

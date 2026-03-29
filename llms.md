@@ -118,19 +118,19 @@ generated_files:
         file: [github, zenodo]
   project:
     rename: true
-    archive:
-      types: []          # do not persist to archive dir
+    archive_types: []          # do not persist to archive dir
     publishers:
       destination:
         file: [zenodo]
   manifest:
-    files: [paper, project]
-    archive:
-      types: []          # do not persist to archive dir
+    archive_types: []          # do not persist to archive dir
+    content:
+      paper: [file, sig]       # include paper file + signature hash
+      project: [file]          # include project file hash
+    commit_info: [sha, date_epoch]
     identifier:
       use_as_alternate_identifier: true
       source: file
-    commit_info: [sha, date_epoch]
     sign: true
     publishers:
       destination:
@@ -202,7 +202,7 @@ prompt_validation_level: danger
 
 #### On disk (`papers/latex/releases/v1.0.0/`)
 
-Only the PDF (the only entry with `archive: true`):
+Only the PDF (the only entry whose `archive` resolves to `True` — `project` and `manifest` have `archive_types: []`):
 ```
 MyProject-v1.0.0.pdf
 MyProject-v1.0.0.pdf.asc
@@ -281,15 +281,16 @@ release_tool/
 │       └── main.py                 # Built-in: RFC 3161 timestamp via DigiCert TSA (uv script)
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
-│   ├── release.py                  # Release pipeline (14 steps + step 13b modules)
+│   ├── context.py                  # PipelineContext, HookPoint, HookRegistry
+│   ├── release.py                  # Release pipeline (15 hook points, HookRegistry-based)
 │   └── archive.py                  # Standalone archive pipeline
 ├── output.py                       # Structured logging + test mode NDJSON
 ├── git_operations.py               # Git + GitHub CLI (gh) + draft release check
-├── zenodo_operations.py            # Zenodo/InvenioRDM client (ArchivedFile-based)
-├── archive_operation.py            # ArchivedFile dataclass + hashing + manifest
+├── zenodo_operations.py            # Zenodo/InvenioRDM client (FileEntry-based)
+├── archive_operation.py            # FileEntry dataclass + hashing + manifest
 ├── gpg_operations.py               # GPG signing via python-gnupg
 ├── latex_build.py                  # Compilation via make deploy (ZP_* env vars passed)
-├── file_utils.py                   # File persistence (ArchivedFile-based)
+├── file_utils.py                   # File persistence (FileEntry-based)
 └── subprocess_utils.py             # Subprocess wrapper with debug logging
 ```
 
@@ -368,7 +369,7 @@ Used for: `make_args`, `tar_extra_args`, `gzip_extra_args`, `gpg_extra_args`.
 ### Complex structures (parsed from YAML, not ConfigOption)
 
 - `signing:` -> `SigningConfig` via `parse_signing_config()`
-- `generated_files:` -> `list[FileEntry]` via `parse_generated_files()`
+- `generated_files:` -> `list[FileConfigEntry]` via `parse_generated_files()`
 
 ### Config subclasses
 
@@ -435,9 +436,11 @@ Used for: `make_args`, `tar_extra_args`, `gzip_extra_args`, `gpg_extra_args`.
 
 ---
 
-## Release pipeline (14 steps)
+## Release pipeline (15 hook points)
 
-Sequential steps in `pipeline/release.py:_run_release()`:
+Sequential hook points in `pipeline/release.py`, driven by `HookRegistry.run_pipeline()`.
+Each hook point maps to a `_step_*` handler registered in `_build_registry()`.
+State is shared via `PipelineContext` (config, output_dir, tag_name, commit_env, archived_files, record_info).
 
 ### Step 1: Git check (`_step_git_check`)
 
@@ -510,11 +513,11 @@ For each PATTERN entry:
   - Then `process_project_archive()`: extract zip, compute tree hashes, convert format if tar/tar.gz
   - Reproducible TAR env: `LC_ALL=C`, `TZ=UTC`, `SOURCE_DATE_EPOCH=0`
 
-Creates `ArchivedFile` for each file.
+Creates `FileEntry` for each file (with `archive` resolved immediately via `_resolve_archive()`).
 
 ### Step 9: Compute hashes (`_step_compute_hashes`)
 
-Computes hashes for all ArchivedFile entries. Reads files in 8192-byte chunks. Skips already-computed hashes (`if algo not in hashes`).
+Computes hashes for all FileEntry entries. Reads files in 8192-byte chunks. Skips already-computed hashes (`if algo not in hashes`).
 
 Tree hashes: pre-computed in step 8 for PROJECT entries (single extraction). For non-archive files (PDF), falls back to hashlib equivalent: `tree` -> `sha1`, `tree256` -> `sha256`.
 
@@ -536,7 +539,7 @@ Structure:
 }
 ```
 
-`manifest.files` lists entry keys to include. Append `_sig` to include the signature of an entry (e.g. `paper_sig` includes the hash of `paper`'s `.asc`/`.sig` file). The `_sig` suffix is reserved and cannot be used as a user-defined key.
+`manifest.content` is a dict `config_key → [type_keys]`. When `None` (default), includes all non-SIG, non-MODULE_ENTRY FileEntry objects. Type keys: `"file"` matches FILE/PROJECT/MANIFEST entries, `"sig"` matches their SIG entries, any other string matches MODULE_ENTRY by `module_name`.
 
 ### Step 11: Sign (`_step_sign`)
 
@@ -550,30 +553,31 @@ GPG key resolution: explicit `gpg.uid` > `default-key` from `~/.gnupg/gpg.conf` 
 
 After signing: verifies signature with `gpg.verify_file()`, checks fingerprint match.
 
-Signature files are appended to `archived_files` list as `ArchivedFile(kind="signature", is_signature=True)`. Signatures inherit `persist` from their parent file: if a file has `archive: false`, its signature is also not persisted.
+Signature files are appended to `archived_files` list as `FileEntry(type=SIG)`. The `archive` flag is resolved at creation via `_resolve_archive()` using the parent's `FileConfigEntry` (same `config_key`): if the parent has `archive_types` that excludes `"sig"`, the signature is not archived.
 
 ### Step 12: Compute identifiers (`_step_compute_identifiers`)
 
 Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Not related to manifest. On each run, all existing `zp:///` entries on Zenodo are replaced.
 
-### Step 13b: Modules (`_step_modules`)
+### Step 13: Modules (`_step_modules`)
 
 Runs configured modules for files that declare them under `modules:`. Each module:
-1. Collects matching ArchivedFile entries (by config_key, non-signature)
+1. Collects matching FileEntry entries (by config_key, non-SIG)
 2. Prompts user to confirm running (indicates built-in vs custom)
 3. Invokes module as subprocess: `uv run <module_path> --input <json_file>`
 4. Reads NDJSON events + result files from stdout
-5. Appends new ArchivedFile entries for produced files
+5. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
 
-### Step 13: Publish (`_step_publish`)
+### Step 14: Publish (`_step_publish`)
 
-Routes each file to destinations per `publishers.destination[file_type]` config. Falls back to `config.default_publishers` if per-file publishers is None:
+Routes each file to destinations per `publishers.destination[type_key]` where `type_key = module_name` for MODULE_ENTRY, else `fe.type`.
 - **Zenodo**: checks `is_up_to_date()` (compares version + MD5 hashes), uploads via InvenioRDM API
 - **GitHub**: `gh release upload <tag> <file>`, compares sha256 to detect changes, prompts for `--clobber`
 
-### Step 14: Persist (`persist_files`)
+### Step 15: Persist (`_step_persist`)
 
-Filters files by `file_type in (e.archive_types or config.archive_types)`. Copies matching files to `archive_dir/{tag}/` via `shutil.move()`. Updates `entry.file_path` in-place.
+Copies files where `entry.archive == True` to `archive_dir/{tag}/` via `shutil.move()`. Updates `entry.file_path` in-place.
+`archive` was resolved at FileEntry creation — no re-filtering here.
 Prompts for overwrite if files exist (with "apply all" option: `yall`/`nall`).
 
 ---
@@ -588,20 +592,21 @@ Prompts for overwrite if files exist (with "apply all" option: `yall`/`nall`).
 | `PROJECT` | `project` (reserved) | Git archive ZIP of the repository |
 | `MANIFEST` | `manifest` (reserved) | JSON manifest in JCS format |
 
-### FileEntry dataclass
+### FileConfigEntry dataclass (config layer, `config/generated_files.py`)
 
 ```python
 @dataclass
-class FileEntry:
+class FileConfigEntry:
     key: str                          # config key (e.g. "paper", "project")
-    kind: FileEntryKind
+    type: FileEntryKind               # PATTERN / PROJECT / MANIFEST
+    parent_key: str | None            # key this entry was derived from
     pattern: str | None               # resolved pattern (after template substitution)
     pattern_template: str | None      # original pattern with {vars}
     rename: bool                      # rename using project_name template
     sign: bool | None                 # per-file override (None = use global)
     sign_mode: SignMode | None        # per-file override
-    archive_types: list[str] | None   # per-file override (None = use global config.archive_types)
-    publishers: PublisherDestinations | None  # per-file override (None = use config.default_publishers)
+    archive_types: list[str] | None   # per-file override (None = global, [] = veto)
+    publishers: PublisherDestinations | None  # per-file override (None = use global)
     modules: dict[str, dict]          # per-file module config overrides
     identifier: IdentifierConfig | None
     manifest_config: ManifestInclusion | None
@@ -651,24 +656,25 @@ generated_files:
         full_chain: false   # overrides global modules.digicert_timestamp.full_chain
 ```
 
-### ArchivedFile dataclass
+### FileEntry dataclass (runtime layer, `archive_operation.py`)
 
 ```python
 @dataclass
-class ArchivedFile:
+class FileEntry:
     file_path: Path
-    config_key: str               # references FileEntry.key
+    config_key: str               # references FileConfigEntry.key
     filename: str
     extension: str
-    kind: str                     # "generated", "project", "manifest", "signature", "module_output"
-    is_preview: bool = False      # True if PDF
-    is_signature: bool = False
-    has_signature: bool = False
-    file_type: str = "file"       # "file", "sig", or module name (e.g. "digicert_timestamp")
-    archive_types: list[str] | None = None  # per-file override for persist filtering
+    type: FileEntryType           # FILE / SIG / PROJECT / MANIFEST / MODULE_ENTRY
+    archive: bool                 # resolved at creation via _resolve_archive()
+    publishers: PublisherDestinations | None
+    sign_mode: SignMode | None    # resolved; None if not signable
+    identifier: IdentifierConfig | None
+    module_name: str | None       # which module produced this (type == MODULE_ENTRY)
+    module_entry_type: str | None # module output sub-type (e.g. "tsr")
+    is_preview: bool = False
+    has_signature: bool = False   # whether this file needs to be signed
     hashes: dict = {}             # {algo: {"type", "value", "formatted_value"}}
-    publishers: PublisherDestinations | None = None
-    signed_file_key: str | None = None
     identifier_value: str | None = None
 ```
 
@@ -702,7 +708,7 @@ Uses `interegular` FSM library. Checks segment-by-segment. Normalizes paths (res
 
 ### Identifier config
 
-Computed from the file hash using `signing.sign_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`. Note: `sign_hash_algo` must be under `signing:` in YAML, not at root level.
+Computed from the file hash using `identity_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`. Note: `identity_hash_algo` is at **root** YAML level, not under `signing:`.
 
 ```yaml
 identifier:
@@ -710,7 +716,7 @@ identifier:
   source: file        # "file" (hash the file) or "sig_file" (hash the signature)
 ```
 
-Format: `zp:///{filename};{sign_hash_algo}:{hex_value}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc...`). The filename is the actual output filename after renaming.
+Format: `zp:///{filename};{identity_hash_algo}:{hex_value}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc...`). The filename is the actual output filename after renaming.
 
 Constraints:
 - `source: sig_file` requires `sign: true` on the entry

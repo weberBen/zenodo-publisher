@@ -1,6 +1,5 @@
 """Archive operations: FileEntry dataclass, hashing, manifest generation."""
 
-import json
 import os
 import shutil
 import hashlib
@@ -9,12 +8,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from .git_operations import archive_zip_project, extract_zip, compute_tree_hash, pack_tar
+from .git_operations import extract_zip, compute_tree_hash, pack_tar
 from .config.transform_common import TREE_ALGORITHMS
 from .config.transform_release import COMMIT_FIELD_MAP
 from .config.generated_files import PublisherDestinations, IdentifierConfig
 from .config.signing import SignMode
-from . import output
 
 
 class FileEntryType(str, Enum):
