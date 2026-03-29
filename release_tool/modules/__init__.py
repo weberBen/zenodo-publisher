@@ -62,6 +62,47 @@ def is_builtin(provider_name: str) -> bool:
     return (Path(__file__).parent / provider_name / "main.py").exists()
 
 
+def check_module(provider_name: str, module_config: dict, output_module,
+                 project_root: Path | None = None) -> None:
+    """Run module --check mode. Raises ModuleError if check fails.
+
+    Passes module_config as JSON file via --config.
+    Relays NDJSON events to output_module.
+    """
+    module_path = find_module_path(provider_name, project_root=project_root)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as f:
+        json.dump({"module_config": module_config}, f)
+        config_path = f.name
+
+    try:
+        proc = subprocess.run(
+            ["uv", "run", str(module_path), "--check", "--config", config_path],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+    finally:
+        Path(config_path).unlink(missing_ok=True)
+
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        output_module.emit(event)
+
+    if proc.returncode != 0:
+        raise ModuleError(
+            f"Module '{provider_name}' check failed (exit code {proc.returncode})",
+            name="check_failed",
+        )
+
+
 def run_module(provider_name: str, input_data: dict, output_module,
                project_root: Path | None = None) -> list[dict]:
     """Run a module as a subprocess via uv.

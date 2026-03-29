@@ -51,8 +51,22 @@ def emit(type_: str, msg: str, name: str = "", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--config")
     args = parser.parse_args()
+
+    if args.check:
+        module_cfg = {}
+        if args.config:
+            with open(args.config, encoding="utf-8") as f:
+                module_cfg = json.load(f).get("module_config", {})
+        if module_cfg.get("fail_check"):
+            emit("error", "dummy_module: check forced failure",
+                 name="dummy_module.check.forced_error")
+            sys.exit(1)
+        emit("detail_ok", "dummy_module: check ok", name="dummy_module.check.ok")
+        return
 
     with open(args.input, encoding="utf-8") as f:
         data = json.load(f)
@@ -68,8 +82,8 @@ def main():
              name="dummy_module.processing",
              filename=fp.name, config_key=file_info["config_key"])
 
-        if module_cfg.get("fail"):
-            emit("error", f"dummy_module: forced failure for \'{fp.name}\'",
+        if module_cfg.get("fail_run"):
+            emit("error", f"dummy_module: forced run failure for \'{fp.name}\'",
                  name="dummy_module.forced_error")
             sys.exit(1)
 
@@ -272,12 +286,31 @@ def test_module_events_relayed(release_env, fix_log_path):
         f"Expected .dummy output filename. Got: {done.get('data')}"
 
 
-def test_module_error_stops_pipeline(release_env, fix_log_path):
-    """Module exiting non-zero raises a fatal error and stops the pipeline."""
+def test_module_check_error_stops_pipeline(release_env, fix_log_path):
+    """Module failing --check aborts the pipeline before git check."""
     repo_dir, git, gh, archive_dir = release_env
     _install_dummy_module(repo_dir)
 
-    config = _base_config(archive_dir, module_cfg={"fail": True})
+    config = _base_config(archive_dir, module_cfg={"fail_check": True})
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_test_config(),
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    assert find_by_name(result.events, "module.check_failed"), \
+        f"Expected module.check_failed fatal. Errors: {find_errors(result.events)}"
+    assert not find_by_name(result.events, "git.up_to_date"), \
+        "Pipeline should have stopped before git check"
+
+
+def test_module_run_error_stops_pipeline(release_env, fix_log_path):
+    """Module exiting non-zero during run raises a fatal error."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_dummy_module(repo_dir)
+
+    config = _base_config(archive_dir, module_cfg={"fail_run": True})
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
                              config=config,
@@ -423,3 +456,49 @@ def test_dummy_module_uv_standalone(tmp_path):
     assert files[0]["config_key"] == "paper", f"Wrong config_key: {files[0]}"
     assert Path(files[0]["file_path"]).exists(), \
         f"Output file should exist on disk: {files[0]['file_path']}"
+
+
+def test_dummy_module_uv_check(tmp_path):
+    """Dummy module --check mode exits 0 and emits check_ok event."""
+    module_path = tmp_path / "dummy_module.py"
+    module_path.write_text(DUMMY_MODULE_SOURCE)
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"module_config": {}}))
+
+    proc = subprocess.run(
+        ["uv", "run", str(module_path), "--check", "--config", str(config_file)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(tmp_path),
+    )
+
+    assert proc.returncode == 0, \
+        f"Check exited with {proc.returncode}.\nstderr: {proc.stderr}\nstdout: {proc.stdout}"
+
+    events = [json.loads(l) for l in proc.stdout.splitlines() if l.strip()]
+    assert any(e.get("name") == "dummy_module.check.ok" for e in events), \
+        f"Expected dummy_module.check.ok event. Got: {events}"
+
+
+def test_dummy_module_uv_check_fail(tmp_path):
+    """Dummy module --check mode exits 1 when fail_check is set."""
+    module_path = tmp_path / "dummy_module.py"
+    module_path.write_text(DUMMY_MODULE_SOURCE)
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"module_config": {"fail_check": True}}))
+
+    proc = subprocess.run(
+        ["uv", "run", str(module_path), "--check", "--config", str(config_file)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(tmp_path),
+    )
+
+    assert proc.returncode != 0, "Check should fail when fail_check=True"
+    events = [json.loads(l) for l in proc.stdout.splitlines() if l.strip()]
+    assert any(e.get("name") == "dummy_module.check.forced_error" for e in events), \
+        f"Expected dummy_module.check.forced_error event. Got: {events}"

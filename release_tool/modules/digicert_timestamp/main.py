@@ -74,10 +74,47 @@ def timestamp_file(fp: Path, algo: str, full_chain: bool, output_dir: Path) -> P
     return tsr_path
 
 
+def check(module_config: dict) -> None:
+    """Quick self-check: validate config and verify TSA is reachable."""
+    full_chain = module_config.get("full_chain", True)
+    if not isinstance(full_chain, bool):
+        emit("error", f"Invalid config: 'full_chain' must be a boolean, got {full_chain!r}",
+             name="digicert_timestamp.check.invalid_config")
+        sys.exit(1)
+
+    emit("detail", f"Checking DigiCert TSA connectivity ({TSA_URL})...",
+         name="digicert_timestamp.check.connecting")
+    try:
+        resp = requests.head(TSA_URL, timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        emit("error", f"DigiCert TSA unreachable: {e}",
+             name="digicert_timestamp.check.unreachable")
+        sys.exit(1)
+
+    emit("detail_ok", "DigiCert TSA reachable, config valid",
+         name="digicert_timestamp.check.ok")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="DigiCert timestamp module")
-    parser.add_argument("--input", required=True, help="Path to input JSON file")
+    parser.add_argument("--input", help="Path to input JSON file")
+    parser.add_argument("--check", action="store_true", help="Run self-check and exit")
+    parser.add_argument("--config", help="Path to module config JSON (used with --check)")
     args = parser.parse_args()
+
+    if args.check:
+        module_config = {}
+        if args.config:
+            with open(args.config, encoding="utf-8") as f:
+                module_config = json.load(f).get("module_config", {})
+        check(module_config)
+        return
+
+    if not args.input:
+        emit("error", "--input is required when not running --check",
+             name="digicert_timestamp.missing_input")
+        sys.exit(1)
 
     with open(args.input, encoding="utf-8") as f:
         data = json.load(f)

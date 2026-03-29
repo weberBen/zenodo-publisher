@@ -34,6 +34,7 @@ class PipelineContext:
 
 class HookPoint(str, Enum):
     """Named phases of the release pipeline, executed in declaration order."""
+    MODULE_CHECK    = "module_check"      # verify modules exist + pass self-check
     GIT_CHECK       = "git_check"
     RELEASE         = "release"
     COMMIT_INFO     = "commit_info"

@@ -36,7 +36,8 @@ from ..config.generated_files import FileConfigEntry, FileEntryKind, PublisherDe
 from ..config.signing import SignMode
 from .. import output, prompts
 from ..errors import PipelineError
-from ..modules import run_module, is_builtin
+from ..modules import run_module, check_module, is_builtin
+from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
 
@@ -86,6 +87,28 @@ def ellipse_hash(hash_str, visible_char=8):
 # ---------------------------------------------------------------------------
 # Handlers — one per HookPoint
 # ---------------------------------------------------------------------------
+
+def _step_module_check(ctx: PipelineContext) -> None:
+    """Verify all configured modules exist and pass their --check before the pipeline starts."""
+    if not ctx.config.modules_config:
+        return
+
+    output.step("Checking modules...")
+
+    for module_name, module_cfg in ctx.config.modules_config.items():
+        output.detail(
+            "Checking module '{module_name}'...",
+            module_name=module_name, name="module.checking",
+        )
+        check_module(module_name, module_cfg, output,
+                     project_root=ctx.config.project_root)
+        output.detail_ok(
+            "Module '{module_name}' ready",
+            module_name=module_name, name="module.check_ok",
+        )
+
+    output.step_ok("Modules ready", name="modules.check_ok")
+
 
 def _step_git_check(ctx: PipelineContext) -> None:
     """Check branch, remote sync, and local modifications."""
@@ -575,11 +598,12 @@ def _step_modules(ctx: PipelineContext) -> None:
                     })
 
         if not files_input:
-            output.detail(
-                "Module '{module_name}': no matching files, skipping",
-                module_name=module_name, name="module.no_files",
+            raise _ModuleError(
+                f"Module '{module_name}' is configured but no generated_files entry "
+                f"declares it under 'modules:'. Add 'modules: {{{module_name}: {{}}}}' "
+                f"to the relevant generated_files entry, or remove the module from config.",
+                name="no_files",
             )
-            continue
 
         if is_builtin(module_name):
             module_origin = "built-in module"
@@ -772,6 +796,7 @@ def _step_persist(ctx: PipelineContext) -> None:
 def _build_registry() -> HookRegistry:
     """Register all built-in pipeline handlers and return the registry."""
     reg = HookRegistry()
+    reg.register(HookPoint.MODULE_CHECK,    _step_module_check)
     reg.register(HookPoint.GIT_CHECK,       _step_git_check)
     reg.register(HookPoint.RELEASE,         _step_release)
     reg.register(HookPoint.COMMIT_INFO,     _step_commit_info)
