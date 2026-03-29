@@ -8,6 +8,7 @@ env vars can be passed via export.
 import tempfile
 from pathlib import Path
 
+import gnupg
 import pytest
 
 from tests.utils.cli import ZpRunner
@@ -56,6 +57,28 @@ _TEST_CONFIG = {"prompts": _PROMPTS, "verify_prompts": False}
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _gpg_warmup(gpg_uid: str | None) -> None:
+    """Sign a throwaway file to ensure the GPG agent has the passphrase cached."""
+    if not gpg_uid:
+        return
+    gpg = gnupg.GPG()
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+        f.write(b"warmup")
+        warmup_path = Path(f.name)
+    sig_path = warmup_path.with_suffix(".txt.asc")
+    try:
+        with open(warmup_path, "rb") as fh:
+            gpg.sign_file(fh, keyid=gpg_uid, detach=True,
+                          output=str(sig_path), extra_args=["--armor"])
+    finally:
+        warmup_path.unlink(missing_ok=True)
+        sig_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -71,6 +94,8 @@ def override_env(repo_env, fix_gpg_uid):
     git._run("push", "origin", f":refs/tags/{TAG}", check=False)
 
     archive_dir = Path(tempfile.mkdtemp())
+
+    _gpg_warmup(fix_gpg_uid)
 
     yield repo_dir, git, gh, archive_dir, fix_gpg_uid
 

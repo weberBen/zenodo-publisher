@@ -236,12 +236,12 @@ def test_pattern_wildcard_in_directory_same_name_collision(pattern_env, fix_log_
                              log_path=fix_log_path,
                              fail_on="ignore")
 
-    # ZP copies matched files as output_dir/filename (flat), so same-name files
-    # from different directories collide -> FileNotFoundError at persist
+    # ZP detects same-name collision at archive time (flat copy to output_dir)
+    # and raises a PipelineError before persist.
     errors = find_errors(result.events)
     assert errors, "Expected error from same-name file collision"
-    assert any(e.get("error_type") == "FileNotFoundError" for e in errors), \
-        f"Expected FileNotFoundError from name collision. Got: {errors}"
+    assert any("collision" in e.get("name", "") for e in errors), \
+        f"Expected collision error. Got: {errors}"
 
 
 def test_pattern_wildcard_in_directory(pattern_env, fix_log_path):
