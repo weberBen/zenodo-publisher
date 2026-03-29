@@ -514,6 +514,91 @@ This includes the hashes of the PDF, its signature, the ZIP archive, and its sig
 
 The canonical JSON format (JCS) ensures deterministic serialization: the same content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
 
+### Custom modules
+
+Modules are external pipeline steps that run after files are built and hashed, and before publishing. Each module receives a list of files and produces new files (e.g. a timestamp, a certificate) that are then published alongside the originals.
+
+#### Creating a module
+
+Place a Python script at one of these locations (ZP looks in this order):
+
+1. `~/.zenodo/modules/<name>/main.py` — user module (directory form)
+2. `~/.zenodo/modules/<name>.py` — user module (single file)
+
+The script is invoked as:
+
+```
+uv run <script_path> --input <json_file>
+```
+
+The input JSON has the following structure:
+
+```json
+{
+  "config": {"identity_hash_algo": "sha256"},
+  "output_dir": "/tmp/...",
+  "files": [
+    {
+      "file_path": "/path/to/paper.pdf",
+      "config_key": "paper",
+      "hashes": {"sha256": {"value": "abc...", "formatted_value": "sha256:abc..."}},
+      "module_config": {"my_option": true}
+    }
+  ]
+}
+```
+
+The script writes NDJSON to stdout:
+
+- Progress events: `{"type": "detail", "msg": "..."}` (or `detail_ok`, `warn`, `error`)
+- Final result line: `{"type": "result", "files": [...]}`
+
+Each entry in `files` must have at minimum:
+
+```json
+{
+  "file_path": "/tmp/.../paper.pdf.tsr",
+  "config_key": "paper",
+  "module_entry_type": "tsr"
+}
+```
+
+`config_key` links the produced file back to the parent entry. `module_entry_type` is a sub-type label (free string, used for display). If the module should declare its own publisher destinations, add a `publishers` key — otherwise ZP uses the destination configured in `zenodo_config.yaml` for the module name.
+
+The script can declare dependencies at the top using PEP 723 inline metadata:
+
+```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["requests>=2.28"]
+# ///
+```
+
+`uv run` resolves and installs them automatically in an isolated environment.
+
+#### Configuring a module
+
+Declare the module globally and attach it to files in `zenodo_config.yaml`:
+
+```yaml
+modules:
+  my_module:                 # must match the directory/file name in ~/.zenodo/modules/
+    my_option: true          # global config passed to the module for every file
+
+generated_files:
+  paper:
+    pattern: "{compile_dir}/main.pdf"
+    modules:
+      my_module:             # attach module to this file
+        my_option: false     # per-file override (merged over global config)
+
+publishers:
+  destination:
+    my_module: [zenodo]      # where to upload files produced by my_module
+```
+
+The per-file `modules:` key overrides the global `modules:` config for that file only. Both are merged: per-file values take precedence.
+
 ### Recommended hash algorithms
 
 ```yaml
