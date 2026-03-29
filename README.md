@@ -533,39 +533,62 @@ The module's `main.py` is invoked inside its own isolated uv environment:
 uv run --project <module_dir> main.py --input <json_file>
 ```
 
-The input JSON has the following structure:
+#### Input
 
 ```json
 {
-  "config": {"identity_hash_algo": "sha256"},
-  "output_dir": "/tmp/...",
+  "config": {
+    "identity_hash_algo": "sha256"
+  },
+  "output_dir": "/tmp/zp-work/",
   "files": [
     {
-      "file_path": "/path/to/paper.pdf",
+      "file_path": "/tmp/zp-work/paper.pdf",
       "config_key": "paper",
-      "hashes": {"sha256": {"value": "abc...", "formatted_value": "sha256:abc..."}},
+      "type": "file",
+      "hashes": {
+        "sha256": {"type": "sha256", "value": "abc...", "formatted_value": "sha256:abc..."},
+        "md5":    {"type": "md5",    "value": "xyz...", "formatted_value": "md5:xyz..."}
+      },
       "module_config": {"my_option": true}
     }
   ]
 }
 ```
 
-The script writes NDJSON to stdout:
+| Field | Description |
+|-------|-------------|
+| `config.identity_hash_algo` | The algorithm designated as the canonical file identity (same value used for Zenodo identifiers and signing). Use `hashes[identity_hash_algo]` when you need a single hash to represent the file. |
+| `output_dir` | Directory where the module must write its output files. |
+| `files[].file_path` | Absolute path to the source file in the ZP work directory. |
+| `files[].config_key` | Key of the `generated_files` entry this file belongs to. Must be echoed back in each output entry. |
+| `files[].type` | ZP file type: `"file"`, `"project"`, or `"manifest"`. |
+| `files[].hashes` | All hash algorithms computed by the pipeline, keyed by algorithm name. Each entry: `{"type", "value" (hex), "formatted_value" ("algo:hex")}`. Hashes are pre-computed — the module does not need to read the file to hash it. |
+| `files[].module_config` | Module configuration for this specific file. ZP pre-merges the global `modules.<name>:` config with the per-file `generated_files.<key>.modules.<name>:` override (per-file wins). The module receives the final merged value and does not need to handle merging. The module only sees its own config — other modules' configs are not included. |
 
-- Progress events: `{"type": "detail", "msg": "..."}` (or `detail_ok`, `warn`, `error`)
-- Final result line: `{"type": "result", "files": [...]}`
+#### Output
 
-Each entry in `files` must have at minimum:
+The module writes NDJSON lines to stdout:
+
+- **Event lines**: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "...", ...}`  — relayed by ZP to the user as-is
+- **Result line** (last line): `{"type": "result", "files": [...]}`
+
+Each entry in the result `files` list must have at minimum:
 
 ```json
 {
-  "file_path": "/tmp/.../paper.pdf.tsr",
+  "file_path": "/tmp/zp-work/paper.pdf.tsr",
   "config_key": "paper",
   "module_entry_type": "tsr"
 }
 ```
 
-`config_key` links the produced file back to the parent entry. `module_entry_type` is a sub-type label (free string, used for display). If the module should declare its own publisher destinations, add a `publishers` key — otherwise ZP uses the destination configured in `.zp.yaml` for the module name.
+| Field | Description |
+|-------|-------------|
+| `file_path` | Absolute path to the produced file (must be inside `output_dir`). |
+| `config_key` | Copied from the input entry — links the output back to its parent generated_files entry. |
+| `module_entry_type` | Free label for the output sub-type (e.g. `"tsr"`, `"cert"`). Used for archive and publisher routing via `<module_name>.<entry_type>` keys. |
+| `publishers` (optional) | `{"destination": {"<type_key>": ["zenodo", "github"]}}` — overrides the publisher routing from `.zp.yaml` for this output. Omit to use the YAML config. |
 
 Declare dependencies in `pyproject.toml`:
 

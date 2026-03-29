@@ -571,6 +571,12 @@ Runs configured modules for files that declare them under `modules:`. Each modul
 5. Reads NDJSON events + result files from stdout
 6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
 
+Input JSON: `{"config": {"identity_hash_algo": ...}, "output_dir": ..., "files": [{file_path, config_key, type, hashes, module_config}]}`. Key points:
+- `module_config` = `{**global_cfg, **per_file_cfg}` pre-merged by ZP; module sees only its own config
+- `hashes` = all pipeline-computed algorithms, each `{"type", "value" (hex), "formatted_value"}`; use `hashes[identity_hash_algo]` for the canonical hash
+- `type` = `"file"` / `"project"` / `"manifest"`
+See README "Custom modules → Input" for the full field reference.
+
 ### Step 14: Publish (`_step_publish`)
 
 Routes each file to destinations per `publishers.destination[type_key]` where `type_key = module_name` for MODULE_ENTRY, else `fe.type`.
