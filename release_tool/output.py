@@ -241,7 +241,7 @@ class Output:
         self.emit(event)
 
     def fatal(self, msg: str, exc: Exception | None = None, **kwargs):
-        if exc:
+        if exc and str(exc) != msg:
             msg = f"{msg}\n{str(exc)}"
         event = self._build_event("fatal", msg, **kwargs)
         if exc:
