@@ -91,6 +91,7 @@ def check_module(provider_name: str, module_config: dict, output_module,
         proc = subprocess.run(
             _build_uv_cmd(module_path, "--check", "--config", config_path),
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             env=_subprocess_env(),
         )
@@ -107,11 +108,20 @@ def check_module(provider_name: str, module_config: dict, output_module,
             continue
         output_module.emit(event)
 
+    stderr = proc.stderr.strip()
     if proc.returncode != 0:
+        detail = f"\n{stderr}" if stderr else ""
         raise ModuleError(
-            f"Module '{provider_name}' check failed (exit code {proc.returncode})",
+            f"Module '{provider_name}' check failed (exit code {proc.returncode}){detail}",
             name="check_failed",
         )
+    if stderr:
+        output_module.emit({
+            "type": "warn",
+            "msg": stderr,
+            "name": "module.stderr",
+            "data": {"module_name": provider_name},
+        })
 
 
 def run_module(provider_name: str, input_data: dict, output_module,
@@ -134,6 +144,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
         proc = subprocess.run(
             _build_uv_cmd(module_path, "--input", input_path),
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             env=_subprocess_env(),
         )
@@ -154,10 +165,19 @@ def run_module(provider_name: str, input_data: dict, output_module,
         else:
             output_module.emit(event)
 
+    stderr = proc.stderr.strip()
     if proc.returncode != 0:
+        detail = f"\n{stderr}" if stderr else ""
         raise ModuleError(
-            f"Module '{provider_name}' exited with code {proc.returncode}",
+            f"Module '{provider_name}' exited with code {proc.returncode}{detail}",
             name="run_error",
         )
+    if stderr:
+        output_module.emit({
+            "type": "warn",
+            "msg": stderr,
+            "name": "module.stderr",
+            "data": {"module_name": provider_name},
+        })
 
     return result_files
