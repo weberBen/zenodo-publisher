@@ -39,3 +39,8 @@ ENV/
 uv.lock
 
 *.zip
+# testing report
+results.xml
+results.json
+results.jsonl
+results.txt

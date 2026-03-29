@@ -28,8 +28,10 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 # clear tmp test between each test
 tmp_path_retention_policy = "none"
+addopts = "-v --tb=short --report-log=results.jsonl"
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-reportlog>=1.0.0",
 ]
