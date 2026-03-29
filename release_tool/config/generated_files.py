@@ -67,14 +67,18 @@ VALID_DESTINATIONS = {"zenodo", "github"}
 class PublisherDestinations:
     """Routing config: destination[type_name] = list of platforms for that type.
 
-    type_name is one of: "file" (the file itself), "sig" (its GPG signature),
-    or a module name (e.g. "digicert_timestamp") for module-produced files.
+    type_name is one of:
+      "file"                       — the file itself (FILE/PROJECT/MANIFEST)
+      "sig"                        — its GPG signature
+      "<module_name>"              — all outputs of that module
+      "<module_name>.<entry_type>" — only module outputs with that module_entry_type
 
     Example:
         destination:
           file: [zenodo, github]
           sig: [github]
-          digicert_timestamp: []
+          digicert_timestamp: [github]        # all digicert outputs
+          digicert_timestamp.cert: [zenodo]   # only cert outputs
     """
     destination: dict[str, list[str]] = field(default_factory=dict)
 

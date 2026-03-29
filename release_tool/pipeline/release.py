@@ -46,30 +46,36 @@ from .context import PipelineContext, HookPoint, HookRegistry
 # ---------------------------------------------------------------------------
 
 def _resolve_archive(entry_type: FileEntryType, module_name: str | None,
-                     fce: FileConfigEntry | None, config) -> bool:
+                     fce: FileConfigEntry | None, config,
+                     module_entry_type: str | None = None) -> bool:
     """Resolve whether this FileEntry should be persisted to archive_dir.
 
     Key mapping:
       FILE / PROJECT / MANIFEST → "file"
       SIG                       → "sig"
-      MODULE_ENTRY              → module_name
+      MODULE_ENTRY              → module_name  (matches all outputs of that module)
+                                  module_name.module_entry_type  (matches specific sub-type only)
+
+    For MODULE_ENTRY, a match on either key is sufficient.
 
     Priority: per-file fce.archive_types > global config.archive_types.
     Empty list [] = veto (archive nothing for this entry).
     """
-    if entry_type == FileEntryType.SIG:
-        key = "sig"
-    elif entry_type == FileEntryType.MODULE_ENTRY:
-        key = module_name
-    else:
-        key = "file"
-
     if fce is not None and fce.archive_types is not None:
         effective = fce.archive_types
     else:
         effective = config.archive_types
 
-    return key in effective
+    if entry_type == FileEntryType.SIG:
+        return "sig" in effective
+    elif entry_type == FileEntryType.MODULE_ENTRY:
+        if module_name in effective:
+            return True
+        if module_entry_type:
+            return f"{module_name}.{module_entry_type}" in effective
+        return False
+    else:
+        return "file" in effective
 
 
 def ellipse_hash(hash_str, visible_char=8):
@@ -608,13 +614,17 @@ def _step_modules(ctx: PipelineContext) -> None:
             parent_fce = next(
                 (fce for fce in ctx.config.generated_files if fce.key == config_key), None
             )
+            met = rf.get("module_entry_type")
             # Module output can override archive via archive_types list in JSON
             module_archive_types = rf.get("archive_types")
             if module_archive_types is not None:
-                module_archive = module_name in module_archive_types
+                module_archive = module_name in module_archive_types or (
+                    met and f"{module_name}.{met}" in module_archive_types
+                )
             else:
                 module_archive = _resolve_archive(
-                    FileEntryType.MODULE_ENTRY, module_name, parent_fce, ctx.config
+                    FileEntryType.MODULE_ENTRY, module_name, parent_fce, ctx.config,
+                    module_entry_type=met,
                 )
             ctx.archived_files.append(FileEntry(
                 file_path=Path(rf["file_path"]),
@@ -661,12 +671,14 @@ def _files_for_destination(archived_files: list[FileEntry], destination: str) ->
             continue
         # Same normalization as _resolve_archive: FILE/PROJECT/MANIFEST → "file", SIG → "sig"
         if fe.type == FileEntryType.MODULE_ENTRY:
-            type_key = fe.module_name
+            platforms = set(fe.publishers.destinations_for(fe.module_name))
+            if fe.module_entry_type:
+                platforms |= set(fe.publishers.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
         elif fe.type == FileEntryType.SIG:
-            type_key = FileEntryType.SIG
+            platforms = set(fe.publishers.destinations_for(FileEntryType.SIG))
         else:
-            type_key = FileEntryType.FILE
-        if destination in fe.publishers.destinations_for(type_key):
+            platforms = set(fe.publishers.destinations_for(FileEntryType.FILE))
+        if destination in platforms:
             result.append(fe)
     return result
 
