@@ -1,5 +1,5 @@
 # Zenodo Publisher Configuration
-# Copy this file to zenodo_config.yaml in your project root
+# Copy this file to zp.yaml in your project root
 #
 # Sensitive variables (ZENODO_TOKEN) go in .zenodo.env
 # Everything else is configured here.

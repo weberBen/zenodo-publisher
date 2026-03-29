@@ -77,7 +77,7 @@ def test_no_git(tmp_path, fix_log_path):
 
 
 def test_git_no_config(tmp_path, fix_log_path):
-    """With git init but no zenodo_config.yaml: should report not initialized."""
+    """With git init but no .zp.yaml: should report not initialized."""
     _git_init(tmp_path)
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release",
@@ -131,7 +131,7 @@ def test_env_file_unknown_keys(tmp_path, fix_log_path):
 def test_invalid_yaml_not_dict(tmp_path):
     """Config file with non-dict content: should fail."""
     _git_init(tmp_path)
-    config_path = tmp_path / "zenodo_config.yaml"
+    config_path = tmp_path / ".zp.yaml"
     config_path.write_text("- just\n- a\n- list\n")
     runner = ZpRunner(tmp_path)
     result = runner.run("release", "--test-mode", "--config", str(config_path))

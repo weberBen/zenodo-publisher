@@ -1,4 +1,4 @@
-"""YAML configuration loading for zenodo_config.yaml."""
+"""YAML configuration loading for .zp.yaml."""
 
 import yaml
 from pathlib import Path
@@ -10,11 +10,11 @@ from .env import ConfigError, NotInitializedError
 # (parsées séparément, structure libre)
 _OPAQUE = object()
 
-CONFIG_FILENAME = "zenodo_config.yaml"
+CONFIG_FILENAME = ".zp.yaml"
 
 
 def find_config_file(project_root: Path) -> Path | None:
-    """Find zenodo_config.yaml in project root."""
+    """Find .zp.yaml in project root."""
     path = project_root / CONFIG_FILENAME
     return path if path.exists() else None
 

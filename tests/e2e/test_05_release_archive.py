@@ -456,6 +456,6 @@ def test_project_archive_contents(release_env, fix_log_path):
         content_dir = fs.extract_archive(zip_files[0], Path(tmp))
         extracted_files = [f.name for f in Path(content_dir).rglob("*") if f.is_file()]
 
-    # Should contain repo files (zenodo_config.yaml is always in the repo)
-    assert "zenodo_config.yaml" in extracted_files, \
-        f"Archive should contain zenodo_config.yaml. Got: {extracted_files}"
+    # Should contain repo files (.zp.yaml is always in the repo)
+    assert ".zp.yaml" in extracted_files, \
+        f"Archive should contain .zp.yaml. Got: {extracted_files}"

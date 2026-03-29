@@ -101,7 +101,7 @@ chmod +x zp.bash
 ## Usage
 
 ```bash
-# From your project directory (where zenodo_config.yaml is located)
+# From your project directory (where .zp.yaml is located)
 zp
 # or zp.bash or any symlink to the bash launcher if the tool is not installed globally
 zp --help
@@ -128,14 +128,14 @@ zp release --debug     # with flags
 Creates a zip archive of the project at a given git tag using `git archive`, and prints checksums. Does **not** require the full Zenodo pipeline.
 
 ```bash
-# Inside a ZP project (reads project_name from zenodo_config.yaml)
+# Inside a ZP project (reads project_name from .zp.yaml)
 zp archive --tag v1.0.0
 zp archive --tag v1.0.0 --output-dir
 
 # --no-cache: fetch the tag from the remote origin instead of using the local repo
 zp archive --tag v1.0.0 --no-cache
 
-# --remote: archive from any remote git repository (no zenodo_config.yaml needed)
+# --remote: archive from any remote git repository (no .zp.yaml needed)
 zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:user/repo.git
 ```
 
@@ -156,7 +156,7 @@ zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:
 
 ## Project Setup
 
-### 1. Create `zenodo_config.yaml` in your project root
+### 1. Create `.zp.yaml` in your project root
 
 This is the main configuration file. All options except sensitive credentials go here.
 
@@ -243,7 +243,7 @@ ZENODO_TOKEN=your_zenodo_api_token
 ZENODO_CONCEPT_DOI=123456
 ```
 
-Only sensitive variables go here. Everything else is in `zenodo_config.yaml`.
+Only sensitive variables go here. Everything else is in `.zp.yaml`.
 
 These variables can also be passed via environment variables (e.g. `export ZENODO_TOKEN=...`). Environment variables take priority over `.zenodo.env`. The full resolution order is: CLI > YAML > os environment > `.zenodo.env` > defaults.
 
@@ -389,7 +389,7 @@ If two files end up with the same destination name (e.g. same-name files from di
 
 ### Generated files
 
-The `generated_files` section in `zenodo_config.yaml` declares which files to include in the release. Three types:
+The `generated_files` section in `.zp.yaml` declares which files to include in the release. Three types:
 
 - **pattern entries** (custom key): a file matched by glob pattern. Can be renamed using the project name template.
 - **project** (reserved key): a git archive of the repository. Format controlled by `archive.format`.
@@ -435,7 +435,7 @@ Patterns support standard glob wildcards in any segment of the path: `*` (any ch
 
 Available template variables:
 - `{compile_dir}`: value of `compile.dir` from config (default set to project root)
-- `{project_root}`: absolute path to the project root (where `zenodo_config.yaml` is)
+- `{project_root}`: absolute path to the project root (where `.zp.yaml` is)
 - `{project_name}`: resolved at runtime as `prefix + suffix` (e.g. `MyProject-v1.0.0` with `prefix: "MyProject"`, `suffix: "-{tag_name}"`, tag `v1.0.0`)
 
 If a template variable is used but not set (e.g. `{compile_dir}` without `compile.dir` in config), the config will fail with an error.
@@ -465,7 +465,7 @@ When creating a new release, `check_tag_validity` verifies:
 
 GitHub draft releases are invisible to `gh release list` and to the `/releases/tags/{tag}` API endpoint. When `gh release create` is called with a tag name that matches an existing draft, GitHub silently converts the draft into a published release.
 
-To prevent this, set `github.check_draft: true` in `zenodo_config.yaml`. This scans all releases via the REST API to detect drafts. It is disabled by default because it requires paginating all releases (slower).
+To prevent this, set `github.check_draft: true` in `.zp.yaml`. This scans all releases via the REST API to detect drafts. It is disabled by default because it requires paginating all releases (slower).
 
 ### GPG signing
 
@@ -563,7 +563,7 @@ Each entry in `files` must have at minimum:
 }
 ```
 
-`config_key` links the produced file back to the parent entry. `module_entry_type` is a sub-type label (free string, used for display). If the module should declare its own publisher destinations, add a `publishers` key — otherwise ZP uses the destination configured in `zenodo_config.yaml` for the module name.
+`config_key` links the produced file back to the parent entry. `module_entry_type` is a sub-type label (free string, used for display). If the module should declare its own publisher destinations, add a `publishers` key — otherwise ZP uses the destination configured in `.zp.yaml` for the module name.
 
 The script can declare dependencies at the top using PEP 723 inline metadata:
 
@@ -578,7 +578,7 @@ The script can declare dependencies at the top using PEP 723 inline metadata:
 
 #### Configuring a module
 
-Declare the module globally and attach it to files in `zenodo_config.yaml`:
+Declare the module globally and attach it to files in `.zp.yaml`:
 
 ```yaml
 modules:
@@ -777,7 +777,7 @@ This tool assumes you **don't store PDFs/compiled files in git**. PDFs are gener
 ## Troubleshooting
 
 ### "Project not initialized for Zenodo publisher"
-Create a `zenodo_config.yaml` file in your project root.
+Create a `.zp.yaml` file in your project root.
 
 ### "Compile directory not found"
 Check that `compile.dir` points to a valid directory containing your Makefile, and that `compile.enabled: true`.

@@ -1,4 +1,4 @@
-"""Test: validation statique des clés YAML inconnues dans zenodo_config.yaml.
+"""Test: validation statique des clés YAML inconnues dans .zp.yaml.
 
 Vérifie que toute clé (ou chemin de clé) absente des définitions ConfigOption
 lève immédiatement config.yaml.unknown_key, à chaque niveau de profondeur.

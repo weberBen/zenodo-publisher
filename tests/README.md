@@ -24,7 +24,7 @@ zenodo-sandbox-publisher/
 ├── .gitignore
 ├── .zenodo.env                    # ZENODO_TOKEN + ZENODO_CONCEPT_DOI
 ├── zenodo.env.example
-├── zenodo_config.yaml             # ZP config for the sandbox project
+├── .zp.yaml             # ZP config for the sandbox project
 ├── README.md
 └── papers/
     ├── .gitignore                 # ignores *.pdf, *.aux, *.log, etc.
@@ -41,7 +41,7 @@ zenodo-sandbox-publisher/
 ```
 
 The repo must have:
-- A `zenodo_config.yaml` at the root (ZP config for this project)
+- A `.zp.yaml` at the root (ZP config for this project)
 - A `.zenodo.env` with a valid `ZENODO_TOKEN` and `ZENODO_CONCEPT_DOI` for the sandbox Zenodo instance
 - A `papers/latex/` directory with a Makefile that has a `deploy` target
 - A `papers/latex/releases/` directory for persistent archives

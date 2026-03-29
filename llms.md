@@ -78,7 +78,7 @@ ZENODO_TOKEN=your_sandbox_token
 
 Get a token from https://sandbox.zenodo.org/account/settings/applications/tokens/new/ with scopes `deposit:actions` and `deposit:write`. The `concept_doi` is set in the YAML config below.
 
-### 3. Create `zenodo_config.yaml`
+### 3. Create `.zp.yaml`
 
 ```yaml
 project_name:
@@ -265,7 +265,7 @@ release_tool/
 ├── config/
 │   ├── schema.py                   # ConfigOption dataclass + dedup_args (merge default/user args)
 │   ├── common.py                   # CommonConfig base (resolution: CLI > YAML > env > default)
-│   ├── yaml.py                     # Load zenodo_config.yaml, traverse_yaml
+│   ├── yaml.py                     # Load .zp.yaml, traverse_yaml
 │   ├── env.py                      # Load .zenodo.env (sensitive vars only)
 │   ├── release.py                  # ReleaseConfig + RELEASE_OPTIONS + signing + generated_files
 │   ├── archive.py                  # ArchiveConfig + ARCHIVE_OPTIONS
@@ -311,13 +311,13 @@ uv run zp --help               # CLI help
 
 | File | Content | Tracked? |
 |------|---------|----------|
-| `zenodo_config.yaml` | All options (project name, compile, signing, archive, generated_files, zenodo, github) | Yes |
+| `.zp.yaml` | All options (project name, compile, signing, archive, generated_files, zenodo, github) | Yes |
 | `.zenodo.env` | Sensitive vars only (`ZENODO_TOKEN`, optionally `ZENODO_CONCEPT_DOI`) | No |
 
 ### Resolution order (highest wins)
 
 ```
-CLI flag > zenodo_config.yaml > os.environ > .zenodo.env > default
+CLI flag > .zp.yaml > os.environ > .zenodo.env > default
 ```
 
 ### ConfigOption dataclass (`config/schema.py`)
@@ -1080,7 +1080,7 @@ Subprocess wrapper. All tests call ZP via: `uv run --project <ZP_ROOT> zp <args>
 **Key method: `run_test()`**:
 ```python
 runner.run_test("release",
-    config={...},           # -> written to tmp zenodo_config.yaml, passed via --config
+    config={...},           # -> written to tmp .zp.yaml, passed via --config
     test_config={           # -> written to tmp test.config.yaml, passed via --test-config
         "prompts": {"enter_tag": "v1.0.0", "confirm_build": "yes", ...},
         "verify_prompts": False,

@@ -77,7 +77,7 @@ class CommonConfig:
     """Base configuration class.
 
     Options are defined in _options (single source of truth).
-    Priority: CLI overrides > zenodo_config.yaml > .zenodo.env (sensitive) > defaults.
+    Priority: CLI overrides > .zp.yaml > .zenodo.env (sensitive) > defaults.
 
     Subclasses extend _options and may set:
       _required:    list of option names that must be non-None

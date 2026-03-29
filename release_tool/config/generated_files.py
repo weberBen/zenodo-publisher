@@ -1,6 +1,6 @@
 """Generated files configuration: dataclasses and YAML parser.
 
-Parses the `generated_files:` section of zenodo_config.yaml into a list
+Parses the `generated_files:` section of .zp.yaml into a list
 of FileConfigEntry dataclasses. Each entry declares a file to include in the
 release, with per-file signing, renaming, publishing destinations, and
 identifier options.

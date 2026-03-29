@@ -88,8 +88,8 @@ def _load_test_env(tests_dir: Path) -> dict[str, str]:
 
 
 def _load_branch_name(repo_path: Path) -> str | None:
-    """Read main_branch from zenodo_config.yaml in the repo."""
-    config_path = repo_path / "zenodo_config.yaml"
+    """Read main_branch from .zp.yaml in the repo."""
+    config_path = repo_path / ".zp.yaml"
     if not config_path.exists():
         return None
     with open(config_path) as f:
