@@ -47,7 +47,7 @@ This section helps you find the right code quickly without reading everything.
 - **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
 - **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
-- **Modules system**: external pipeline steps in `release_tool/modules/<name>/main.py` (built-in) or `~/.zenodo/modules/<name>/main.py` (user). Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess via `uv run`.
+- **Modules system**: external pipeline steps. Lookup order: (1) built-in `release_tool/modules/<name>/main.py`, (2) project `<project_root>/.zp/modules/<name>/main.py`, (3) user `~/.zp/modules/<name>/main.py`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess via `uv run`.
 
 ### Common pitfalls
 

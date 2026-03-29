@@ -1,7 +1,11 @@
 """Module loader for zenodo-publisher pipeline modules.
 
-Built-in modules live in release_tool/modules/<name>/main.py.
-User modules live in ~/.zenodo/modules/<name>/main.py or ~/.zenodo/modules/<name>.py.
+Lookup order (first match wins):
+  1. Built-in:     release_tool/modules/<name>/main.py
+  2. Project root: <project_root>/.zp/modules/<name>/main.py
+                   <project_root>/.zp/modules/<name>.py
+  3. User home:    ~/.zp/modules/<name>/main.py
+                   ~/.zp/modules/<name>.py
 """
 
 import json
@@ -17,33 +21,40 @@ class ModuleError(ZPError):
     _prefix = "module"
 
 
-def find_module_path(provider_name: str) -> Path:
+def find_module_path(provider_name: str, project_root: Path | None = None) -> Path:
     """Return path to module script. Raises ModuleError if not found."""
     # 1. Built-in: release_tool/modules/<name>/main.py
     builtin = Path(__file__).parent / provider_name / "main.py"
     if builtin.exists():
         return builtin
 
-    # 2. User directory: ~/.zenodo/modules/<name>/main.py
-    user_dir = Path.home() / ".zenodo" / "modules" / provider_name / "main.py"
+    # 2. Project root: <project_root>/.zp/modules/<name>/main.py or <name>.py
+    if project_root is not None:
+        proj_dir = project_root / ".zp" / "modules" / provider_name / "main.py"
+        if proj_dir.exists():
+            return proj_dir
+        proj_file = project_root / ".zp" / "modules" / f"{provider_name}.py"
+        if proj_file.exists():
+            return proj_file
+
+    # 3. User home: ~/.zp/modules/<name>/main.py or <name>.py
+    user_dir = Path.home() / ".zp" / "modules" / provider_name / "main.py"
     if user_dir.exists():
         return user_dir
-
-    # 3. User single file: ~/.zenodo/modules/<name>.py
-    user_file = Path.home() / ".zenodo" / "modules" / f"{provider_name}.py"
+    user_file = Path.home() / ".zp" / "modules" / f"{provider_name}.py"
     if user_file.exists():
         return user_file
 
     raise ModuleError(
         f"Module '{provider_name}' not found. "
-        f"Looked in built-ins and {Path.home() / '.zenodo' / 'modules'}.",
+        f"Looked in built-ins, project .zp/modules/, and {Path.home() / '.zp' / 'modules'}.",
         name="not_found",
     )
 
 
-def load_module(provider_name: str) -> Path:
+def load_module(provider_name: str, project_root: Path | None = None) -> Path:
     """Validate module exists at config load time. Returns its path."""
-    return find_module_path(provider_name)
+    return find_module_path(provider_name, project_root=project_root)
 
 
 def is_builtin(provider_name: str) -> bool:
@@ -51,14 +62,15 @@ def is_builtin(provider_name: str) -> bool:
     return (Path(__file__).parent / provider_name / "main.py").exists()
 
 
-def run_module(provider_name: str, input_data: dict, output_module) -> list[dict]:
+def run_module(provider_name: str, input_data: dict, output_module,
+               project_root: Path | None = None) -> list[dict]:
     """Run a module as a subprocess via uv.
 
     Passes input_data as JSON file, reads NDJSON output.
     Events are relayed to output_module.emit().
     Returns the list of file dicts from the 'result' event.
     """
-    module_path = find_module_path(provider_name)
+    module_path = find_module_path(provider_name, project_root=project_root)
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False, encoding="utf-8"

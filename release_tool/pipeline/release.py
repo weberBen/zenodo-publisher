@@ -584,7 +584,7 @@ def _step_modules(ctx: PipelineContext) -> None:
         if is_builtin(module_name):
             module_origin = "built-in module"
         else:
-            module_origin = f"custom module (~/.zenodo/modules/{module_name})"
+            module_origin = f"custom module (.zp/modules/{module_name} or ~/.zp/modules/{module_name})"
         if not prompts.confirm_run_module.ask(
             f"Run {module_origin} '{module_name}' on {len(files_input)} file(s)?"
         ).is_accept:
@@ -605,7 +605,8 @@ def _step_modules(ctx: PipelineContext) -> None:
             module_name=module_name, n=len(files_input), name="module.running",
         )
 
-        raw_files = run_module(module_name, input_data, output)
+        raw_files = run_module(module_name, input_data, output,
+                               project_root=ctx.config.project_root)
 
         for rf in raw_files:
             publishers_raw = rf.get("publishers", {})

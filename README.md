@@ -522,8 +522,9 @@ Modules are external pipeline steps that run after files are built and hashed, a
 
 Place a Python script at one of these locations (ZP looks in this order):
 
-1. `~/.zenodo/modules/<name>/main.py` — user module (directory form)
-2. `~/.zenodo/modules/<name>.py` — user module (single file)
+1. Built-in: `release_tool/modules/<name>/main.py`
+2. Project: `<project_root>/.zp/modules/<name>/main.py` or `.zp/modules/<name>.py`
+3. User home: `~/.zp/modules/<name>/main.py` or `~/.zp/modules/<name>.py`
 
 The script is invoked as:
 
@@ -582,7 +583,7 @@ Declare the module globally and attach it to files in `.zp.yaml`:
 
 ```yaml
 modules:
-  my_module:                 # must match the directory/file name in ~/.zenodo/modules/
+  my_module:                 # must match the directory/file name in .zp/modules/ or ~/.zp/modules/
     my_option: true          # global config passed to the module for every file
 
 generated_files:

@@ -65,8 +65,9 @@ zenodo:
 # ---------------------------------------------------------------------------
 # Modules (optional external pipeline steps)
 # ---------------------------------------------------------------------------
-# Built-in modules live in release_tool/modules/<name>/main.py
-# User modules live in ~/.zenodo/modules/<name>/main.py
+# Built-in modules:  release_tool/modules/<name>/main.py
+# Project modules:   .zp/modules/<name>/main.py
+# User modules:      ~/.zp/modules/<name>/main.py
 #
 # modules:
 #   digicert_timestamp:

@@ -173,7 +173,7 @@ class ReleaseConfig(CommonConfig):
             from ..modules import load_module, ModuleError as _ModuleError
             for module_name in self.modules_config:
                 try:
-                    load_module(module_name)
+                    load_module(module_name, project_root=self.project_root)
                 except _ModuleError as e:
                     raise ConfigError(str(e), name=f"config.modules.not_found.{module_name}") from e
 
