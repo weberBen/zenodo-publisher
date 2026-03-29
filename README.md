@@ -521,16 +521,16 @@ Modules are external pipeline steps that run after files are built and hashed, a
 
 #### Creating a module
 
-Place a Python script at one of these locations (ZP looks in this order):
+Each module is a **uv project directory** containing at minimum `main.py` and `pyproject.toml` (with an optional `uv.lock`). ZP looks for modules in this order (first match wins):
 
-1. Built-in: `release_tool/modules/<name>/main.py`
-2. Project: `<project_root>/.zp/modules/<name>/main.py` or `.zp/modules/<name>.py`
-3. User home: `~/.zp/modules/<name>/main.py` or `~/.zp/modules/<name>.py`
+1. Built-in: `release_tool/modules/<name>/`
+2. Project: `<project_root>/.zp/modules/<name>/`
+3. User home: `~/.zp/modules/<name>/`
 
-The script is invoked as:
+The module's `main.py` is invoked inside its own isolated uv environment:
 
 ```
-uv run <script_path> --input <json_file>
+uv run --project <module_dir> main.py --input <json_file>
 ```
 
 The input JSON has the following structure:
@@ -567,16 +567,27 @@ Each entry in `files` must have at minimum:
 
 `config_key` links the produced file back to the parent entry. `module_entry_type` is a sub-type label (free string, used for display). If the module should declare its own publisher destinations, add a `publishers` key — otherwise ZP uses the destination configured in `.zp.yaml` for the module name.
 
-The script can declare dependencies at the top using PEP 723 inline metadata:
+Declare dependencies in `pyproject.toml`:
 
-```python
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["requests>=2.28"]
-# ///
+```toml
+[project]
+name = "my-module"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
 ```
 
-`uv run` resolves and installs them automatically in an isolated environment.
+Run `uv lock` inside the module directory to generate `uv.lock`. ZP runs the module in its own isolated uv environment — it does not share ZP's dependencies.
+
+#### Module self-check
+
+Every module must also support a `--check` mode that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
+
+```
+uv run --project <module_dir> main.py --check --config <json_file>
+```
+
+The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `--check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
 
 #### Configuring a module
 
@@ -584,7 +595,7 @@ Declare the module globally and attach it to files in `.zp.yaml`:
 
 ```yaml
 modules:
-  my_module:                 # must match the directory/file name in .zp/modules/ or ~/.zp/modules/
+  my_module:                 # must match the directory name in .zp/modules/ or ~/.zp/modules/
     my_option: true          # global config passed to the module for every file
 
 generated_files:

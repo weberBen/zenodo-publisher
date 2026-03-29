@@ -47,7 +47,7 @@ This section helps you find the right code quickly without reading everything.
 - **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
 - **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
-- **Modules system**: external pipeline steps. Lookup order: (1) built-in `release_tool/modules/<name>/main.py`, (2) project `<project_root>/.zp/modules/<name>/main.py`, (3) user `~/.zp/modules/<name>/main.py`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess via `uv run`.
+- **Modules system**: external pipeline steps, each a uv project directory (requires `main.py` + `pyproject.toml`). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> main.py`. Every module must implement `--check` mode (connectivity/config validation, called at pipeline start) and `--input` mode (normal run). Both modes output NDJSON events to stdout.
 
 ### Common pitfalls
 
@@ -276,9 +276,11 @@ release_tool/
 │   ├── transform_common.py         # Shared transforms (tar, gzip, hash, COMMIT_FIELD_MAP)
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
 ├── modules/
-│   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, is_builtin
-│   └── digicert_timestamp/
-│       └── main.py                 # Built-in: RFC 3161 timestamp via DigiCert TSA (uv script)
+│   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, check_module, is_builtin
+│   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
+│       ├── main.py                 #   Module entry point (--input / --check modes)
+│       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
+│       └── uv.lock                 #   Locked dependency graph
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
 │   ├── context.py                  # PipelineContext, HookPoint, HookRegistry
@@ -563,10 +565,11 @@ Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: 
 
 Runs configured modules for files that declare them under `modules:`. Each module:
 1. Collects matching FileEntry entries (by config_key, non-SIG)
-2. Prompts user to confirm running (indicates built-in vs custom)
-3. Invokes module as subprocess: `uv run <module_path> --input <json_file>`
-4. Reads NDJSON events + result files from stdout
-5. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
+2. Runs `--check` mode: `uv run --project <module_dir> main.py --check --config <json_file>` — relays NDJSON events; aborts pipeline on non-zero exit
+3. Prompts user to confirm running (indicates built-in vs custom)
+4. Runs `--input` mode: `uv run --project <module_dir> main.py --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
+5. Reads NDJSON events + result files from stdout
+6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
 
 ### Step 14: Publish (`_step_publish`)
 
