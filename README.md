@@ -179,6 +179,7 @@ archive:
   # gzip_extra_args: []       # override default gzip args
 
 hash_algorithms: [md5, sha256, tree]
+identity_hash_algo: sha256        # single global algo used for identifiers, signing (file_hash mode), and modules
 
 signing:
   sign: true
@@ -402,7 +403,7 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
 - `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
-- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `signing.sign_hash_algo` (not `hash_algorithms`). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
+- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `identity_hash_algo` (global, see below). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
   - `source: file` (default): hash of the file itself
   - `source: sig_file`: hash of the signature (requires `sign: true`)
   - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file to use?)
@@ -473,12 +474,12 @@ Signing is configured globally in the `signing` section and can be overridden pe
 
 Two signing modes:
 - **file** (`sign_mode: file`): signs the file directly with GPG. Produces a detached signature.
-- **file_hash** (`sign_mode: file_hash`, default): computes the file's hash using `sign_hash_algo`, writes `algo:hexvalue` to a temp file, and signs that text file with GPG. The temp hash file is deleted after signing, only the signature remains.
+- **file_hash** (`sign_mode: file_hash`, default): computes the file's hash using `identity_hash_algo`, writes `algo:hexvalue` to a temp file, and signs that text file with GPG. The temp hash file is deleted after signing, only the signature remains.
 
 **Two different hash concepts are involved:**
 
-- **`sign_hash_algo`** (config `signing.sign_hash_algo`, default `sha256`): which hash algorithm is used to compute the file digest in `file_hash` mode. This determines what content GPG actually signs. Changing it (e.g. to `sha512`) changes the signed content and therefore the signature. This is a ZP config option.
-- **GPG digest algorithm** (GPG's own `--digest-algo`): which hash GPG uses internally for its own signature computation. This is controlled by GPG itself (via `gpg.conf` or `gpg.extra_args: ["--digest-algo", "SHA512"]`). This is independent from `sign_hash_algo`.
+- **`identity_hash_algo`** (root-level config, default `sha256`): which hash algorithm is used to compute the file digest in `file_hash` mode. This determines what content GPG actually signs. Changing it (e.g. to `sha512`) changes the signed content and therefore the signature. See [`identity_hash_algo`](#identity_hash_algo) for its full role.
+- **GPG digest algorithm** (GPG's own `--digest-algo`): which hash GPG uses internally for its own signature computation. This is controlled by GPG itself (via `gpg.conf` or `gpg.extra_args: ["--digest-algo", "SHA512"]`). This is independent from `identity_hash_algo`.
 
 Per-file overrides available in `generated_files` entries:
 - `sign: true/false` : enable/disable signing for this file (overrides global `signing.sign`)
@@ -609,6 +610,21 @@ hash_algorithms: [md5, sha256, tree]
 - **md5**: matches Zenodo's default file checksum, allowing comparison between local files and the Zenodo record without re-downloading
 - **sha256**: cryptographically secure hash for integrity verification
 - **tree** / **tree256**: git tree hash (SHA-1 / SHA-256) that depends only on file content, not the archive format. This provides a reproducible content proof that ZIP or TAR archives may not guarantee on their own (see [Content identification with tree hash](#content-identification-with-tree-hash))
+
+### identity_hash_algo
+
+```yaml
+identity_hash_algo: sha256   # default
+```
+
+A single algorithm used consistently across three roles:
+
+- **Zenodo identifiers**: the hash value embedded in `zp:///` alternate identifiers pushed to `metadata.identifiers`. Keeping this stable means identifiers are reproducible and comparable across releases.
+- **GPG signing in `file_hash` mode**: the file is hashed with this algorithm, and GPG signs the resulting `algo:hexvalue` string. What GPG actually signs depends on this value.
+- **Modules**: passed as `config.identity_hash_algo` in the module input JSON, so modules (e.g. DigiCert timestamp) use the same algorithm to hash files before submitting them to an external service.
+
+**Why it is intentionally global (no per-file override):**
+All three roles must use the same algorithm for a given release so that identifiers, signatures, and module certifications are comparable across entries. A per-file override would make it impossible to cross-verify entries or replay the pipeline simply.
 
 ### Zenodo checks
 - Verifies the version doesn't already exist on Zenodo

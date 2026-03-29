@@ -162,7 +162,7 @@ prompt_validation_level: danger
 **Signing:**
 - `sign: true` → all files with `sign` not explicitly set to `false` are signed
 - `sign_mode: file` → GPG signs the file directly (produces `.asc` detached signature), not the hash
-- `identity_hash_algo: md5` → used for identifiers and file_hash signing (the hash algo ZP uses to compute the value pushed to Zenodo `metadata.identifiers`)
+- `identity_hash_algo: md5` → single global algo with three roles: (1) value embedded in `zp:///` Zenodo alternate identifiers, (2) file digest in `file_hash` signing mode, (3) passed to modules as `config.identity_hash_algo` for external certification (e.g. DigiCert hashes the file with this algo before requesting a timestamp). **No per-file override by design**: all entries must use the same algo to allow cross-entry comparison and deterministic replay.
 - CLI flags (`--sign`/`--no-sign`, `--sign-mode`, etc.) override the **global** `signing.*` config only. Per-file `sign`/`sign_mode` in `generated_files` entries are not affected
 
 **GitHub:**
@@ -396,7 +396,7 @@ Used for: `make_args`, `tar_extra_args`, `gzip_extra_args`, `gpg_extra_args`.
 | `archive_tar_extra_args` | `archive.tar_extra_args` | list | (deduped with TAR_DEFAULT_ARGS) | |
 | `archive_gzip_extra_args` | `archive.gzip_extra_args` | list | (deduped with GZIP_DEFAULT_ARGS) | |
 | `hash_algorithms` | `hash_algorithms` | list | [] | hashlib algos + "tree"/"tree256" |
-| `identity_hash_algo` | `identity_hash_algo` | str | `sha256` | Hash algo for identifiers, file_hash signing, and module certification. **Root level** (not under `signing:`) |
+| `identity_hash_algo` | `identity_hash_algo` | str | `sha256` | Single global algo for: (1) `zp:///` Zenodo identifiers, (2) file digest in `file_hash` signing, (3) module input `config.identity_hash_algo`. **Root level** (not under `signing:`). No per-file override — all entries share the same algo for cross-entry comparability. |
 | `archive_types` | `archive.types` | list | `[file, sig]` | File types to persist to archive dir: `file`, `sig`, or module names |
 
 ### RELEASE_OPTIONS
