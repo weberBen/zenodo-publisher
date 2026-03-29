@@ -11,6 +11,7 @@ from .env import ConfigError
 from .signing import parse_signing_config, SigningConfig, SIGNING_OPTIONS, _validate_hash_algo
 from .generated_files import parse_generated_files, FileConfigEntry, FileEntryKind, PublisherDestinations
 from .generated_files import validate_no_pattern_overlap, _parse_publishers
+from .yaml import build_yaml_schema, validate_yaml_unknown_keys
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +132,22 @@ class ReleaseConfig(CommonConfig):
     _options = COMMON_OPTIONS + RELEASE_OPTIONS + SIGNING_OPTIONS
     _required: list[str] = []
     _cli_aliases: dict[str, str] = {}
+    # Chemins valides non couverts par ConfigOption (parsés manuellement)
+    _extra_yaml_paths: list[str] = ["signing.gpg.extra_args"]
+    # Sections dont la structure interne est libre-form (parsées séparément)
+    _opaque_sections: list[str] = ["generated_files", "publishers", "modules"]
 
     signing: SigningConfig
     generated_files: list[FileConfigEntry]
 
     def __init__(self, project_root, yaml_config, env_vars, cli_overrides=None):
+        if yaml_config:
+            schema = build_yaml_schema(
+                COMMON_OPTIONS + RELEASE_OPTIONS + SIGNING_OPTIONS,
+                extra_paths=self._extra_yaml_paths,
+                opaque_sections=self._opaque_sections,
+            )
+            validate_yaml_unknown_keys(yaml_config, schema)
         super().__init__(project_root, yaml_config, env_vars, cli_overrides)
 
         signing_keys = {opt.name for opt in SIGNING_OPTIONS}
