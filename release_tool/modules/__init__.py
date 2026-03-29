@@ -11,6 +11,7 @@ Execution: uv run --project <module_dir> main.py
 """
 
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,6 +27,11 @@ class ModuleError(ZPError):
 def _build_uv_cmd(module_path: Path, *args) -> list[str]:
     """Build the uv command for running a module via its project directory."""
     return ["uv", "run", "--project", str(module_path.parent), str(module_path), *args]
+
+
+def _subprocess_env() -> dict:
+    """Return os.environ without VIRTUAL_ENV so uv doesn't warn about env mismatch."""
+    return {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
 
 
 def find_module_path(provider_name: str, project_root: Path | None = None) -> Path:
@@ -86,6 +92,7 @@ def check_module(provider_name: str, module_config: dict, output_module,
             _build_uv_cmd(module_path, "--check", "--config", config_path),
             stdout=subprocess.PIPE,
             text=True,
+            env=_subprocess_env(),
         )
     finally:
         Path(config_path).unlink(missing_ok=True)
@@ -128,6 +135,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
             _build_uv_cmd(module_path, "--input", input_path),
             stdout=subprocess.PIPE,
             text=True,
+            env=_subprocess_env(),
         )
     finally:
         Path(input_path).unlink(missing_ok=True)
