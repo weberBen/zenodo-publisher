@@ -22,7 +22,6 @@ from tests.utils.git import GitClient
 _env_path = get_test_dir() / ".zenodo.test.env"
 _env = _load_env(_env_path)
 GIT_REPO_PATH = Path(_env["GIT_REPO_PATH"])
-GIT_TEMPLATE_SHA = _env["GIT_TEMPLATE_SHA"]
 DEFAULT_DIR = str(Path(__file__).resolve().parent) + "/" + "data"
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "template_repo"
 MAIN_BRANCH = "main"
@@ -30,9 +29,6 @@ ORIGIN_BRANCH = f"origin/{MAIN_BRANCH}"
 
 if not TEMPLATE_DIR.exists():
     raise Exception(f"Template repo dir '{TEMPLATE_DIR}' does not exists")
-
-if not GIT_TEMPLATE_SHA:
-    raise Exception("Invalid git template branch sha")
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -107,7 +103,8 @@ filename = add_file(git)
 git.add_and_commit()
 print("diff:", git.diff_names(ORIGIN_BRANCH))
 
-git.reset_repo(MAIN_BRANCH, GIT_TEMPLATE_SHA)
+_template_tag = git.latest_remote_tag("template_*")
+git.reset_repo(MAIN_BRANCH, git.rev_parse(_template_tag))
 git.commit()
 print("diff:", git.diff_names(ORIGIN_BRANCH))
 git.push()

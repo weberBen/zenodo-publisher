@@ -97,6 +97,18 @@ class GitClient:
         r = self._run("tag", "--list")
         return [t.strip() for t in r.stdout.strip().split("\n") if t.strip()]
 
+    def latest_remote_tag(self, pattern: str, remote: str = "origin") -> str | None:
+        """Fetch remote tags and return the most recent one matching pattern.
+
+        Fetches all remote tags (--force to overwrite stale local copies),
+        then sorts by creatordate descending and returns the first match.
+        Returns None if no matching tag is found.
+        """
+        self._run("fetch", remote, "--tags", "--force")
+        r = self._run("tag", "--list", pattern, "--sort=-creatordate")
+        tags = [t.strip() for t in r.stdout.strip().split("\n") if t.strip()]
+        return tags[0] if tags else None
+
     # --- Branch ---
 
     def branch_current(self) -> str:

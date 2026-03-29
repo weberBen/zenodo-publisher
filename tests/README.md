@@ -54,14 +54,12 @@ Create a `tests/.zenodo.test.env` file. This file is separate from the sandbox r
 
 ```env
 GIT_REPO_PATH="/path/to/zenodo-sandbox-publisher"
-GIT_TEMPLATE_SHA="<commit sha>"
 GPG_UID="<gpg key fingerprint or email>"
 ```
 
 | Variable | Description |
 |----------|-------------|
 | `GIT_REPO_PATH` | Absolute path to the sandbox repo on your local disk. The test suite runs `zp` inside this directory. |
-| `GIT_TEMPLATE_SHA` | Commit SHA used as the "clean state" reference. After each test, the repo is reset to this commit's file content (see [Repo reset](#repo-reset)). Pick a commit that represents the baseline state of your sandbox repo (typically the initial commit after setup). Get it with `git log -1 --format=%H`. |
 | `GPG_UID` | GPG key fingerprint or email used for signing tests. Must match a secret key in your keyring. Available as `fix_gpg_uid` fixture. Tests also verify that signing works without an explicit UID (ZP falls back to the default GPG key). |
 
 ## Repo reset
@@ -74,10 +72,10 @@ After each test, the repo is reset to its template state via `reset_test_repo()`
 4. `git checkout -f main` (force switch to main branch)
 5. Delete all **local branches** except main
 6. `git reset --hard origin/main` + delete all **local tags**
-7. `git rm -rf .` then `git checkout <GIT_TEMPLATE_SHA> -- .` (restore template content)
+7. `git fetch --tags --force` then resolve the latest remote tag matching `template_*` (sorted by creatordate), `git rm -rf .` then `git checkout <template_sha> -- .` (restore template content)
 8. `git add . && git commit && git push` (push clean state)
 
-The **template SHA** (`GIT_TEMPLATE_SHA`) is a reference commit in the repo. The reset restores the file content from that commit while preserving the branch history. It replaces the working tree only, not the branch pointer.
+The **template tag** is the most recent remote tag whose name starts with `template_`. The reset resolves it dynamically (no static SHA to maintain) and restores the file content from that commit while preserving the branch history. It replaces the working tree only, not the branch pointer.
 
 ## Fixtures
 

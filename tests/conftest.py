@@ -33,7 +33,6 @@ TEST_ENV_FILENAME = ".zenodo.test.env"
 test_env: dict[str, str] = {}
 repo_dir: Path | None = None
 branch_name: str | None = None
-git_template_sha: str | None = None
 gpg_uid: str | None = None
 session_id: str = uuid.uuid4().hex[:8]
 tests_dir: Path = TESTS_DIR
@@ -91,7 +90,7 @@ def _load_branch_name(repo_path: Path) -> str | None:
 
 def pytest_sessionstart(session):
     """Load context and prompt for confirmation before running tests."""
-    global test_env, repo_dir, branch_name, git_template_sha, gpg_uid
+    global test_env, repo_dir, branch_name, gpg_uid
 
     test_env.update(_load_test_env(TESTS_DIR))
 
@@ -100,7 +99,6 @@ def pytest_sessionstart(session):
         print(f"Error: {repo_dir} is not a git repository", file=sys.stderr)
         sys.exit(1)
 
-    git_template_sha = test_env.get("GIT_TEMPLATE_SHA")
     gpg_uid = test_env.get("GPG_UID")
     branch_name = _load_branch_name(repo_dir)
 
@@ -124,11 +122,16 @@ def pytest_sessionstart(session):
 
 def reset_test_repo():
     """Reset the external test repo to its template state."""
-    if not repo_dir or not git_template_sha or not branch_name:
+    if not repo_dir or not branch_name:
         raise RuntimeError(
-            "Cannot reset: repo_dir, git_template_sha or branch_name not set"
+            "Cannot reset: repo_dir or branch_name not set"
         )
     git = GitClient(repo_dir)
+
+    tag = git.latest_remote_tag("template_*")
+    if not tag:
+        raise RuntimeError("Cannot reset: no remote tag matching 'template_*' found")
+    template_sha = git.rev_parse(tag)
 
     # Clean up orphaned GitHub state from failed tests
     gh = GithubClient(repo_dir)
@@ -153,10 +156,10 @@ def reset_test_repo():
     # After template restore, the original .gitignore no longer protects them,
     # so add+commit+push makes them tracked. The second pass then removes them
     # via git rm -rf since they are now tracked.
-    git.reset_repo(branch_name, git_template_sha)
+    git.reset_repo(branch_name, template_sha)
     git.add_and_commit()
     git.push()
-    git.reset_repo(branch_name, git_template_sha)
+    git.reset_repo(branch_name, template_sha)
     git.add_and_commit()
     git.push()
 
