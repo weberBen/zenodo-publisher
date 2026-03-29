@@ -97,6 +97,14 @@ class GitClient:
         r = self._run("tag", "--list")
         return [t.strip() for t in r.stdout.strip().split("\n") if t.strip()]
 
+    def tag_date(self, tag: str) -> str:
+        """Return the creation date of a tag (ISO format).
+
+        Uses creatordate which works for both annotated and lightweight tags.
+        """
+        r = self._run("for-each-ref", "--format=%(creatordate:iso)", f"refs/tags/{tag}")
+        return r.stdout.strip()
+
     def latest_remote_tag(self, pattern: str, remote: str = "origin") -> str | None:
         """Fetch remote tags and return the most recent one matching pattern.
 
