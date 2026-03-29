@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "rfc3161ng>=2.1",
-#   "requests>=2.28",
-# ]
-# ///
 """DigiCert RFC 3161 timestamp module for zenodo-publisher.
 
 Requests a free timestamp from DigiCert TSA (http://timestamp.digicert.com)

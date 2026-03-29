@@ -36,7 +36,7 @@ from ..config.generated_files import FileConfigEntry, FileEntryKind, PublisherDe
 from ..config.signing import SignMode
 from .. import output, prompts
 from ..errors import PipelineError
-from ..modules import run_module, check_module, is_builtin
+from ..modules import run_module, check_module, find_module_path, is_builtin
 from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
@@ -96,6 +96,18 @@ def _step_module_check(ctx: PipelineContext) -> None:
     output.step("Checking modules...")
 
     for module_name, module_cfg in ctx.config.modules_config.items():
+        module_path = find_module_path(module_name, project_root=ctx.config.project_root)
+        if is_builtin(module_name):
+            origin = "built-in"
+        else:
+            try:
+                origin = str(module_path.parent.relative_to(ctx.config.project_root))
+            except (ValueError, TypeError):
+                origin = str(module_path.parent)
+        output.detail(
+            "Module '{module_name}' found ({origin})",
+            module_name=module_name, origin=origin, name="module.found",
+        )
         output.detail(
             "Checking module '{module_name}'...",
             module_name=module_name, name="module.checking",
@@ -103,7 +115,7 @@ def _step_module_check(ctx: PipelineContext) -> None:
         check_module(module_name, module_cfg, output,
                      project_root=ctx.config.project_root)
         output.detail_ok(
-            "Module '{module_name}' ready",
+            "Module '{module_name}' check passed",
             module_name=module_name, name="module.check_ok",
         )
 
@@ -618,6 +630,11 @@ def _step_modules(ctx: PipelineContext) -> None:
             )
             continue
 
+        output.detail(
+            "Module '{module_name}' confirmed, running on {n} file(s)...",
+            module_name=module_name, n=len(files_input), name="module.confirmed",
+        )
+
         input_data = {
             "config": {"identity_hash_algo": ctx.config.identity_hash_algo},
             "output_dir": str(ctx.output_dir),
@@ -651,7 +668,7 @@ def _step_modules(ctx: PipelineContext) -> None:
                     FileEntryType.MODULE_ENTRY, module_name, parent_fce, ctx.config,
                     module_entry_type=met,
                 )
-            ctx.archived_files.append(FileEntry(
+            fe = FileEntry(
                 file_path=Path(rf["file_path"]),
                 config_key=rf["config_key"],
                 filename=Path(rf["file_path"]).stem,
@@ -661,15 +678,26 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=PublisherDestinations(destination=dest_raw),
                 module_name=module_name,
                 module_entry_type=rf.get("module_entry_type"),
-            ))
-
-        if raw_files:
+            )
+            ctx.archived_files.append(fe)
             output.detail(
-                "Module '{module_name}': {n} new file(s) produced",
-                module_name=module_name, n=len(raw_files), name="module.new_files",
+                "Module entry: {filename} (key={config_key}, entry_type={module_entry_type},"
+                " archive={archive})",
+                filename=fe.file_path.name,
+                module_name=module_name,
+                module_entry_type=fe.module_entry_type,
+                config_key=fe.config_key,
+                archive=fe.archive,
+                publishers=dest_raw,
+                name="module.entry",
             )
 
-    output.step_ok("Modules completed")
+        output.detail_ok(
+            "Module '{module_name}' returned {n} file(s)",
+            module_name=module_name, n=len(raw_files), name="module.done",
+        )
+
+    output.step_ok("Modules completed", name="modules.completed")
 
 
 # ---------------------------------------------------------------------------

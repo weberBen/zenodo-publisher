@@ -1,0 +1,8 @@
+[project]
+name = "digicert-timestamp"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "rfc3161ng=2.1",
+    "requests=2.28",
+]

@@ -1,11 +1,13 @@
 """Module loader for zenodo-publisher pipeline modules.
 
+Modules are directories containing main.py and pyproject.toml (uv project).
+
 Lookup order (first match wins):
   1. Built-in:     release_tool/modules/<name>/main.py
   2. Project root: <project_root>/.zp/modules/<name>/main.py
-                   <project_root>/.zp/modules/<name>.py
   3. User home:    ~/.zp/modules/<name>/main.py
-                   ~/.zp/modules/<name>.py
+
+Execution: uv run --project <module_dir> main.py
 """
 
 import json
@@ -21,29 +23,31 @@ class ModuleError(ZPError):
     _prefix = "module"
 
 
+def _build_uv_cmd(module_path: Path, *args) -> list[str]:
+    """Build the uv command for running a module via its project directory."""
+    return ["uv", "run", "--project", str(module_path.parent), str(module_path), *args]
+
+
 def find_module_path(provider_name: str, project_root: Path | None = None) -> Path:
-    """Return path to module script. Raises ModuleError if not found."""
+    """Return path to module main.py. Raises ModuleError if not found.
+
+    Each module must be a directory with main.py and pyproject.toml.
+    """
     # 1. Built-in: release_tool/modules/<name>/main.py
     builtin = Path(__file__).parent / provider_name / "main.py"
     if builtin.exists():
         return builtin
 
-    # 2. Project root: <project_root>/.zp/modules/<name>/main.py or <name>.py
+    # 2. Project root: <project_root>/.zp/modules/<name>/main.py
     if project_root is not None:
-        proj_dir = project_root / ".zp" / "modules" / provider_name / "main.py"
-        if proj_dir.exists():
-            return proj_dir
-        proj_file = project_root / ".zp" / "modules" / f"{provider_name}.py"
-        if proj_file.exists():
-            return proj_file
+        proj = project_root / ".zp" / "modules" / provider_name / "main.py"
+        if proj.exists():
+            return proj
 
-    # 3. User home: ~/.zp/modules/<name>/main.py or <name>.py
-    user_dir = Path.home() / ".zp" / "modules" / provider_name / "main.py"
-    if user_dir.exists():
-        return user_dir
-    user_file = Path.home() / ".zp" / "modules" / f"{provider_name}.py"
-    if user_file.exists():
-        return user_file
+    # 3. User home: ~/.zp/modules/<name>/main.py
+    user = Path.home() / ".zp" / "modules" / provider_name / "main.py"
+    if user.exists():
+        return user
 
     raise ModuleError(
         f"Module '{provider_name}' not found. "
@@ -79,7 +83,7 @@ def check_module(provider_name: str, module_config: dict, output_module,
 
     try:
         proc = subprocess.run(
-            ["uv", "run", str(module_path), "--check", "--config", config_path],
+            _build_uv_cmd(module_path, "--check", "--config", config_path),
             stdout=subprocess.PIPE,
             text=True,
         )
@@ -121,7 +125,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
 
     try:
         proc = subprocess.run(
-            ["uv", "run", str(module_path), "--input", input_path],
+            _build_uv_cmd(module_path, "--input", input_path),
             stdout=subprocess.PIPE,
             text=True,
         )
