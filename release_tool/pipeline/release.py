@@ -659,7 +659,13 @@ def _files_for_destination(archived_files: list[FileEntry], destination: str) ->
     for fe in archived_files:
         if not fe.publishers:
             continue
-        type_key = fe.module_name if fe.type == FileEntryType.MODULE_ENTRY else fe.type
+        # Same normalization as _resolve_archive: FILE/PROJECT/MANIFEST → "file", SIG → "sig"
+        if fe.type == FileEntryType.MODULE_ENTRY:
+            type_key = fe.module_name
+        elif fe.type == FileEntryType.SIG:
+            type_key = FileEntryType.SIG
+        else:
+            type_key = FileEntryType.FILE
         if destination in fe.publishers.destinations_for(type_key):
             result.append(fe)
     return result
