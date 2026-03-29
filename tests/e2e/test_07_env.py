@@ -60,7 +60,7 @@ def _base_config(archive_dir: Path, compile_dir: str) -> dict:
         "archive": {"format": "zip", "dir": str(archive_dir)},
         "prompt_validation_level": "danger",
         "generated_files": {
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     }
 

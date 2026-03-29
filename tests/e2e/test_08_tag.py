@@ -35,7 +35,7 @@ def _base_config(archive_dir: Path, **overrides) -> dict:
         "prompt_validation_level": "danger",
         "github": {"check_draft": True},
         "generated_files": {
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     }
     config.update(overrides)

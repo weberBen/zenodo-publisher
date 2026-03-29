@@ -95,7 +95,7 @@ def test_project_only(release_env, fix_log_path):
     """generated_files with project only: should create project archive."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
 
     runner = ZpRunner(repo_dir)
@@ -136,7 +136,7 @@ def test_pattern_only(release_env, fix_log_path):
     config = _base_config(archive_dir, generated_files={
         "paper": {
             "pattern": "output.txt",
-            "publishers": {"file_destination": []},
+            "publishers": {"destination": {"file": []}},
         },
     })
 
@@ -172,9 +172,9 @@ def test_project_and_pattern(release_env, fix_log_path):
     config = _base_config(archive_dir, generated_files={
         "paper": {
             "pattern": "output.txt",
-            "publishers": {"file_destination": []},
+            "publishers": {"destination": {"file": []}},
         },
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
 
     runner = ZpRunner(repo_dir)
@@ -218,7 +218,7 @@ def test_project_archive_hashes(release_env, fix_log_path):
     """Hashes on project archive should match independently computed values."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
     config["hash_algorithms"] = ["md5", "sha256"]
 
@@ -259,7 +259,7 @@ def test_pattern_file_hashes(release_env, fix_log_path):
     config = _base_config(archive_dir, generated_files={
         "paper": {
             "pattern": "output.txt",
-            "publishers": {"file_destination": []},
+            "publishers": {"destination": {"file": []}},
         },
     })
     config["hash_algorithms"] = ["md5", "sha256"]
@@ -288,7 +288,7 @@ def test_project_archive_tar(release_env, fix_log_path):
     """Project archive as tar format."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
     config["archive"]["format"] = "tar"
 
@@ -307,7 +307,7 @@ def test_project_archive_tar_gz(release_env, fix_log_path):
     """Project archive as tar.gz format."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
     config["archive"]["format"] = "tar.gz"
 
@@ -331,7 +331,7 @@ def test_project_tree_hash(release_env, fix_log_path):
     """Tree hash on project archive should match independently computed value."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
     config["hash_algorithms"] = ["sha256", "tree"]
 
@@ -399,9 +399,9 @@ def test_compile_and_archive(release_env, fix_log_path):
     config = _base_config(archive_dir, generated_files={
         "paper": {
             "pattern": "build/output.txt",
-            "publishers": {"file_destination": []},
+            "publishers": {"destination": {"file": []}},
         },
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
     config["compile"] = {"enabled": True, "dir": str(repo_dir)}
     config["hash_algorithms"] = ["sha256"]
@@ -439,7 +439,7 @@ def test_project_archive_contents(release_env, fix_log_path):
     """Project archive should contain repo files, not gitignored files."""
     repo_dir, git, gh, archive_dir = release_env
     config = _base_config(archive_dir, generated_files={
-        "project": {"publishers": {"file_destination": []}},
+        "project": {"publishers": {"destination": {"file": []}}},
     })
 
     runner = ZpRunner(repo_dir)

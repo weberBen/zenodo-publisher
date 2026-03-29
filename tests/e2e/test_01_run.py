@@ -25,7 +25,7 @@ MINIMAL_CONFIG = {
     "signing": {"sign": False},
     "hash_algorithms": ["sha256"],
     "generated_files": {
-        "project": {"publishers": {"file_destination": ["zenodo"]}},
+        "project": {"publishers": {"destination": {"file": ["zenodo"]}}},
     },
     "prompt_validation_level": "danger",
 }

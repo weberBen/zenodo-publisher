@@ -104,18 +104,19 @@ def test_per_file_sign_mode_override(override_env, fix_log_path):
 
     config = _base_config(
         archive_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo="sha256"),
+        identity_hash_algo="sha256",
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",
                 "sign": True,
                 "sign_mode": "file",  # override: sign the file directly
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 "sign": True,
                 # no sign_mode override: uses global file_hash
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -151,18 +152,19 @@ def test_per_file_sign_mode_reversed(override_env, fix_log_path):
     sign_hash_algo = "sha256"
     config = _base_config(
         archive_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file", sign_hash_algo=sign_hash_algo),
+        identity_hash_algo=sign_hash_algo,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",
                 "sign": True,
                 "sign_mode": "file_hash",  # override: sign hash instead of file
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 "sign": True,
                 # no override: uses global file mode
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -238,11 +240,11 @@ def test_both_file_mode_signatures_match_own_file(override_env, fix_log_path):
             "paper": {
                 "pattern": "output.txt",
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -299,16 +301,17 @@ def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_pat
     sign_hash_algo = "sha512"
     config = _base_config(
         archive_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo=sign_hash_algo),
+        identity_hash_algo=sign_hash_algo,
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
         generated_files={
             "paper": {
                 "pattern": "output.txt",
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -394,7 +397,7 @@ def test_gpg_digest_algo_override(override_env, fix_log_path, digest_algo, expec
             gpg={"uid": gpg_uid, "extra_args": ["--digest-algo", digest_algo]},
         ),
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -437,11 +440,11 @@ def test_per_file_mixed_sign_on_off(override_env, fix_log_path):
             "paper": {
                 "pattern": "output.txt",
                 "sign": False,  # explicitly disabled
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 # inherits global sign=true
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -493,10 +496,11 @@ def test_file_hash_mode_signed_content_matches(override_env, fix_log_path, sign_
     run_dir = Path(tempfile.mkdtemp())
     config = _base_config(
         run_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo=sign_hash_algo),
+        identity_hash_algo=sign_hash_algo,
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
         hash_algorithms=["md5", "sha1", "sha512"],
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -559,7 +563,7 @@ def test_file_mode_signature_verifiable(override_env, fix_log_path):
         archive_dir,
         signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -621,7 +625,7 @@ def test_env_var_override_fake_token(override_env, fix_log_path):
         },
         generated_files={
             "project": {
-                "publishers": {"file_destination": ["zenodo"]},
+                "publishers": {"destination": {"file": ["zenodo"]}},
             },
         },
     )
@@ -655,7 +659,7 @@ def test_pattern_rename(override_env, fix_log_path):
             "paper": {
                 "pattern": "output.txt",
                 "rename": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -692,7 +696,7 @@ def test_pattern_no_rename(override_env, fix_log_path):
             "paper": {
                 "pattern": "output.txt",
                 # rename defaults to false
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )

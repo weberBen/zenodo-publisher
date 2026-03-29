@@ -4,3 +4,7 @@ At the start of every conversation, read the following files before doing anythi
 
 1. `llms.md` — codebase navigation guide for AI agents (where to find what, key patterns, config reference, pipeline steps)
 2. `README.md` — user-facing documentation (project overview, configuration, pipeline behavior)
+
+## Testing
+
+Do not automatically run test. Only the user can run test. You can adapt the test code base, but not actually running them. You need to wait for the user response with the test results.

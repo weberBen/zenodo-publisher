@@ -46,11 +46,12 @@ This section helps you find the right code quickly without reading everything.
 - **Error naming**: `ZPError(name="foo")` with class prefix → `GitError("bar")` produces `git.bar`. Deduplication: `git.git.bar` → `git.bar`
 - **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
-- **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive` can be set per generated_files entry. Signatures inherit `persist` and `publishers` from their parent file
+- **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
+- **Modules system**: external pipeline steps in `release_tool/modules/<name>/main.py` (built-in) or `~/.zenodo/modules/<name>/main.py` (user). Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess via `uv run`.
 
 ### Common pitfalls
 
-- `sign_hash_algo` is under `signing:` in YAML, not at root level
+- `identity_hash_algo` is at **root** YAML level, not under `signing:` (renamed from the old `sign_hash_algo` which was under `signing:`)
 - `compile.dir` is validated even if `compile.enabled: false` — must exist if set
 - `{compile_dir}` in patterns is a relative path (relative to project_root), not absolute
 - Manifest is generated AFTER hashes (step 10), not before — it includes file hashes
@@ -98,10 +99,11 @@ archive:
 
 hash_algorithms: [md5, sha256, tree]
 
+identity_hash_algo: md5
+
 signing:
   sign: true
   sign_mode: file
-  sign_hash_algo: md5
 
 zenodo:
   api_url: "https://sandbox.zenodo.org/api"
@@ -112,23 +114,28 @@ generated_files:
     pattern: "{compile_dir}/main.pdf"
     rename: true
     publishers:
-      file_destination: [github, zenodo]
+      destination:
+        file: [github, zenodo]
   project:
     rename: true
-    archive: false
+    archive:
+      types: []          # do not persist to archive dir
     publishers:
-      file_destination: [zenodo]
+      destination:
+        file: [zenodo]
   manifest:
     files: [paper, project]
-    archive: false
+    archive:
+      types: []          # do not persist to archive dir
     identifier:
       use_as_alternate_identifier: true
       source: file
     commit_info: [sha, date_epoch]
     sign: true
     publishers:
-      file_destination: [github, zenodo]
-      sig_destination: [github, zenodo]
+      destination:
+        file: [github, zenodo]
+        sig: [github, zenodo]
 
 prompt_validation_level: danger
 ```
@@ -155,7 +162,7 @@ prompt_validation_level: danger
 **Signing:**
 - `sign: true` → all files with `sign` not explicitly set to `false` are signed
 - `sign_mode: file` → GPG signs the file directly (produces `.asc` detached signature), not the hash
-- `sign_hash_algo: md5` → used for identifiers (the hash algo ZP uses to compute the value pushed to Zenodo `metadata.identifiers`)
+- `identity_hash_algo: md5` → used for identifiers and file_hash signing (the hash algo ZP uses to compute the value pushed to Zenodo `metadata.identifiers`)
 - CLI flags (`--sign`/`--no-sign`, `--sign-mode`, etc.) override the **global** `signing.*` config only. Per-file `sign`/`sign_mode` in `generated_files` entries are not affected
 
 **GitHub:**
@@ -174,22 +181,22 @@ prompt_validation_level: danger
 - **Source**: `{compile_dir}/main.pdf` → `papers/latex/main.pdf` (compiled by `make deploy`)
 - **Rename**: `true` → renamed to `MyProject-v1.0.0.pdf`
 - **Published to**: GitHub release asset + Zenodo deposit
-- **Signatures**: signed (inherits global `sign: true`), but signature not uploaded anywhere (`sig_destination` not set)
-- **Persisted**: yes (default `archive: true`) → copied to `papers/latex/releases/v1.0.0/MyProject-v1.0.0.pdf`
+- **Signatures**: signed (inherits global `sign: true`), but signature not uploaded anywhere (`destination.sig` not set)
+- **Persisted**: yes (default global `archive.types: [file, sig]`) → copied to `papers/latex/releases/v1.0.0/MyProject-v1.0.0.pdf`
 
 #### `project` entry
 - **Source**: `git archive` of the full repository → `MyProject-v1.0.0.zip` (rename: true)
 - **Published to**: Zenodo only
 - **Signatures**: signed, but signature not uploaded
-- **Persisted**: no (`archive: false`) → not copied to releases dir
+- **Persisted**: no (`archive.types: []`) → not copied to releases dir
 
 #### `manifest` entry
 - **Source**: auto-generated JSON (JCS/RFC 8785) containing:
   - version label + commit SHA + date epoch
   - hashes of `paper` (the PDF) and `project` (the ZIP) — md5, sha256, tree
 - **Identifier**: `source: file` → computes `zp:///manifest-v1.0.0.json;md5:{hex}` from the manifest file, pushed to Zenodo `metadata.identifiers`
-- **Published to**: GitHub + Zenodo (both file and signature via `sig_destination`)
-- **Persisted**: no (`archive: false`)
+- **Published to**: GitHub + Zenodo (both file and signature via `destination.sig`)
+- **Persisted**: no (`archive.types: []`)
 
 ### 6. What you get after `zp release` with tag `v1.0.0`
 
@@ -205,19 +212,19 @@ MyProject-v1.0.0.pdf.asc
 
 Assets:
 ```
-MyProject-v1.0.0.pdf              (paper, file_destination: github)
-manifest-v1.0.0.json              (manifest, file_destination: github)
-manifest-v1.0.0.json.asc          (manifest signature, sig_destination: github)
+MyProject-v1.0.0.pdf              (paper, destination.file: github)
+manifest-v1.0.0.json              (manifest, destination.file: github)
+manifest-v1.0.0.json.asc          (manifest signature, destination.sig: github)
 ```
 
 #### On Zenodo deposit
 
 Files:
 ```
-MyProject-v1.0.0.pdf              (paper, file_destination: zenodo)
-MyProject-v1.0.0.zip              (project, file_destination: zenodo)
-manifest-v1.0.0.json              (manifest, file_destination: zenodo)
-manifest-v1.0.0.json.asc          (manifest signature, sig_destination: zenodo)
+MyProject-v1.0.0.pdf              (paper, destination.file: zenodo)
+MyProject-v1.0.0.zip              (project, destination.file: zenodo)
+manifest-v1.0.0.json              (manifest, destination.file: zenodo)
+manifest-v1.0.0.json.asc          (manifest signature, destination.sig: zenodo)
 ```
 
 Metadata updated:
@@ -268,9 +275,13 @@ release_tool/
 │   ├── test.py                     # Test mode config (NDJSON output, prompt responses)
 │   ├── transform_common.py         # Shared transforms (tar, gzip, hash, COMMIT_FIELD_MAP)
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
+├── modules/
+│   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, is_builtin
+│   └── digicert_timestamp/
+│       └── main.py                 # Built-in: RFC 3161 timestamp via DigiCert TSA (uv script)
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
-│   ├── release.py                  # Release pipeline (14 steps)
+│   ├── release.py                  # Release pipeline (14 steps + step 13b modules)
 │   └── archive.py                  # Standalone archive pipeline
 ├── output.py                       # Structured logging + test mode NDJSON
 ├── git_operations.py               # Git + GitHub CLI (gh) + draft release check
@@ -384,6 +395,8 @@ Used for: `make_args`, `tar_extra_args`, `gzip_extra_args`, `gpg_extra_args`.
 | `archive_tar_extra_args` | `archive.tar_extra_args` | list | (deduped with TAR_DEFAULT_ARGS) | |
 | `archive_gzip_extra_args` | `archive.gzip_extra_args` | list | (deduped with GZIP_DEFAULT_ARGS) | |
 | `hash_algorithms` | `hash_algorithms` | list | [] | hashlib algos + "tree"/"tree256" |
+| `identity_hash_algo` | `identity_hash_algo` | str | `sha256` | Hash algo for identifiers, file_hash signing, and module certification. **Root level** (not under `signing:`) |
+| `archive_types` | `archive.types` | list | `[file, sig]` | File types to persist to archive dir: `file`, `sig`, or module names |
 
 ### RELEASE_OPTIONS
 
@@ -543,15 +556,24 @@ Signature files are appended to `archived_files` list as `ArchivedFile(kind="sig
 
 Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Not related to manifest. On each run, all existing `zp:///` entries on Zenodo are replaced.
 
+### Step 13b: Modules (`_step_modules`)
+
+Runs configured modules for files that declare them under `modules:`. Each module:
+1. Collects matching ArchivedFile entries (by config_key, non-signature)
+2. Prompts user to confirm running (indicates built-in vs custom)
+3. Invokes module as subprocess: `uv run <module_path> --input <json_file>`
+4. Reads NDJSON events + result files from stdout
+5. Appends new ArchivedFile entries for produced files
+
 ### Step 13: Publish (`_step_publish`)
 
-Routes each file to destinations per `publishers` config:
+Routes each file to destinations per `publishers.destination[file_type]` config. Falls back to `config.default_publishers` if per-file publishers is None:
 - **Zenodo**: checks `is_up_to_date()` (compares version + MD5 hashes), uploads via InvenioRDM API
 - **GitHub**: `gh release upload <tag> <file>`, compares sha256 to detect changes, prompts for `--clobber`
 
 ### Step 14: Persist (`persist_files`)
 
-Copies files to `archive_dir/{tag}/` via `shutil.move()`. Updates `entry.file_path` in-place.
+Filters files by `file_type in (e.archive_types or config.archive_types)`. Copies matching files to `archive_dir/{tag}/` via `shutil.move()`. Updates `entry.file_path` in-place.
 Prompts for overwrite if files exist (with "apply all" option: `yall`/`nall`).
 
 ---
@@ -578,8 +600,9 @@ class FileEntry:
     rename: bool                      # rename using project_name template
     sign: bool | None                 # per-file override (None = use global)
     sign_mode: SignMode | None        # per-file override
-    archive: bool                     # persist to archive_dir
-    publishers: PublisherDestinations
+    archive_types: list[str] | None   # per-file override (None = use global config.archive_types)
+    publishers: PublisherDestinations | None  # per-file override (None = use config.default_publishers)
+    modules: dict[str, dict]          # per-file module config overrides
     identifier: IdentifierConfig | None
     manifest_config: ManifestInclusion | None
     resolved_paths: list[Path]        # populated at runtime by step 7
@@ -591,13 +614,42 @@ Methods:
 
 ### Publishers (YAML)
 
+Per-file or global publishers use the new map-by-type format:
+
 ```yaml
 publishers:
-  file_destination: [zenodo, github]   # where to upload the file (default: [zenodo])
-  sig_destination: [github, zenodo]    # where to upload the signature (default: [] = not uploaded)
+  destination:
+    file: [zenodo, github]   # where to upload the file itself (type_name="file")
+    sig: [github]            # where to upload the GPG signature (type_name="sig")
+    my_module: []            # where to upload module-produced files (type_name=module_name)
 ```
 
-`sig_destination` requires `sign: true` on the entry. Valid destinations: `zenodo`, `github`.
+Global default is set under `publishers:` at root level (fallback when per-file publishers is None):
+```yaml
+publishers:
+  destination:
+    file: [zenodo]
+    sig: []
+```
+
+Valid destinations: `zenodo`, `github`.
+
+### Modules (YAML)
+
+```yaml
+modules:
+  digicert_timestamp:       # module name (must match built-in or user module dir)
+    full_chain: true        # global config passed to all files using this module
+```
+
+Per-file module override under `generated_files.<key>.modules`:
+```yaml
+generated_files:
+  paper:
+    modules:
+      digicert_timestamp:
+        full_chain: false   # overrides global modules.digicert_timestamp.full_chain
+```
 
 ### ArchivedFile dataclass
 
@@ -608,11 +660,12 @@ class ArchivedFile:
     config_key: str               # references FileEntry.key
     filename: str
     extension: str
-    kind: str                     # "generated", "project", "manifest", "signature"
+    kind: str                     # "generated", "project", "manifest", "signature", "module_output"
     is_preview: bool = False      # True if PDF
     is_signature: bool = False
     has_signature: bool = False
-    persist: bool = True
+    file_type: str = "file"       # "file", "sig", or module name (e.g. "digicert_timestamp")
+    archive_types: list[str] | None = None  # per-file override for persist filtering
     hashes: dict = {}             # {algo: {"type", "value", "formatted_value"}}
     publishers: PublisherDestinations | None = None
     signed_file_key: str | None = None

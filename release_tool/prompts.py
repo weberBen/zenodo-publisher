@@ -19,12 +19,13 @@ confirm_publish: output.Prompt
 confirm_github_overwrite: output.Prompt
 confirm_persist_overwrite: output.Prompt
 confirm_gpg_key: output.Prompt
+confirm_run_module: output.Prompt
 
 
 def init_prompts(config):
     """Instantiate all confirm prompts after config is available."""
     global confirm_build, confirm_publish, confirm_github_overwrite
-    global confirm_persist_overwrite, confirm_gpg_key
+    global confirm_persist_overwrite, confirm_gpg_key, confirm_run_module
 
     level_map = {"danger": "danger", "light": "light",
                  "normal": "complete", "secure": "complete"}
@@ -51,4 +52,8 @@ def init_prompts(config):
     )
     confirm_gpg_key = output.Prompt(
         [output.YES, output.NO], name="confirm_gpg_key", level="danger",
+    )
+    confirm_run_module = output.Prompt(
+        [output.YES, output.NO], name="confirm_run_module",
+        level=level, enter_confirms=enter, secure_value=secure,
     )

@@ -298,6 +298,7 @@ fatal = _out.fatal
 debug = _out.debug
 cmd = _out.cmd
 data = _out.data
+emit = _out.emit
 
 
 # ---------------------------------------------------------------------------

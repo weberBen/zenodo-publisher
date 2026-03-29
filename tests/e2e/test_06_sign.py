@@ -113,7 +113,7 @@ def test_sign_project_file_mode(sign_env, fix_log_path):
         archive_dir,
         signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -146,9 +146,10 @@ def test_sign_project_file_hash_mode(sign_env, fix_log_path):
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo="sha256"),
+        identity_hash_algo="sha256",
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -180,7 +181,7 @@ def test_sign_pattern_only(sign_env, fix_log_path):
         generated_files={
             "paper": {
                 "pattern": "output.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -213,9 +214,9 @@ def test_sign_both_project_and_pattern(sign_env, fix_log_path):
         generated_files={
             "paper": {
                 "pattern": "output.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -242,7 +243,7 @@ def test_no_sign(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -270,11 +271,11 @@ def test_sign_per_file_override(sign_env, fix_log_path):
             "paper": {
                 "pattern": "output.txt",
                 "sign": False,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
             "project": {
                 "sign": True,  # per-file override
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -318,7 +319,7 @@ def test_sign_binary_sig_format(sign_env, fix_log_path):
             "gpg": {"uid": gpg_uid, "extra_args": ["--no-armor"]},  # removes default --armor
         },
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -353,7 +354,7 @@ def test_sign_invalid_gpg_uid(sign_env, fix_log_path):
             "gpg": {"uid": "nonexistent-key@fake-domain.invalid"},
         },
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -377,7 +378,7 @@ def test_sign_without_uid_uses_default(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": True, "sign_mode": "file"},  # no gpg.uid
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -401,10 +402,11 @@ def test_sign_file_hash_algo(sign_env, fix_log_path, sign_hash_algo):
     repo_dir, git, gh, archive_dir, gpg_uid = sign_env
     config = _base_config(
         archive_dir,
-        signing=_signing_on(gpg_uid, sign_mode="file_hash", sign_hash_algo=sign_hash_algo),
+        identity_hash_algo=sign_hash_algo,
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
         hash_algorithms=["sha256", sign_hash_algo],
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -436,11 +438,11 @@ def test_manifest_project_only_verify_hashes(sign_env, fix_log_path):
         signing={"sign": False},
         hash_algorithms=["md5", "sha256"],
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha", "date_epoch"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -495,11 +497,11 @@ def test_manifest_verify_commit_sha(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha", "date_epoch"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -542,13 +544,13 @@ def test_manifest_with_pattern_and_project(sign_env, fix_log_path):
         generated_files={
             "paper": {
                 "pattern": "output.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["paper", "project"],
                 "commit_info": ["sha"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -597,11 +599,11 @@ def test_manifest_project_only_no_pattern(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -630,11 +632,11 @@ def test_manifest_signed(sign_env, fix_log_path):
         archive_dir,
         signing=_signing_on(gpg_uid, sign_mode="file"),
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -665,11 +667,11 @@ def test_manifest_commit_info_all_fields(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha", "date_epoch", "subject", "author_name", "author_email"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -706,11 +708,11 @@ def test_manifest_minimal_commit_info(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -747,11 +749,11 @@ def test_manifest_lightweight_tag(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha", "tag_sha"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -813,11 +815,11 @@ def test_manifest_annotated_tag(repo_env, fix_log_path):
             archive_dir,
             signing={"sign": False},
             generated_files={
-                "project": {"publishers": {"file_destination": []}},
+                "project": {"publishers": {"destination": {"file": []}}},
                 "manifest": {
                     "files": ["project"],
                     "commit_info": ["sha", "tag_sha"],
-                    "publishers": {"file_destination": []},
+                    "publishers": {"destination": {"file": []}},
                 },
             },
         )
@@ -876,7 +878,7 @@ def test_publish_pattern_as_github_asset(sign_env, fix_log_path):
         generated_files={
             "paper": {
                 "pattern": "output.txt",
-                "publishers": {"file_destination": ["github"]},
+                "publishers": {"destination": {"file": ["github"]}},
             },
         },
     )
@@ -916,11 +918,11 @@ def test_publish_manifest_as_github_asset(sign_env, fix_log_path):
         archive_dir,
         signing={"sign": False},
         generated_files={
-            "project": {"publishers": {"file_destination": []}},
+            "project": {"publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["project"],
                 "commit_info": ["sha"],
-                "publishers": {"file_destination": ["github"]},
+                "publishers": {"destination": {"file": ["github"]}},
             },
         },
     )
@@ -974,8 +976,7 @@ def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_path)
             "paper": {
                 "pattern": "output.txt",
                 "publishers": {
-                    "file_destination": ["github"],
-                    "sig_destination": ["github"],
+                    "destination": {"file": ["github"], "sig": ["github"]},
                 },
             },
         },

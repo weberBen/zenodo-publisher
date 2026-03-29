@@ -7,7 +7,7 @@ from . import output, prompts
 
 
 def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> None:
-    """Move files marked as persist to archive_dir/tag_name.
+    """Move files with archive=True to archive_dir/tag_name.
 
     If files already exist at the destination, lists them first then
     prompts the user one-by-one with an option to apply the choice
@@ -16,14 +16,14 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     Updates each entry's file_path in-place after moving.
 
     Args:
-        entries: List of ArchivedFile entries.
+        entries: List of FileEntry instances (archive resolved at creation).
         archive_dir: Base directory for persistent archives (None = skip).
         tag_name: Tag name used as subdirectory.
     """
     if not archive_dir:
         return
 
-    to_persist = [e for e in entries if e.persist]
+    to_persist = [e for e in entries if e.archive]
     if not to_persist:
         return
 

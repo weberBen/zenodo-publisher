@@ -1,4 +1,4 @@
-"""Archive operations: ArchivedFile dataclass, hashing, manifest generation."""
+"""Archive operations: FileEntry dataclass, hashing, manifest generation."""
 
 import json
 import os
@@ -6,35 +6,60 @@ import shutil
 import hashlib
 import jcs
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 from .git_operations import archive_zip_project, extract_zip, compute_tree_hash, pack_tar
 from .config.transform_common import TREE_ALGORITHMS
 from .config.transform_release import COMMIT_FIELD_MAP
-from .config.generated_files import PublisherDestinations
+from .config.generated_files import PublisherDestinations, IdentifierConfig
+from .config.signing import SignMode
 from . import output
 
 
+class FileEntryType(str, Enum):
+    """Valid type values for FileEntry. Inherits str so == comparisons with literals work."""
+    FILE = "file"
+    SIG = "sig"
+    PROJECT = "project"
+    MANIFEST = "manifest"
+    MODULE_ENTRY = "module_entry"
+
+
 # ---------------------------------------------------------------------------
-# ArchivedFile dataclass — replaces the old dict-based entries
+# FileEntry dataclass — single file instance in the pipeline
 # ---------------------------------------------------------------------------
 
 @dataclass
-class ArchivedFile:
-    """Runtime representation of a file in the pipeline."""
+class FileEntry:
+    """Runtime representation of a single file in the pipeline.
+
+    Config fields are fully resolved at creation (no None meaning 'use global').
+    Computed fields (hashes, identifier_value) are populated by pipeline steps.
+
+    type:       "file" | "sig" | "project" | "manifest" | "module_entry"
+    config_key: references FileConfigEntry.key (sigs share the same key as their parent file)
+    archive:    resolved at creation — True means this file will be persisted to archive_dir
+    """
     file_path: Path
-    config_key: str               # references FileEntry.key (e.g. "paper", "project")
+    config_key: str              # references FileConfigEntry.key
     filename: str
     extension: str
-    kind: str                     # "generated", "project", "manifest", "signature"
+    # --- resolved config fields (set at creation, never None for relevant types) ---
+    type: FileEntryType = FileEntryType.FILE
+    archive: bool = False        # resolved at creation via _resolve_archive()
+    publishers: PublisherDestinations | None = None   # always resolved at creation
+    sign_mode: SignMode | None = None                 # resolved; None if not signable
+    identifier: IdentifierConfig | None = None        # resolved from FileConfigEntry.identifier
+    # --- type-specific fields ---
+    module_name: str | None = None        # which module produced this (type == "module_entry")
+    module_entry_type: str | None = None  # module output sub-type: "sig", "cert", custom...
     is_preview: bool = False
-    is_signature: bool = False
-    has_signature: bool = False
-    persist: bool = True
+    has_signature: bool = False           # whether this file needs to be signed
+    # --- computed by pipeline steps ---
     hashes: dict = field(default_factory=dict)
-    publishers: PublisherDestinations | None = None
-    signed_file_key: str | None = None
     identifier_value: str | None = None
+
 
 
 # ---------------------------------------------------------------------------
@@ -100,11 +125,11 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
 
 
 # ---------------------------------------------------------------------------
-# Hashing for ArchivedFile entries
+# Hashing for FileEntry entries
 # ---------------------------------------------------------------------------
 
-def compute_hashes(entries: list[ArchivedFile], algorithms: list[str] | None = None) -> None:
-    """Compute all required hashes for each ArchivedFile entry.
+def compute_hashes(entries: list[FileEntry], algorithms: list[str] | None = None) -> None:
+    """Compute all required hashes for each FileEntry.
 
     Always computes md5 and sha256. Adds any extra algorithms from config.
     Skips algorithms already present in entry.hashes (e.g. pre-computed tree hashes).
@@ -124,7 +149,7 @@ def compute_hashes(entries: list[ArchivedFile], algorithms: list[str] | None = N
             if algo in hashes:
                 # already pre-computed (e.g. tree hashes for project)
                 continue
-            if entry.kind == "project":
+            if entry.type == "project":
                 # tree hashes must be pre-computed by caller (single extraction)
                 raise ValueError(f"Tree hash '{algo}' not pre-computed for project entry")
             # hashlib algo (e.g. sha1) but label with tree algo name
@@ -138,13 +163,13 @@ def compute_hashes(entries: list[ArchivedFile], algorithms: list[str] | None = N
 # Manifest generation
 # ---------------------------------------------------------------------------
 
-def generate_manifest(archived_files: list[ArchivedFile], version: str,
+def generate_manifest(archived_files: list[FileEntry], version: str,
                       commit_info: dict, commit_fields: list[str] | None = None,
                       metadata: dict | None = None) -> dict:
     """Generate a manifest dict listing archived files with their hashes.
 
     Args:
-        archived_files: List of ArchivedFile entries (with hashes computed).
+        archived_files: List of FileEntry instances (with hashes computed).
         version: Tag name / version string.
         commit_info: Dict with ZP_* keys from the pipeline.
         commit_fields: List of field names to include (keys of COMMIT_FIELD_MAP).
@@ -179,7 +204,6 @@ def generate_manifest(archived_files: list[ArchivedFile], version: str,
                 **{algo: h["value"] for algo, h in entry.hashes.items()},
             }
             for entry in archived_files
-            if not entry.is_signature
         ],
     }
 

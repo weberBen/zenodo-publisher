@@ -8,9 +8,9 @@ from .transform_release import (
 )
 from .common import COMMON_OPTIONS, CommonConfig
 from .env import ConfigError
-from .signing import parse_signing_config, SigningConfig, SIGNING_OPTIONS
-from .generated_files import parse_generated_files, FileEntry, FileEntryKind
-from .generated_files import validate_no_pattern_overlap
+from .signing import parse_signing_config, SigningConfig, SIGNING_OPTIONS, _validate_hash_algo
+from .generated_files import parse_generated_files, FileConfigEntry, FileEntryKind, PublisherDestinations
+from .generated_files import validate_no_pattern_overlap, _parse_publishers
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,17 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  yaml_path="archive.dir", nullable=True,
                  transform=_resolve_optional_path,
                  help="Directory for persistent archives"),
+    ConfigOption("archive_types", env_key=None,
+                 yaml_path="archive.types",
+                 type="list", default="file,sig",
+                 help="File types to persist to archive dir: file, sig, and/or module names"),
+
+    # Identity hash
+    ConfigOption("identity_hash_algo", env_key=None,
+                 yaml_path="identity_hash_algo",
+                 default="sha256",
+                 validate=_validate_hash_algo,
+                 help="Hash algorithm for identifiers, signing (file_hash mode), and module certification"),
 
     # GitHub checks
     ConfigOption("check_gh_draft", env_key=None,
@@ -122,7 +133,7 @@ class ReleaseConfig(CommonConfig):
     _cli_aliases: dict[str, str] = {}
 
     signing: SigningConfig
-    generated_files: list[FileEntry]
+    generated_files: list[FileConfigEntry]
 
     def __init__(self, project_root, yaml_config, env_vars, cli_overrides=None):
         super().__init__(project_root, yaml_config, env_vars, cli_overrides)
@@ -134,6 +145,33 @@ class ReleaseConfig(CommonConfig):
         self.generated_files = parse_generated_files(
             yaml_config.get("generated_files", {}),
         )
+
+        # Parse global publishers defaults
+        raw_pub = yaml_config.get("publishers", {}) or {}
+        parsed_pub = _parse_publishers(raw_pub)
+        if parsed_pub and parsed_pub.destination:
+            self.default_publishers = parsed_pub
+        else:
+            self.default_publishers = PublisherDestinations(
+                destination={"file": ["zenodo"], "sig": []}
+            )
+
+        # Parse modules config
+        raw_modules = yaml_config.get("modules", {}) or {}
+        if not isinstance(raw_modules, dict):
+            raise ConfigError("'modules' must be a YAML mapping", name="config.modules.invalid_format")
+        self.modules_config: dict[str, dict] = {
+            k: (v if isinstance(v, dict) else {}) for k, v in raw_modules.items()
+        }
+
+        # Validate modules exist at config load time
+        if self.modules_config:
+            from ..modules import load_module, ModuleError as _ModuleError
+            for module_name in self.modules_config:
+                try:
+                    load_module(module_name)
+                except _ModuleError as e:
+                    raise ConfigError(str(e), name=f"config.modules.not_found.{module_name}") from e
 
         # Resolve {compile_dir}, {project_root} in pattern templates
         self._resolve_pattern_templates()
