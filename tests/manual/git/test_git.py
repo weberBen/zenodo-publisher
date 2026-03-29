@@ -103,7 +103,7 @@ filename = add_file(git)
 git.add_and_commit()
 print("diff:", git.diff_names(ORIGIN_BRANCH))
 
-_template_tag = git.latest_remote_tag("template_*")
+_template_tag = git.latest_remote_tag("template_*", branch="main")
 git.reset_repo(MAIN_BRANCH, git.rev_parse(_template_tag))
 git.commit()
 print("diff:", git.diff_names(ORIGIN_BRANCH))

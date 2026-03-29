@@ -10,6 +10,58 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 TEMPLATE_BRANCH = "template"
+TEMPLATE_TAG_PREFIX = "template_"
+
+
+def _extract_created_tag(args: tuple) -> str | None:
+    """Return the tag name if args represent a tag creation command, else None.
+
+    Creation = `git tag [flags] <name> [<commit>]`
+    Skips delete (-d/--delete), list (-l/--list/-n/--sort/--format/--points-at/--merged),
+    and verify (-v/--verify) operations.
+    Flags that consume the next token: -u, -m, -F.
+    """
+    if not args or args[0] != "tag":
+        return None
+    NON_CREATE = {"-d", "--delete", "-l", "--list", "-v", "--verify"}
+    CONSUMES_NEXT = {"-u", "-m", "-F"}
+    skip_next = False
+    positional = []
+    for arg in args[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in NON_CREATE or arg.startswith("--sort") or arg.startswith("--format") \
+                or arg.startswith("--points-at") or arg.startswith("--merged"):
+            return None
+        if arg in CONSUMES_NEXT:
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        positional.append(arg)
+    # First positional is the tag name; second (if any) is the commit ref
+    return positional[0] if positional else None
+
+
+def _refspec_template_tag(args: tuple) -> str | None:
+    """Return the template tag name if args create a template_* tag via refspec, else None.
+
+    Catches explicit tag refspecs in push/fetch:
+      push: `git push <remote> template_foo`, `refs/tags/template_foo`, `<src>:refs/tags/template_foo`
+      fetch: `git fetch <remote> refs/tags/template_foo:refs/tags/template_foo`
+    """
+    if not args or args[0] not in ("push", "fetch"):
+        return None
+    for arg in args[2:]:   # skip subcommand and remote
+        # destination side of a refspec (after ':'), or the whole arg if no ':'
+        ref = arg.split(":")[-1] if ":" in arg else arg
+        name = ref.removeprefix("refs/tags/")
+        if name.startswith(TEMPLATE_TAG_PREFIX):
+            return name
+    return None
+
+
 class GitClient:
 
     def __init__(self, repo_dir: Path | str):
@@ -18,6 +70,20 @@ class GitClient:
             raise ValueError(f"Invalid git repo path: {self.repo_dir}")
 
     def _run(self, *args, check=True) -> subprocess.CompletedProcess:
+        if args and args[0] == "fast-import":
+            raise PermissionError("'git fast-import' is forbidden in tests")
+        if args and args[0] == "bundle" and len(args) > 1 and args[1] == "unbundle":
+            raise PermissionError("'git bundle unbundle' is forbidden in tests")
+        tag = _extract_created_tag(args)
+        if tag and tag.startswith(TEMPLATE_TAG_PREFIX):
+            raise PermissionError(
+                f"Creating tag '{tag}' is forbidden: '{TEMPLATE_TAG_PREFIX}' prefix is reserved"
+            )
+        pushed = _refspec_template_tag(args)
+        if pushed:
+            raise PermissionError(
+                f"Creating/pushing tag '{pushed}' is forbidden: '{TEMPLATE_TAG_PREFIX}' prefix is reserved"
+            )
         cmd = ["git"] + list(args)
         logger.debug("$ %s", " ".join(cmd))
         r = subprocess.run(
@@ -105,16 +171,22 @@ class GitClient:
         r = self._run("for-each-ref", "--format=%(creatordate:iso)", f"refs/tags/{tag}")
         return r.stdout.strip()
 
-    def latest_remote_tag(self, pattern: str, remote: str = "origin") -> str | None:
+    def latest_remote_tag(self, pattern: str, remote: str = "origin",
+                          branch: str | None = None) -> str | None:
         """Fetch remote tags and return the most recent one matching pattern.
 
         Fetches all remote tags (--force to overwrite stale local copies),
         then sorts by creatordate descending and returns the first match.
+        If branch is given, only tags reachable from {remote}/{branch} are returned.
         Returns None if no matching tag is found.
         """
         self._run("fetch", remote, "--tags", "--force")
-        r = self._run("tag", "--list", pattern, "--sort=-creatordate")
+        args = ["tag", "--list", pattern, "--sort=-creatordate"]
+        if branch:
+            args += ["--merged", f"{remote}/{branch}"]
+        r = self._run(*args)
         tags = [t.strip() for t in r.stdout.strip().split("\n") if t.strip()]
+        print("****tags", tags)
         return tags[0] if tags else None
 
     # --- Branch ---

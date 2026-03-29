@@ -23,7 +23,7 @@ git = GitClient(Path(_env["GIT_REPO_PATH"]))
 
 git._run("fetch", "origin", "--tags", "--force")
 
-tag = git.latest_remote_tag("template_*")
+tag = git.latest_remote_tag("template_*", branch="main")
 if not tag:
     print("No template_* tag found on remote.", file=sys.stderr)
     sys.exit(1)

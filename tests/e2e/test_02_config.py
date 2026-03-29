@@ -267,7 +267,8 @@ def test_signing_invalid_mode(tmp_path, fix_log_path):
     result = runner.run_test("release", config=config,
                              log_path=fix_log_path,
                              fail_on="ignore")
-    _assert_has_error(result, name="config_error.loading.config.signing.invalid_mode")
+    _assert_has_error(result, name="config_error.loading.config.invalid_option.signing.sign_mode",
+                      msg_contains="invalid_mode")
 
 
 def test_signing_invalid_hash_algo(tmp_path, fix_log_path):
