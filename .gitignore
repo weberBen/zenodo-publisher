@@ -38,8 +38,9 @@ ENV/
 .python-version
 
 *.zip
+
 # testing report
-results.xml
-results.json
-results.jsonl
-results.txt
+results_*.*
+results-*.*
+results/*
+results.*
