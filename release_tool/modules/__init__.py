@@ -106,7 +106,7 @@ def check_module(provider_name: str, module_config: dict, output_module,
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        output_module.emit(event)
+        output_module.module_emit(event, module_name=provider_name)
 
     stderr = proc.stderr.strip()
     if proc.returncode != 0:
@@ -116,12 +116,11 @@ def check_module(provider_name: str, module_config: dict, output_module,
             name="check_failed",
         )
     if stderr:
-        output_module.emit({
+        output_module.module_emit({
             "type": "warn",
             "msg": stderr,
             "name": "module.stderr",
-            "data": {"module_name": provider_name},
-        })
+        }, module_name=provider_name)
 
 
 def run_module(provider_name: str, input_data: dict, output_module,
@@ -129,7 +128,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
     """Run a module as a subprocess via uv.
 
     Passes input_data as JSON file, reads NDJSON output.
-    Events are relayed to output_module.emit().
+    Events are relayed to output_module.module_emit().
     Returns the list of file dicts from the 'result' event.
     """
     module_path = find_module_path(provider_name, project_root=project_root)
@@ -163,7 +162,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
         if event.get("type") == "result":
             result_files = event.get("files", [])
         else:
-            output_module.emit(event)
+            output_module.module_emit(event, module_name=provider_name)
 
     stderr = proc.stderr.strip()
     if proc.returncode != 0:
@@ -173,11 +172,10 @@ def run_module(provider_name: str, input_data: dict, output_module,
             name="run_error",
         )
     if stderr:
-        output_module.emit({
+        output_module.module_emit({
             "type": "warn",
             "msg": stderr,
             "name": "module.stderr",
-            "data": {"module_name": provider_name},
-        })
+        }, module_name=provider_name)
 
     return result_files

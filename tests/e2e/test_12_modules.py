@@ -363,11 +363,19 @@ def test_module_events_relayed(release_env, fix_log_path):
     assert processing is not None, "dummy_module.processing not relayed to ZP output"
     assert processing.get("data", {}).get("config_key") == "project", \
         f"Module should receive 'project' entry. Got data: {processing.get('data')}"
+    assert processing.get("source_type") == "module", \
+        f"Relayed module event should have source_type='module'. Got: {processing.get('source_type')}"
+    assert processing.get("source") == "dummy_module", \
+        f"Relayed module event should have source='dummy_module'. Got: {processing.get('source')}"
 
     module_done = find_by_name(result.events, "dummy_module.done")
     assert module_done is not None, "dummy_module.done not relayed"
     assert module_done.get("data", {}).get("filename", "").endswith(".dummy"), \
         f"Expected .dummy output filename. Got: {module_done.get('data')}"
+    assert module_done.get("source_type") == "module", \
+        f"Relayed module event should have source_type='module'. Got: {module_done.get('source_type')}"
+    assert module_done.get("source") == "dummy_module", \
+        f"Relayed module event should have source='dummy_module'. Got: {module_done.get('source')}"
 
     # ZP's own module.done event with result count
     zp_done = find_by_name(result.events, "module.done")
@@ -692,8 +700,13 @@ def test_module_check_ok_event_relayed_by_zp(release_env, fix_log_path):
 
     assert find_by_name(result.events, "module.checking"), \
         "ZP should emit module.checking before running --check"
-    assert find_by_name(result.events, "dummy_module.check.ok"), \
-        "ZP should relay the check.ok event emitted by the module"
+
+    check_relayed = find_by_name(result.events, "dummy_module.check.ok")
+    assert check_relayed is not None, "ZP should relay the check.ok event emitted by the module"
+    assert check_relayed.get("source_type") == "module", \
+        f"Relayed check event should have source_type='module'. Got: {check_relayed.get('source_type')}"
+    assert check_relayed.get("source") == "dummy_module", \
+        f"Relayed check event should have source='dummy_module'. Got: {check_relayed.get('source')}"
 
     check_ok = find_by_name(result.events, "module.check_ok")
     assert check_ok is not None, "ZP should emit module.check_ok after the module passes --check"
@@ -718,8 +731,13 @@ def test_module_check_failure_relayed_by_zp(release_env, fix_log_path):
         "ZP should emit module.found before attempting check"
     assert find_by_name(result.events, "module.checking"), \
         "ZP should emit module.checking before running --check"
-    assert find_by_name(result.events, "dummy_module.check.forced_error"), \
+    error_relayed = find_by_name(result.events, "dummy_module.check.forced_error")
+    assert error_relayed is not None, \
         "ZP should relay the error event emitted by the module during failed --check"
+    assert error_relayed.get("source_type") == "module", \
+        f"Relayed error event should have source_type='module'. Got: {error_relayed.get('source_type')}"
+    assert error_relayed.get("source") == "dummy_module", \
+        f"Relayed error event should have source='dummy_module'. Got: {error_relayed.get('source')}"
     assert find_by_name(result.events, "module.check_failed"), \
         "ZP should emit module.check_failed after the module --check exits non-zero"
 

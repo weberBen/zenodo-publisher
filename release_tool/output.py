@@ -28,7 +28,8 @@ else:  # Windows
 
 RED_UNDERLINE = "\033[91;4m"
 RESET = "\033[0m"
-
+ALLOWED_SOURCE_TYPES = { "in_app", "module" }
+_DEFAULT_SOURCE_TYPE = "in_app"
 
 # ---------------------------------------------------------------------------
 # Stack trace formatting
@@ -131,7 +132,7 @@ class Output:
             event["data"] = kwargs
         return event
 
-    def emit(self, event: dict):
+    def _emit(self, event: dict):
         """Single entry point: NDJSON in test mode, human formatting otherwise."""
         data = event.get("data", {})
         msg = event.get("msg", "")
@@ -145,11 +146,46 @@ class Output:
                     f"output template references unknown key {e}: "
                     f"msg={msg!r}, data keys={list(data.keys())}"
                 )
-
+        
+        source_type = event.get("source_type", None)
+        if not isinstance(source_type, str) or not source_type.strip():
+            raise TypeError("source_type must be a non-empty string")
+        if source_type not in ALLOWED_SOURCE_TYPES:
+            raise ValueError(f"Source type '{source_type}' is not allowed. Expected one of: {ALLOWED_SOURCE_TYPES}")
+        
         if self.test_mode:
             print(json.dumps(event, default=str), flush=True)
         else:
             self._format_human(event)
+    
+    def emit(self, event: dict, source_type: str = None, source: str = None):
+        
+        source_type = source_type or event.get("source_type", "")
+        source = source or event.get("source", "")
+        
+        event["source_type"] = source_type or "in_app"
+        event["source"] = source or ""
+        
+        self._emit(event)
+    
+    def emit(self, event: dict, source_type: str | None = None, source: str | None = None):
+        resolved_type = source_type or event.get("source_type") or _DEFAULT_SOURCE_TYPE
+        resolved_source = source or event.get("source") or ""
+
+        if resolved_type not in ALLOWED_SOURCE_TYPES:
+            raise ValueError(
+                f"Invalid source_type '{resolved_type}'. "
+                f"Expected one of: {ALLOWED_SOURCE_TYPES}"
+            )
+
+        self._emit({
+            **event,
+            "source_type": resolved_type,
+            "source": resolved_source,
+        })
+    
+    def module_emit(self, event, module_name=None):
+        self.emit(event, source_type="module", source=module_name)
 
     def _format_human(self, event: dict):
         """Translate a JSON event into the legacy human-friendly output."""
@@ -305,6 +341,7 @@ debug = _out.debug
 cmd = _out.cmd
 data = _out.data
 emit = _out.emit
+module_emit = _out.module_emit
 
 
 # ---------------------------------------------------------------------------
