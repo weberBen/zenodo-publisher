@@ -6,3 +6,12 @@ dependencies = [
     "rfc3161ng>=2.1",
     "requests>=2.28",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-v --tb=short --report-log=results_digicert.jsonl"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["pytest>=7", "pytest-reportlog>=0.4"]
