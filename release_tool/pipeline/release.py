@@ -763,6 +763,9 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
         output.step_ok(msg)
     if up_to_date and not ctx.config.zenodo_force_update:
         output.info("No publication made.")
+        for af in zenodo_files:
+            output.detail_skip("{filename} already up to date", filename=af.file_path.name, name="zenodo.asset_ok")
+        output.step_ok("Zenodo publication skipped")
         return record_info
     if up_to_date:
         output.step_warn("Forcing zenodo update")
@@ -778,6 +781,8 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
             zenodo_files, ctx.tag_name, identifiers=identifiers,
         )
         output.data("record_info", record_info)
+        for af in zenodo_files:
+            output.detail_ok("{filename} uploaded to Zenodo", filename=af.file_path.name, name="zenodo.asset_uploaded")
         output.detail("Zenodo DOI: {doi}", doi=record_info['doi'], name="zenodo.published_doi")
         output.step_ok("Publication {tag} completed successfully!", tag=ctx.tag_name, name="zenodo.publication_done")
         return record_info
@@ -800,7 +805,7 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
         )
 
         if remote_sha and local_sha == remote_sha:
-            output.detail("{filename} already up to date on release", filename=af.file_path.name, name="github.asset_ok")
+            output.detail_skip("{filename} already up to date", filename=af.file_path.name, name="github.asset_ok")
             continue
 
         if remote_sha:
@@ -808,7 +813,7 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
             output.detail("Remote: {hash}", hash=ellipse_hash(remote_sha), name="github.remote_hash")
             output.detail("Local: {hash}", hash=ellipse_hash(local_sha), name="github.local_hash")
             if not prompts.confirm_github_overwrite.ask(f"Overwrite {af.file_path.name} on release ?").is_accept:
-                output.warn("{filename} not updated on release", filename=af.file_path.name, name="github.asset_skipped")
+                output.detail_skip("{filename} skipped", filename=af.file_path.name, name="github.asset_skipped")
                 continue
 
         upload_release_asset(

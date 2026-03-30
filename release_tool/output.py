@@ -178,6 +178,8 @@ class Output:
             print(f"  {msg}")
         elif t == "detail_ok":
             print(f"  \u2713 {msg}")
+        elif t == "detail_skip":
+            print(f"  \u2014 {msg}")
         elif t == "warn":
             print(f"\u26a0\ufe0f {msg}")
         elif t == "error":
@@ -228,6 +230,9 @@ class Output:
 
     def detail_ok(self, msg: str, **kwargs):
         self.emit(self._build_event("detail_ok", msg, **kwargs))
+
+    def detail_skip(self, msg: str, **kwargs):
+        self.emit(self._build_event("detail_skip", msg, **kwargs))
 
     # -- Public API: warn / error / debug -----------------------------------
 
@@ -292,6 +297,7 @@ info = _out.info
 info_ok = _out.info_ok
 detail = _out.detail
 detail_ok = _out.detail_ok
+detail_skip = _out.detail_skip
 warn = _out.warn
 error = _out.error
 fatal = _out.fatal
