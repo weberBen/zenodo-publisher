@@ -149,7 +149,6 @@ def main() -> None:
             "file_path": str(tsr_path),
             "config_key": file_info["config_key"],
             "module_entry_type": "tsr",
-            "publishers": {"destination": {"digicert_timestamp": []}},
         })
 
     print(json.dumps({"type": "result", "files": result_files}), flush=True)

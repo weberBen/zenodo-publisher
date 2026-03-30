@@ -650,12 +650,24 @@ def _step_modules(ctx: PipelineContext) -> None:
                                project_root=ctx.config.project_root)
 
         for rf in raw_files:
-            publishers_raw = rf.get("publishers", {})
-            dest_raw = publishers_raw.get("destination", {})
             config_key = rf["config_key"]
             parent_fce = next(
                 (fce for fce in ctx.config.generated_files if fce.key == config_key), None
             )
+            publishers_sentinel = object()
+            publishers_raw = rf.get("publishers", publishers_sentinel)
+            if publishers_raw is publishers_sentinel:
+                # Key absent — fall back to parent entry's publishers, then global default.
+                effective_pub = (
+                    (parent_fce.publishers if parent_fce else None)
+                    or ctx.config.default_publishers
+                )
+                dest_raw = effective_pub.destination
+            elif publishers_raw is None:
+                # Explicit null — publish nowhere.
+                dest_raw = {}
+            else:
+                dest_raw = publishers_raw.get("destination", {})
             met = rf.get("module_entry_type")
             # Module output can override archive via archive_types list in JSON
             module_archive_types = rf.get("archive_types")
