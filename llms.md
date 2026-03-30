@@ -277,6 +277,7 @@ release_tool/
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
 ├── modules/
 │   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, check_module, is_builtin
+│   ├── README.md                   # Index of built-in modules (see for full list)
 │   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
 │       ├── main.py                 #   Module entry point (--input / --check modes)
 │       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)

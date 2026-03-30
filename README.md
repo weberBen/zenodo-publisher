@@ -519,6 +519,8 @@ The canonical JSON format (JCS) ensures deterministic serialization: the same co
 
 Modules are external pipeline steps that run after files are built and hashed, and before publishing. Each module receives a list of files and produces new files (e.g. a timestamp, a certificate) that are then published alongside the originals.
 
+See [`release_tool/modules/README.md`](release_tool/modules/README.md) for the list of built-in modules, as the digicert TSA module.
+
 #### Creating a module
 
 Each module is a **uv project directory** containing at minimum `main.py` and `pyproject.toml` (with an optional `uv.lock`). ZP looks for modules in this order (first match wins):
