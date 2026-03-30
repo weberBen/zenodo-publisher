@@ -164,13 +164,16 @@ class ReleaseConfig(CommonConfig):
         raw_modules = yaml_config.get("modules", {}) or {}
         if not isinstance(raw_modules, dict):
             raise ConfigError("'modules' must be a YAML mapping", name="config.modules.invalid_format")
-        self.modules_config: dict[str, dict] = {
-            k: (v if isinstance(v, dict) else {}) for k, v in raw_modules.items()
-        }
+        from ..modules import load_module, ModuleError as _ModuleError, _sanitize_module_name
+        try:
+            self.modules_config: dict[str, dict] = {
+                _sanitize_module_name(k): (v if isinstance(v, dict) else {}) for k, v in raw_modules.items()
+            }
+        except _ModuleError as e:
+            raise ConfigError(str(e), name="config.modules.invalid_name") from e
 
         # Validate modules exist at config load time
         if self.modules_config:
-            from ..modules import load_module, ModuleError as _ModuleError
             for module_name in self.modules_config:
                 try:
                     load_module(module_name, project_root=self.project_root)

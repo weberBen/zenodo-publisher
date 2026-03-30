@@ -523,16 +523,16 @@ See [`release_tool/modules/README.md`](release_tool/modules/README.md) for the l
 
 #### Creating a module
 
-Each module is a **uv project directory** containing at minimum `main.py` and `pyproject.toml` (with an optional `uv.lock`). ZP looks for modules in this order (first match wins):
+Each module is a **uv project directory** containing at minimum `<name>.py` and `pyproject.toml` (with an optional `uv.lock`). The entry point filename must match the module directory name. ZP looks for modules in this order (first match wins):
 
 1. Built-in: `release_tool/modules/<name>/`
 2. Project: `<project_root>/.zp/modules/<name>/`
 3. User home: `~/.zp/modules/<name>/`
 
-The module's `main.py` is invoked inside its own isolated uv environment:
+The module's `<name>.py` is invoked inside its own isolated uv environment:
 
 ```
-uv run --project <module_dir> main.py --input <json_file>
+uv run --project <module_dir> <name>.py --input <json_file>
 ```
 
 #### Input
@@ -609,7 +609,7 @@ Run `uv lock` inside the module directory to generate `uv.lock`. ZP runs the mod
 Every module must also support a `--check` mode that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
 
 ```
-uv run --project <module_dir> main.py --check --config <json_file>
+uv run --project <module_dir> <name>.py --check --config <json_file>
 ```
 
 The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `--check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.

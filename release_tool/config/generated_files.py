@@ -282,7 +282,11 @@ def _parse_file_modules(raw: Any) -> dict[str, dict]:
             "'modules' in generated_files entry must be a YAML mapping",
             name="generated_files.modules.invalid_format",
         )
-    return {name: (cfg if isinstance(cfg, dict) else {}) for name, cfg in raw.items()}
+    from ..modules import _sanitize_module_name, ModuleError as _ModuleError
+    try:
+        return {_sanitize_module_name(name): (cfg if isinstance(cfg, dict) else {}) for name, cfg in raw.items()}
+    except _ModuleError as e:
+        raise ConfigError(str(e), name="config.modules.invalid_name") from e
 
 
 def _parse_identifier(raw: Any) -> IdentifierConfig | None:

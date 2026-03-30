@@ -1,22 +1,38 @@
 """Module loader for zenodo-publisher pipeline modules.
 
-Modules are directories containing main.py and pyproject.toml (uv project).
+Modules are directories containing <name>.py and pyproject.toml (uv project).
+The entry point filename must match the module directory name.
 
 Lookup order (first match wins):
-  1. Built-in:     release_tool/modules/<name>/main.py
-  2. Project root: <project_root>/.zp/modules/<name>/main.py
-  3. User home:    ~/.zp/modules/<name>/main.py
+  1. Built-in:     release_tool/modules/<name>/<name>.py
+  2. Project root: <project_root>/.zp/modules/<name>/<name>.py
+  3. User home:    ~/.zp/modules/<name>/<name>.py
 
-Execution: uv run --project <module_dir> main.py
+Execution: uv run --project <module_dir> <name>.py
 """
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
 from ..errors import ZPError
+
+_VALID_MODULE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _sanitize_module_name(name: str) -> str:
+    """Validate that a module name is safe for filesystem lookup."""
+    if not _VALID_MODULE_NAME.match(name):
+        raise ModuleError(
+            f"Invalid module name '{name}'. "
+            "Must be lowercase alphanumeric + underscores, "
+            "start with a letter, max 64 chars.",
+            name="invalid_name",
+        )
+    return name
 
 
 class ModuleError(ZPError):
@@ -35,23 +51,27 @@ def _subprocess_env() -> dict:
 
 
 def find_module_path(provider_name: str, project_root: Path | None = None) -> Path:
-    """Return path to module main.py. Raises ModuleError if not found.
+    """Return path to module entry point. Raises ModuleError if not found.
 
-    Each module must be a directory with main.py and pyproject.toml.
+    Each module must be a directory with <name>.py and pyproject.toml.
     """
-    # 1. Built-in: release_tool/modules/<name>/main.py
-    builtin = Path(__file__).parent / provider_name / "main.py"
+    _sanitize_module_name(provider_name)
+
+    entry = f"{provider_name}.py"
+
+    # 1. Built-in: release_tool/modules/<name>/<name>.py
+    builtin = Path(__file__).parent / provider_name / entry
     if builtin.exists():
         return builtin
 
-    # 2. Project root: <project_root>/.zp/modules/<name>/main.py
+    # 2. Project root: <project_root>/.zp/modules/<name>/<name>.py
     if project_root is not None:
-        proj = project_root / ".zp" / "modules" / provider_name / "main.py"
+        proj = project_root / ".zp" / "modules" / provider_name / entry
         if proj.exists():
             return proj
 
-    # 3. User home: ~/.zp/modules/<name>/main.py
-    user = Path.home() / ".zp" / "modules" / provider_name / "main.py"
+    # 3. User home: ~/.zp/modules/<name>/<name>.py
+    user = Path.home() / ".zp" / "modules" / provider_name / entry
     if user.exists():
         return user
 

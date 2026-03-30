@@ -72,11 +72,11 @@ def check(module_config: dict) -> None:
     full_chain = module_config.get("full_chain", True)
     if not isinstance(full_chain, bool):
         emit("error", f"Invalid config: 'full_chain' must be a boolean, got {full_chain!r}",
-             name="digicert_timestamp.check.invalid_config")
+             name="check.invalid_config")
         sys.exit(1)
 
     emit("detail_ok", "Config valid",
-         name="digicert_timestamp.check.ok")
+         name="check.ok")
 
 
 def main() -> None:
@@ -96,7 +96,7 @@ def main() -> None:
 
     if not args.input:
         emit("error", "--input is required when not running --check",
-             name="digicert_timestamp.missing_input")
+             name="missing_input")
         sys.exit(1)
 
     with open(args.input, encoding="utf-8") as f:
@@ -108,7 +108,7 @@ def main() -> None:
         emit("error",
              f"identity_hash_algo '{algo}' is not supported by RFC 3161 / DigiCert TSA. "
              f"Use one of: {sorted(SUPPORTED_ALGOS)}",
-             name="digicert_timestamp.unsupported_algo")
+             name="unsupported_algo")
         sys.exit(1)
     result_files = []
 
@@ -124,26 +124,26 @@ def main() -> None:
                  algo=algo,
                  filename=filename,
                  available_hash_algo=list(hashes.keys()),
-                 name="digicert_timestamp.missing_hash")
+                 name="missing_hash")
             sys.exit(1)
         hex_hash = hashes[algo]["value"]
 
         emit("detail", f"Timestamping '{filename}' ({algo})...",
-             filename=filename, algo=algo, name="digicert_timestamp.start")
+             filename=filename, algo=algo, name="start")
 
         try:
             tsr_path = request_timestamp(hex_hash, algo, full_chain, output_dir, filename)
         except requests.RequestException as e:
             emit("error", f"DigiCert TSA request failed for '{filename}': {e}",
-                 name="digicert_timestamp.tsa_error")
+                 name="tsa_error")
             sys.exit(1)
         except Exception as e:
             emit("error", f"Timestamping failed for '{filename}': {e}",
-                 name="digicert_timestamp.error")
+                 name="error")
             sys.exit(1)
 
         emit("detail_ok", f"Timestamp saved: {tsr_path.name}",
-             tsr=tsr_path.name, name="digicert_timestamp.done")
+             tsr=tsr_path.name, name="done")
 
         result_files.append({
             "file_path": str(tsr_path),

@@ -178,7 +178,7 @@ def _install_dummy_module(repo_dir: Path) -> Path:
     module_dir = repo_dir / ".zp" / "modules" / "dummy_module"
     module_dir.mkdir(parents=True, exist_ok=True)
     (module_dir / "pyproject.toml").write_text(DUMMY_MODULE_PYPROJECT)
-    module_path = module_dir / "main.py"
+    module_path = module_dir / "dummy_module.py"
     module_path.write_text(DUMMY_MODULE_SOURCE)
     return module_path
 
@@ -188,7 +188,7 @@ def _install_isolation_module(repo_dir: Path) -> Path:
     module_dir = repo_dir / ".zp" / "modules" / "isolation_module"
     module_dir.mkdir(parents=True, exist_ok=True)
     (module_dir / "pyproject.toml").write_text(ISOLATION_MODULE_PYPROJECT)
-    module_path = module_dir / "main.py"
+    module_path = module_dir / "isolation_module.py"
     module_path.write_text(ISOLATION_MODULE_SOURCE)
     return module_path
 
