@@ -8,8 +8,11 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-v --tb=short --report-log=results_digicert.jsonl"
 markers = ["network: requires network access (DigiCert TSA)"]
+norecursedirs = ["manual", ".venv"]
 
 [tool.uv]
 package = false

@@ -49,7 +49,7 @@ def get_root_issuer(chain: Path) -> str:
     return issuers[-1].removeprefix("issuer=").strip() if issuers else ""
 
 
-def build_full_chain(chain: Path, dest: Path):
+def build_full_chain(chain: Path, dest: Path, raise_if_not_found: bool = False):
     certs_dir = Path("/etc/ssl/certs")
     root_issuer = get_root_issuer(chain)
     print(f"    Looking for root CA: {root_issuer}")
@@ -67,6 +67,8 @@ def build_full_chain(chain: Path, dest: Path):
             f.write(root_pem)
             print("    Root CA found in system store.")
         else:
+            if raise_if_not_found:
+                raise RuntimeError(f"Root CA not found in system store for issuer: {root_issuer}")
             print("    Root CA not found in system store, using chain as-is.")
 
 
@@ -103,14 +105,18 @@ def file_hash(file: Path, algo: str) -> str:
     return r.stdout.strip().split()[-1]
 
 
-def verify(file: Path, tsr: Path, full_chain: Path) -> bool:
+def verify(file: Path, tsr: Path, full_chain: Path) -> subprocess.CompletedProcess:
     r = run(["openssl", "ts", "-verify", "-in", str(tsr), "-data", str(file),
              "-CAfile", str(full_chain)])
     print(r.stdout.strip() or r.stderr.strip())
-    return r.returncode == 0
+    return r
 
+def is_verify_ok(result: subprocess.CompletedProcess | None):
+    if result is None:
+        return False
+    return result.returncode == 0
 
-def main():
+def _main():
     parser = argparse.ArgumentParser(description="Verify a RFC 3161 TSR against a file.")
     parser.add_argument("file", type=Path, help="File to verify")
     parser.add_argument("tsr", type=Path, help="TSR file (.tsr)")
@@ -148,10 +154,10 @@ def main():
         print(f"    {match}")
 
         print("\n==> Verifying TSR signature...")
-        ok = verify(args.file, args.tsr, full_chain)
+        r = verify(args.file, args.tsr, full_chain)
 
         print()
-        if ok:
+        if is_verify_ok(r):
             print(f"RESULT: OK — TSR is valid for {args.file.name}")
         else:
             print(f"RESULT: FAILED — TSR verification failed")
@@ -159,4 +165,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _main()

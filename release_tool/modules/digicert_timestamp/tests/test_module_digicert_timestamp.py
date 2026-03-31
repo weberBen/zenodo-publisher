@@ -26,9 +26,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-MODULE_DIR = Path(__file__).parent
+MODULE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 import digicert_timestamp as mod
+import verify_tsr
 
 
 # ---------------------------------------------------------------------------
@@ -327,33 +328,6 @@ def _run_module(input_data: dict, tmp_path: Path):
     return events, result, proc.returncode
 
 
-def _openssl_ts_text(tsr_path: Path) -> str:
-    """Run openssl ts -reply -text and return stdout."""
-    r = subprocess.run(
-        ["openssl", "ts", "-reply", "-in", str(tsr_path), "-text"],
-        capture_output=True, text=True,
-    )
-    return r.stdout
-
-
-def _parse_tsr_hash(tsr_text: str) -> str:
-    """Extract the message imprint hex from openssl ts -text output."""
-    hex_bytes = []
-    in_msg = False
-    for line in tsr_text.splitlines():
-        if "Message data:" in line:
-            in_msg = True
-            continue
-        if in_msg:
-            # Lines look like: "    0000 - aa bb cc ...   ..."
-            m = re.match(r"\s+[0-9a-f]+ - ((?:[0-9a-f]{2} ?)+)", line.lower())
-            if m:
-                hex_bytes += m.group(1).split()
-            else:
-                break
-    return "".join(hex_bytes)
-
-
 def _openssl_pkcs7_certs(tsr_path: Path) -> str:
     """Extract embedded certs from TSR via openssl pkcs7."""
     token = subprocess.run(
@@ -365,31 +339,6 @@ def _openssl_pkcs7_certs(tsr_path: Path) -> str:
         input=token.stdout, capture_output=True,
     )
     return pkcs7.stdout.decode(errors="replace")
-
-
-def _extract_root_pem(tsr_path: Path, tmp_path: Path) -> Path | None:
-    """Extract the DigiCert root CA from the TSR and save as PEM."""
-    token = subprocess.run(
-        ["openssl", "ts", "-reply", "-in", str(tsr_path), "-token_out"],
-        capture_output=True,
-    )
-    pem_all = subprocess.run(
-        ["openssl", "pkcs7", "-inform", "DER", "-print_certs"],
-        input=token.stdout, capture_output=True,
-    )
-    pem_text_out = pem_all.stdout.decode(errors="replace")
-    # Find the cert block whose subject contains "Assured ID Root CA"
-    certs = re.findall(r"(subject=.*?\n-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
-                       pem_text_out, re.DOTALL)
-    for cert in certs:
-        if "Assured ID Root CA" in cert or "Root G4" in cert:
-            pem_text = re.search(r"-----BEGIN CERTIFICATE-----.*-----END CERTIFICATE-----",
-                                 cert, re.DOTALL)
-            if pem_text:
-                root_pem = tmp_path / "digicert_root.pem"
-                root_pem.write_text(pem_text.group(0))
-                return root_pem
-    return None
 
 
 @pytest.mark.network
@@ -422,8 +371,7 @@ def test_live_hash_in_tsr_matches_input(tmp_path):
     assert rc == 0
 
     tsr_path = Path(result["files"][0]["file_path"])
-    tsr_text = _openssl_ts_text(tsr_path)
-    tsr_hash = _parse_tsr_hash(tsr_text)
+    tsr_hash = verify_tsr.parse_tsr_hash(tsr_path)
 
     assert tsr_hash == hex_hash, (
         f"Hash mismatch:\n  sent:      {hex_hash}\n  in TSR:    {tsr_hash}"
@@ -441,7 +389,8 @@ def test_live_algo_is_sha256(tmp_path):
     _, result, rc = _run_module(data, tmp_path)
     assert rc == 0
 
-    tsr_text = _openssl_ts_text(Path(result["files"][0]["file_path"]))
+    tsr_path = Path(result["files"][0]["file_path"])
+    tsr_text = verify_tsr.run(["openssl", "ts", "-reply", "-in", str(tsr_path), "-text"]).stdout
     assert "sha256" in tsr_text.lower(), \
         f"Expected sha256 in TSR. openssl output:\n{tsr_text}"
 
@@ -508,19 +457,13 @@ def test_live_openssl_verify(tmp_path):
     assert rc == 0
 
     tsr_path = Path(result["files"][0]["file_path"])
-    root_pem = _extract_root_pem(tsr_path, tmp_path)
-    assert root_pem is not None, "Could not extract root CA from TSR"
+    chain_pem = tmp_path / "chain.pem"
+    full_chain_pem = tmp_path / "full_chain.pem"
+    verify_tsr.extract_chain(tsr_path, chain_pem)
+    verify_tsr.build_full_chain(chain_pem, full_chain_pem)
 
-    verify = subprocess.run(
-        ["openssl", "ts", "-verify",
-         "-in", str(tsr_path),
-         "-data", str(dummy),
-         "-CAfile", str(root_pem)],
-        capture_output=True, text=True,
-    )
-    assert verify.returncode == 0, \
-        f"openssl ts -verify failed:\n{verify.stderr}"
-    assert "Verification: OK" in verify.stderr or "Verification: OK" in verify.stdout
+    r = verify_tsr.verify(dummy, tsr_path, full_chain_pem)
+    assert r.returncode == 0, f"openssl ts -verify failed:\n{r.stderr}"
 
 
 @pytest.mark.network
