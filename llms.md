@@ -29,6 +29,7 @@ This section helps you find the right code quickly without reading everything.
 | How archive/hashing works | `release_tool/archive_operation.py` (ArchivedFile, hashing, manifest), `git_operations.py` (git archive, tree hash) |
 | What error name ZP emits | `release_tool/errors.py` (base + normalize_name), then grep for the `name=` parameter in the relevant module |
 | How tests work | `tests/conftest.py` (fixtures, reset), `tests/utils/cli.py` (ZpRunner), `tests/utils/ndjson.py` (event parsing) |
+| How a built-in module works | `release_tool/modules/<name>/README.md` (purpose, config, events) — each module has its own README; `release_tool/modules/<name>/tests/README.md` for its test suite |
 | How the CLI is built | `release_tool/cli.py` — auto-generated from ConfigOption lists |
 
 ### Search patterns
@@ -281,7 +282,10 @@ release_tool/
 │   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
 │       ├── digicert_timestamp.py   #   Module entry point (--input / --check modes)
 │       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
-│       └── uv.lock                 #   Locked dependency graph
+│       ├── uv.lock                 #   Locked dependency graph
+│       ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
+│       └── tests/
+│           └── README.md           #   Test doc: what is tested, fixtures, how to run
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
 │   ├── context.py                  # PipelineContext, HookPoint, HookRegistry

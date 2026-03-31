@@ -267,6 +267,16 @@ The sandbox repo is meant for this. Do not point tests at a production repo.
 
 Built-in modules (`release_tool/modules/<name>/`) each have their own isolated venv managed by `uv`. Module tests are run via `tests/run_module_tests.py`, which auto-discovers modules (any subdirectory with a `pyproject.toml`).
 
+Each module ships two READMEs:
+- **`release_tool/modules/<name>/README.md`** — module documentation (purpose, config, NDJSON events)
+- **`release_tool/modules/<name>/tests/README.md`** — test documentation (what is tested, fixtures, how to run)
+
+### Available modules
+
+| Module | README |
+|--------|--------|
+| `digicert_timestamp` | [`release_tool/modules/digicert_timestamp/README.md`](../release_tool/modules/digicert_timestamp/README.md) |
+
 ```bash
 # List available modules
 tests/run_module_tests.py
