@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .schema import ConfigOption
-from .yaml import find_config_file, load_yaml_file, traverse_yaml
+from .yaml import find_config_file, load_yaml_file, traverse_yaml, build_yaml_schema, validate_yaml_unknown_keys
 from .transform_common import (
     TREE_ALGORITHMS,
     PROJECT_NAME_TEMPLATE_VARS,
@@ -77,7 +77,7 @@ class CommonConfig:
     """Base configuration class.
 
     Options are defined in _options (single source of truth).
-    Priority: CLI overrides > zenodo_config.yaml > .zenodo.env (sensitive) > defaults.
+    Priority: CLI overrides > .zp.yaml > .zenodo.env (sensitive) > defaults.
 
     Subclasses extend _options and may set:
       _required:    list of option names that must be non-None
@@ -87,6 +87,10 @@ class CommonConfig:
     _options: list[ConfigOption] = COMMON_OPTIONS
     _required: list[str] = []
     _cli_aliases: dict[str, str] = {}
+    # Chemins YAML valides non couverts par un ConfigOption (parsés manuellement)
+    _extra_yaml_paths: list[str] = []
+    # Sections dont la structure interne est libre-form (pas de validation récursive)
+    _opaque_sections: list[str] = []
 
     def __init__(
         self,
@@ -103,6 +107,14 @@ class CommonConfig:
         )
         self.yaml_config = yaml_config
         cli_overrides = cli_overrides or {}
+
+        if yaml_config:
+            schema = build_yaml_schema(
+                self._options,
+                extra_paths=self._extra_yaml_paths,
+                opaque_sections=self._opaque_sections,
+            )
+            validate_yaml_unknown_keys(yaml_config, schema)
 
         debug = getattr(self, 'debug', False)
 

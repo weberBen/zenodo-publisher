@@ -1,5 +1,5 @@
 # Zenodo Publisher Configuration
-# Copy this file to zenodo_config.yaml in your project root
+# Copy this file to zp.yaml in your project root
 #
 # Sensitive variables (ZENODO_TOKEN) go in .zenodo.env
 # Everything else is configured here.
@@ -28,10 +28,20 @@ compile:
 archive:
   format: zip             # zip, tar, or tar.gz
   dir: null               # persistent archive directory (null = temp)
+  types: [file, sig]      # file types to persist: file, sig, and/or module names
   tar_extra_args: []
   gzip_extra_args: []
 
 hash_algorithms: [sha256] # sha256, md5, sha512, sha1, tree, tree256, etc.
+identity_hash_algo: sha256 # hash algo for identifiers, signing (file_hash mode), and module certification
+
+# ---------------------------------------------------------------------------
+# Global publisher defaults (used when per-file publishers is not set)
+# ---------------------------------------------------------------------------
+publishers:
+  destination:
+    file: [zenodo]        # where to send each file
+    sig: []               # where to send signatures
 
 # ---------------------------------------------------------------------------
 # GPG signing (global defaults)
@@ -39,7 +49,6 @@ hash_algorithms: [sha256] # sha256, md5, sha512, sha1, tree, tree256, etc.
 signing:
   sign: false
   sign_mode: file_hash    # "file" (sign raw file) or "file_hash" (sign hash)
-  sign_hash_algo: sha256
   gpg:
     uid: null             # GPG key UID (null = system default)
     extra_args: [--armor] # --armor → .asc, remove for binary .sig
@@ -54,6 +63,17 @@ zenodo:
   force_update: false
 
 # ---------------------------------------------------------------------------
+# Modules (optional external pipeline steps)
+# ---------------------------------------------------------------------------
+# Built-in modules:  release_tool/modules/<name>/main.py
+# Project modules:   .zp/modules/<name>/main.py
+# User modules:      ~/.zp/modules/<name>/main.py
+#
+# modules:
+#   digicert_timestamp:
+#     full_chain: true    # include TSA certificate chain in .tsr file
+
+# ---------------------------------------------------------------------------
 # Generated files
 # ---------------------------------------------------------------------------
 # Each key defines a file to include in the release.
@@ -64,10 +84,15 @@ zenodo:
 #   rename:     rename the file using project_name template (default: false)
 #   sign:       override global signing.sign for this file (default: null = use global)
 #   sign_mode:  override global signing.sign_mode (default: null = use global)
-#   archive:    include this file in the release (default: true)
+#   archive:
+#     types:    [file, sig]  # override global archive.types for this file
 #   publishers:
-#     file_destination: [zenodo, github]
-#     sig_destination:  []
+#     destination:
+#       file: [zenodo, github]
+#       sig:  []
+#   modules:    # per-file module config overrides
+#     digicert_timestamp:
+#       full_chain: false
 #   identifier:
 #     use_as_alternate_identifier: true
 #     source: file        # "file" or "sig_file"
@@ -80,15 +105,18 @@ generated_files:
     rename: true
     sign: true
     sign_mode: file_hash
-    archive: true
+    archive:
+      types: [file, sig]
     publishers:
-      file_destination: [zenodo, github]
-      sig_destination: []
+      destination:
+        file: [zenodo, github]
+        sig: []
 
   # Git archive of the project (special key)
   project:
     publishers:
-      file_destination: [zenodo]
+      destination:
+        file: [zenodo]
 
   # JSON manifest (special key)
   manifest:

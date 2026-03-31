@@ -36,6 +36,11 @@ ENV/
 
 # uv
 .python-version
-uv.lock
 
 *.zip
+
+# testing report
+results_*.*
+results-*.*
+results/*
+results.*

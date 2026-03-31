@@ -127,7 +127,7 @@ class ZenodoPublisher:
             for f in previous_version_files
             if f.get("checksum", "")
         }
-        new_md5s = {(af.hashes["md5"]["value"], af.is_signature) for af in archived_files}
+        new_md5s = {(af.hashes["md5"]["value"], af.type == "sig") for af in archived_files}
 
         if self.config.signing.sign:
             # Exclude signature files from comparison: GPG signatures contain
@@ -153,7 +153,7 @@ class ZenodoPublisher:
         return (False, f"Files and version are different.\nVersion {versions_msg}\nFiles {files_msg}")
 
     def _upload_files(self, draft_record, archived_files: list) -> None:
-        """Upload ArchivedFile entries to the draft."""
+        """Upload FileEntry instances to the draft."""
         file_entries = [{"key": af.file_path.name} for af in archived_files]
         draft_record.files.create(FilesListMetadata(file_entries))
 
@@ -240,7 +240,7 @@ class ZenodoPublisher:
 
         Args:
             version: Version string (git tag)
-            identifiers: List of ArchivedFile with identifier_value set
+            identifiers: List of FileEntry with identifier_value set
             metadata_overrides: Dict from .zenodo.json
         """
         if metadata_overrides:
@@ -272,9 +272,9 @@ class ZenodoPublisher:
         """Publish a new version on Zenodo.
 
         Args:
-            archived_files: List of ArchivedFile entries to upload
+            archived_files: List of FileEntry instances to upload
             tag_name: Tag name (used as version)
-            identifiers: List of ArchivedFile with identifier_value set
+            identifiers: List of FileEntry with identifier_value set
 
         Returns:
             Record info dict with 'doi' and 'record_url'

@@ -22,9 +22,6 @@ TAG = "v1.0.0"
 
 MINIMAL_CONFIG = {
     "project_name": {"prefix": "TestProject", "suffix": "-{tag_name}"},
-    "main_branch": "main",
-    "compile": {"enabled": False},
-    "signing": {"sign": False},
 }
 
 REPO_FILES = {

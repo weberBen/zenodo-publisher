@@ -3,7 +3,37 @@
 import pytest
 
 from tests.conftest import reset_test_repo
+from tests.utils.git import TEMPLATE_TAG_PREFIX
 
+@pytest.mark.no_auto_reset
+@pytest.mark.parametrize("args,desc", [
+    (("tag", f"{TEMPLATE_TAG_PREFIX}test"),                                      "lightweight tag"),
+    (("tag", "-a", f"{TEMPLATE_TAG_PREFIX}test", "-m", "msg"),                  "annotated tag"),
+    (("push", "origin", f"{TEMPLATE_TAG_PREFIX}test"),                           "push by name"),
+    (("push", "origin", f"refs/tags/{TEMPLATE_TAG_PREFIX}test"),                 "push via refs/tags/"),
+    (("push", "origin", f"HEAD:refs/tags/{TEMPLATE_TAG_PREFIX}test"),            "push via refspec"),
+    (("fetch", "origin", f"refs/tags/{TEMPLATE_TAG_PREFIX}test:refs/tags/{TEMPLATE_TAG_PREFIX}test"), "fetch explicit refspec"),
+])
+def test_template_tag_creation_forbidden(repo_env, desc, args):
+    """GitClient._run doit lever PermissionError pour toute création de tag template_*."""
+    _, git = repo_env
+    with pytest.raises(PermissionError, match=TEMPLATE_TAG_PREFIX):
+        git._run(*args)
+
+
+@pytest.mark.no_auto_reset
+@pytest.mark.parametrize("args,desc", [
+    (("fast-import",),                    "fast-import"),
+    (("bundle", "unbundle", "file.bundle"), "bundle unbundle"),
+])
+def test_forbidden_commands(repo_env, desc, args):
+    """GitClient._run doit lever PermissionError pour les commandes interdites."""
+    _, git = repo_env
+    with pytest.raises(PermissionError):
+        git._run(*args)
+
+
+@pytest.mark.require_all_passed
 @pytest.mark.no_auto_reset
 def test_reset():
     reset_test_repo()

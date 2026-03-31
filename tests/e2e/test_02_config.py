@@ -43,7 +43,7 @@ MINIMAL_CONFIG = {
     "signing": {"sign": False},
     "hash_algorithms": ["sha256"],
     "generated_files": {
-        "project": {"publishers": {"file_destination": ["zenodo"]}},
+        "project": {"publishers": {"destination": {"file": ["zenodo"]}}},
     },
     "prompt_validation_level": "danger",
 }
@@ -77,7 +77,7 @@ def test_no_git(tmp_path, fix_log_path):
 
 
 def test_git_no_config(tmp_path, fix_log_path):
-    """With git init but no zenodo_config.yaml: should report not initialized."""
+    """With git init but no .zp.yaml: should report not initialized."""
     _git_init(tmp_path)
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release",
@@ -131,7 +131,7 @@ def test_env_file_unknown_keys(tmp_path, fix_log_path):
 def test_invalid_yaml_not_dict(tmp_path):
     """Config file with non-dict content: should fail."""
     _git_init(tmp_path)
-    config_path = tmp_path / "zenodo_config.yaml"
+    config_path = tmp_path / ".zp.yaml"
     config_path.write_text("- just\n- a\n- list\n")
     runner = ZpRunner(tmp_path)
     result = runner.run("release", "--test-mode", "--config", str(config_path))
@@ -227,7 +227,8 @@ def test_signing_on_file_mode(tmp_path, fix_log_path):
     _git_init(tmp_path)
     config = {
         **MINIMAL_CONFIG,
-        "signing": {"sign": True, "sign_mode": "file", "sign_hash_algo": "sha256"},
+        "identity_hash_algo": "sha256",
+        "signing": {"sign": True, "sign_mode": "file"},
     }
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
@@ -243,7 +244,8 @@ def test_signing_on_file_hash_mode(tmp_path, fix_log_path):
     _git_init(tmp_path)
     config = {
         **MINIMAL_CONFIG,
-        "signing": {"sign": True, "sign_mode": "file_hash", "sign_hash_algo": "sha256"},
+        "identity_hash_algo": "sha256",
+        "signing": {"sign": True, "sign_mode": "file_hash"},
     }
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
@@ -265,21 +267,22 @@ def test_signing_invalid_mode(tmp_path, fix_log_path):
     result = runner.run_test("release", config=config,
                              log_path=fix_log_path,
                              fail_on="ignore")
-    _assert_has_error(result, name="config_error.loading.config.signing.invalid_mode")
+    _assert_has_error(result, name="config_error.loading.config.invalid_option.signing.sign_mode",
+                      msg_contains="invalid_mode")
 
 
 def test_signing_invalid_hash_algo(tmp_path, fix_log_path):
-    """Invalid sign_hash_algo: should fail."""
+    """Invalid identity_hash_algo: should fail."""
     _git_init(tmp_path)
     config = {
         **MINIMAL_CONFIG,
-        "signing": {"sign": True, "sign_hash_algo": "not_a_real_algo"},
+        "identity_hash_algo": "not_a_real_algo",
     }
     runner = ZpRunner(tmp_path)
     result = runner.run_test("release", config=config,
                              log_path=fix_log_path,
                              fail_on="ignore")
-    _assert_has_error(result, name="config_error.loading.config.signing.algo.unknown")
+    _assert_has_error(result, name="config_error.loading.config.invalid_option.identity_hash_algo")
 
 
 def test_signing_cli_override(tmp_path, fix_log_path):

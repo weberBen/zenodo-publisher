@@ -237,7 +237,7 @@ class ZpRunner:
 
         Args:
             command: Subcommand ("release", "archive").
-            config: ZP config dict (written as zenodo_config.yaml).
+            config: ZP config dict (written as .zp.yaml).
             test_config: Test config dict with "prompts" and/or "cli" sections.
             extra_args: Additional CLI arguments.
             log_path: Path to log file (overwritten each run). Use fix_log_path fixture.
@@ -279,7 +279,7 @@ class ZpRunner:
         tmpdir = Path(tempfile.mkdtemp())
         try:
             if config is not None:
-                config_path = tmpdir / "zenodo_config.yaml"
+                config_path = tmpdir / ".zp.yaml"
                 with open(config_path, "w") as f:
                     yaml.dump(config, f, default_flow_style=False)
                 args.extend(["--config", str(config_path)])

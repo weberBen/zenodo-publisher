@@ -21,7 +21,8 @@ from ..git_operations import (
 )
 from ..zenodo_operations import ZenodoPublisher, ZenodoError
 from ..archive_operation import (
-    ArchivedFile,
+    FileEntry,
+    FileEntryType,
     compute_file_hash,
     compute_hashes,
     format_hash_info,
@@ -31,15 +32,52 @@ from ..archive_operation import (
 )
 from ..file_utils import persist_files
 from ..gpg_operations import gpg_sign_file, prompt_gpg_key
-from ..config.generated_files import FileEntry, FileEntryKind
+from ..config.generated_files import FileConfigEntry, FileEntryKind, PublisherDestinations
 from ..config.signing import SignMode
 from .. import output, prompts
 from ..errors import PipelineError
+from ..modules import run_module, check_module, find_module_path, is_builtin
+from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
+from .context import PipelineContext, HookPoint, HookRegistry
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _resolve_archive(entry_type: FileEntryType, module_name: str | None,
+                     fce: FileConfigEntry | None, config,
+                     module_entry_type: str | None = None) -> bool:
+    """Resolve whether this FileEntry should be persisted to archive_dir.
+
+    Key mapping:
+      FILE / PROJECT / MANIFEST → "file"
+      SIG                       → "sig"
+      MODULE_ENTRY              → module_name  (matches all outputs of that module)
+                                  module_name.module_entry_type  (matches specific sub-type only)
+
+    For MODULE_ENTRY, a match on either key is sufficient.
+
+    Priority: per-file fce.archive_types > global config.archive_types.
+    Empty list [] = veto (archive nothing for this entry).
+    """
+    if fce is not None and fce.archive_types is not None:
+        effective = fce.archive_types
+    else:
+        effective = config.archive_types
+
+    if entry_type == FileEntryType.SIG:
+        return "sig" in effective
+    elif entry_type == FileEntryType.MODULE_ENTRY:
+        if module_name in effective:
+            return True
+        if module_entry_type:
+            return f"{module_name}.{module_entry_type}" in effective
+        return False
+    else:
+        return "file" in effective
+
 
 def ellipse_hash(hash_str, visible_char=8):
     hash_str = hash_str.split(":")[-1]
@@ -47,21 +85,55 @@ def ellipse_hash(hash_str, visible_char=8):
 
 
 # ---------------------------------------------------------------------------
-# Steps
+# Handlers — one per HookPoint
 # ---------------------------------------------------------------------------
 
-def _step_git_check(config):
+def _step_module_check(ctx: PipelineContext) -> None:
+    """Verify all configured modules exist and pass their --check before the pipeline starts."""
+    if not ctx.config.modules_config:
+        return
+
+    output.step("Checking modules...")
+
+    for module_name, module_cfg in ctx.config.modules_config.items():
+        module_path = find_module_path(module_name, project_root=ctx.config.project_root)
+        if is_builtin(module_name):
+            origin = "built-in"
+        else:
+            try:
+                origin = str(module_path.parent.relative_to(ctx.config.project_root))
+            except (ValueError, TypeError):
+                origin = str(module_path.parent)
+        output.detail(
+            "Module '{module_name}' found ({origin})",
+            module_name=module_name, origin=origin, name="module.found",
+        )
+        output.detail(
+            "Checking module '{module_name}'...",
+            module_name=module_name, name="module.checking",
+        )
+        check_module(module_name, module_cfg, output,
+                     project_root=ctx.config.project_root)
+        output.detail_ok(
+            "Module '{module_name}' check passed",
+            module_name=module_name, name="module.check_ok",
+        )
+
+    output.step_ok("Modules ready", name="modules.check_ok")
+
+
+def _step_git_check(ctx: PipelineContext) -> None:
     """Check branch, remote sync, and local modifications."""
     output.step("🔍 Checking git repository status...")
-    check_on_main_branch(config.project_root, config.main_branch)
-    output.step_ok("On {branch} branch", branch=config.main_branch, name="git.branch_check")
-    check_up_to_date(config.project_root, config.main_branch)
+    check_on_main_branch(ctx.config.project_root, ctx.config.main_branch)
+    output.step_ok("On {branch} branch", branch=ctx.config.main_branch, name="git.branch_check")
+    check_up_to_date(ctx.config.project_root, ctx.config.main_branch)
     output.step_ok("Project is up to date with git repo", name="git.up_to_date")
 
 
-def _step_release(config) -> str:
-    """Check or create a GitHub release. Returns the tag name."""
-    is_released, latest_release = is_latest_commit_released(config.project_root)
+def _step_release(ctx: PipelineContext) -> None:
+    """Check or create a GitHub release. Sets ctx.tag_name."""
+    is_released, latest_release = is_latest_commit_released(ctx.config.project_root)
 
     if is_released:
         tag_name = latest_release["tagName"]
@@ -69,7 +141,8 @@ def _step_release(config) -> str:
         output.info_ok("Nothing to do for release.", name="release.noop")
         output.step_ok("Project is up to date with git release", name="release.up_to_date")
         output.data("tag_name", tag_name)
-        return tag_name
+        ctx.tag_name = tag_name
+        return
 
     output.step("📋 Current release status:")
     if latest_release:
@@ -106,16 +179,17 @@ def _step_release(config) -> str:
         output.detail("No release notes provided")
 
     output.step("🔍 Verifying tag validity...")
-    check_tag_validity(config.project_root, new_tag, config.main_branch, check_draft=config.check_gh_draft)
-    create_github_release(config.project_root, new_tag, release_title, release_notes)
+    check_tag_validity(ctx.config.project_root, new_tag, ctx.config.main_branch, check_draft=ctx.config.check_gh_draft)
+    create_github_release(ctx.config.project_root, new_tag, release_title, release_notes)
     output.step_ok("Release {tag} created successfully!", tag=new_tag, name="release.created")
     output.data("tag_name", new_tag)
-    return new_tag
+    ctx.tag_name = new_tag
 
 
-def _step_commit_info(config, tag_name):
+def _step_commit_info(ctx: PipelineContext) -> None:
+    """Retrieve commit info. Sets ctx.commit_env."""
     output.step("Retrieve commit info")
-    commit_env = get_last_commit_info(config.project_root, tag_name=tag_name)
+    commit_env = get_last_commit_info(ctx.config.project_root, tag_name=ctx.tag_name)
     output.info_ok("Commit SHA: {sha}", sha=commit_env['ZP_COMMIT_SHA'], name="commit.sha")
     output.info_ok("Commit timestamp: {timestamp}", timestamp=commit_env['ZP_COMMIT_DATE_EPOCH'], name="commit.timestamp")
     output.info_ok("Commit subject: {subject}", subject=commit_env['ZP_COMMIT_SUBJECT'], name="commit.subject")
@@ -129,22 +203,23 @@ def _step_commit_info(config, tag_name):
     output.info_ok("Origin: {origin}", origin=commit_env['ZP_ORIGIN_URL'], name="commit.origin")
     output.data("commit_env", commit_env)
     output.step_ok("", silent=True)
-    return commit_env
+    ctx.commit_env = commit_env
 
 
-def _step_project_name(config, tag_name, commit_env):
+def _step_project_name(ctx: PipelineContext) -> None:
+    """Resolve project name template."""
     output.step("Resolving project name")
-    config.generate_project_name({
-        "tag_name": tag_name,
-        "sha_commit": commit_env["ZP_COMMIT_SHA"],
+    ctx.config.generate_project_name({
+        "tag_name": ctx.tag_name,
+        "sha_commit": ctx.commit_env["ZP_COMMIT_SHA"],
     })
-    output.data("project_name", config.project_name)
-    output.step_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
+    output.data("project_name", ctx.config.project_name)
+    output.step_ok("Formatted project name: {project_name}", project_name=ctx.config.project_name, name="project.name")
 
 
-def _step_compile(config, env_vars=None):
+def _step_compile(ctx: PipelineContext) -> None:
     """Compile project via make (with user prompt)."""
-    if not config.compile_enabled:
+    if not ctx.config.compile_enabled:
         output.step_warn("Skipping project compilation (see config file)")
         return
 
@@ -152,27 +227,30 @@ def _step_compile(config, env_vars=None):
         raise PipelineError("Build aborted by user.", name="build_aborted")
 
     output.step("📋 Starting build process...")
-    compile(config.compile_dir, config.make_args, env_vars=env_vars)
+    compile(ctx.config.compile_dir, ctx.config.make_args, env_vars=ctx.commit_env)
     output.step_ok("Compilation ended")
 
 
+def _step_post_compile(ctx: PipelineContext) -> None:
+    """Re-check git status and verify release is still valid after compilation."""
+    _step_git_check(ctx)
+    verify_release_on_latest_commit(ctx.config.project_root, ctx.tag_name)
+
+
 # ---------------------------------------------------------------------------
-# Step 7: Resolve generated files
+# Step: Resolve generated files
 # ---------------------------------------------------------------------------
 
-def _step_resolve_generated_files(config) -> list[FileEntry]:
+def _step_resolve_generated_files(ctx: PipelineContext) -> None:
     """Resolve pattern templates and glob for matches."""
     output.step("Resolving generated files...")
-    for entry in config.generated_files:
-        if entry.kind == FileEntryKind.PATTERN:
+    for entry in ctx.config.generated_files:
+        if entry.type == FileEntryKind.PATTERN:
             pattern = entry.pattern
-            # Resolve {project_name} (available after step 4)
             if "{project_name}" in pattern:
-                pattern = pattern.replace("{project_name}", config.project_name)
-
-            # Strip leading / so patterns are always relative to project root
+                pattern = pattern.replace("{project_name}", ctx.config.project_name)
             pattern = pattern.lstrip("/")
-            base = config.project_root or Path.cwd()
+            base = ctx.config.project_root or Path.cwd()
             matches = sorted(base.glob(pattern))
 
             if not matches:
@@ -186,20 +264,18 @@ def _step_resolve_generated_files(config) -> list[FileEntry]:
                 output.detail("{key}: {filename}", key=entry.key, filename=m.name, name="files.resolved")
 
     output.step_ok("Generated files resolved")
-    return config.generated_files
 
 
 # ---------------------------------------------------------------------------
-# Step 8: Archive
+# Step: Archive
 # ---------------------------------------------------------------------------
 
-def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFile]:
+def _step_archive(ctx: PipelineContext) -> None:
     """Create archives: copy/rename generated files, create project ZIP."""
     output.step("Archiving files...")
-    archived_files: list[ArchivedFile] = []
 
-    for entry in file_entries:
-        if entry.kind == FileEntryKind.PATTERN:
+    for entry in ctx.config.generated_files:
+        if entry.type == FileEntryKind.PATTERN:
             # Count how many files share the same extension to detect collisions
             ext_counts = Counter(p.suffix for p in entry.resolved_paths)
             for src_path in entry.resolved_paths:
@@ -207,9 +283,9 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                     ext = src_path.suffix
                     # Only add original stem suffix when multiple files share the same extension
                     suffix = f"_{src_path.stem}" if ext_counts[ext] > 1 else ""
-                    dst = output_dir / f"{config.project_name}{suffix}{ext}"
+                    dst = ctx.output_dir / f"{ctx.config.project_name}{suffix}{ext}"
                 else:
-                    dst = output_dir / src_path.name
+                    dst = ctx.output_dir / src_path.name
                 if dst.exists():
                     raise PipelineError(
                         f"File name collision: '{dst.name}' already exists in "
@@ -217,37 +293,39 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                         name=f"archive.collision.{entry.key}",
                     )
                 shutil.copy2(src_path, dst)
-                archived_files.append(ArchivedFile(
+                ctx.archived_files.append(FileEntry(
                     file_path=dst,
                     config_key=entry.key,
                     filename=dst.stem,
                     extension=dst.suffix.lstrip("."),
-                    kind="generated",
+                    type=FileEntryType.FILE,
+                    archive=_resolve_archive(FileEntryType.FILE, None, entry, ctx.config),
+                    publishers=entry.publishers or ctx.config.default_publishers,
+                    sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
+                    identifier=entry.identifier,
                     is_preview=(dst.suffix.lstrip(".") == "pdf"),
-                    persist=entry.archive,
-                    has_signature=entry.effective_sign(config.signing.sign),
-                    publishers=entry.publishers,
+                    has_signature=entry.effective_sign(ctx.config.signing.sign),
                 ))
                 output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
-        elif entry.kind == FileEntryKind.PROJECT:
+        elif entry.type == FileEntryKind.PROJECT:
             # Use project_name (e.g. MyProject-v1.0.0) if rename=true,
             # otherwise use the repo directory name (e.g. my-repo)
-            archive_name = config.project_name if entry.rename else config.project_root.name
+            archive_name = ctx.config.project_name if entry.rename else ctx.config.project_root.name
             result = archive_zip_project(
-                config.project_root, tag_name,
-                archive_name, output_dir,
+                ctx.config.project_root, ctx.tag_name,
+                archive_name, ctx.output_dir,
             )
             # Post-process: tree hashes + optional TAR conversion
-            hash_algos = list(config.hash_algorithms or [])
+            hash_algos = list(ctx.config.hash_algorithms or [])
             from ..config.transform_common import TREE_ALGORITHMS
             tree_algos = [a for a in hash_algos if a in TREE_ALGORITHMS]
 
             final_path, final_format, tree_hashes = process_project_archive(
                 result.file_path, result.archive_name,
-                tree_algos=tree_algos, archive_format=config.archive_format,
-                tar_args=config.archive_tar_extra_args,
-                gzip_args=config.archive_gzip_extra_args,
+                tree_algos=tree_algos, archive_format=ctx.config.archive_format,
+                tar_args=ctx.config.archive_tar_extra_args,
+                gzip_args=ctx.config.archive_gzip_extra_args,
             )
             # Pre-format tree hashes into hashes dict (computed during
             # extraction, can't recompute from the packed archive file)
@@ -255,28 +333,51 @@ def _step_archive(config, tag_name, output_dir, file_entries) -> list[ArchivedFi
                 algo: format_hash_info(algo, value)
                 for algo, value in tree_hashes.items()
             }
-            af = ArchivedFile(
+            ctx.archived_files.append(FileEntry(
                 file_path=final_path,
                 config_key=entry.key,
                 filename=result.archive_name,
                 extension=final_format,
-                kind="project",
-                persist=entry.archive,
-                has_signature=entry.effective_sign(config.signing.sign),
-                publishers=entry.publishers,
+                type=FileEntryType.PROJECT,
+                archive=_resolve_archive(FileEntryType.PROJECT, None, entry, ctx.config),
+                publishers=entry.publishers or ctx.config.default_publishers,
+                sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
+                identifier=entry.identifier,
+                has_signature=entry.effective_sign(ctx.config.signing.sign),
                 hashes=pre_hashes,
-            )
-            archived_files.append(af)
+            ))
             output.detail("project archive: {filename}", filename=final_path.name, name="archive.project")
 
-        # MANIFEST kind is handled in step 9
+        # MANIFEST kind is handled in _step_manifest
 
     output.step_ok("Files archived")
-    return archived_files
 
 
 # ---------------------------------------------------------------------------
-# Step 9: Manifest
+# Step: Compute hashes
+# ---------------------------------------------------------------------------
+
+def _step_compute_hashes(ctx: PipelineContext) -> None:
+    """Compute hashes for all entries (skips already-hashed files)."""
+    output.step("Computing hashes...")
+    algos = list(ctx.config.hash_algorithms or [])
+    if ctx.config.identity_hash_algo not in algos:
+        algos.append(ctx.config.identity_hash_algo)
+    compute_hashes(ctx.archived_files, algos)
+
+    for af in ctx.archived_files:
+        output.detail("{filename}", filename=af.file_path.name, name="hash.file")
+        for algo, h in af.hashes.items():
+            output.detail("  {algo}: {hash}", algo=algo, hash=h['value'], name="hash.value")
+    output.data("file_hashes", {
+        af.file_path.name: {algo: h["value"] for algo, h in af.hashes.items()}
+        for af in ctx.archived_files
+    })
+    output.step_ok("Hashes computed")
+
+
+# ---------------------------------------------------------------------------
+# Step: Manifest
 # ---------------------------------------------------------------------------
 
 def _load_manifest_metadata(config, metadata_fields: list[str]) -> dict | None:
@@ -302,29 +403,37 @@ def _load_manifest_metadata(config, metadata_fields: list[str]) -> dict | None:
     return metadata or None
 
 
-def _filter_manifest_files(archived_files: list[ArchivedFile],
-                           file_refs: list[str]) -> list[ArchivedFile]:
-    """Filter archived_files to only those referenced by manifest.files."""
-    if not file_refs:
-        return [af for af in archived_files if not af.is_signature]
+def _filter_manifest_files(archived_files: list[FileEntry],
+                           content: dict[str, list[str]]) -> list[FileEntry]:
+    """Filter archived_files based on manifest.content config.
 
+    content maps config_key → list of type keys:
+      "file" = FILE/PROJECT/MANIFEST entries
+      "sig"  = SIG entries
+      "<module_name>" = MODULE_ENTRY entries from that module
+    """
     included = []
-    for ref in file_refs:
-        if ref.endswith("_sig"):
-            base_key = ref.removesuffix("_sig")
-            matches = [af for af in archived_files
-                       if af.is_signature and af.signed_file_key == base_key]
-        else:
-            matches = [af for af in archived_files
-                       if af.config_key == ref and not af.is_signature]
-        included.extend(matches)
+    for config_key, types in content.items():
+        for type_key in types:
+            if type_key == "sig":
+                matches = [af for af in archived_files
+                           if af.config_key == config_key and af.type == FileEntryType.SIG]
+            elif type_key == "file":
+                matches = [af for af in archived_files
+                           if af.config_key == config_key
+                           and af.type not in (FileEntryType.SIG, FileEntryType.MODULE_ENTRY)]
+            else:
+                # module name
+                matches = [af for af in archived_files
+                           if af.config_key == config_key and af.module_name == type_key]
+            included.extend(matches)
     return included
 
 
-def _step_manifest(config, tag_name, archived_files, commit_env, output_dir):
-    """Generate manifest if a manifest FileEntry exists."""
+def _step_manifest(ctx: PipelineContext) -> None:
+    """Generate manifest if a manifest FileConfigEntry exists."""
     manifest_entry_cfg = next(
-        (e for e in config.generated_files if e.kind == FileEntryKind.MANIFEST),
+        (e for e in ctx.config.generated_files if e.type == FileEntryKind.MANIFEST),
         None,
     )
     if manifest_entry_cfg is None:
@@ -333,133 +442,116 @@ def _step_manifest(config, tag_name, archived_files, commit_env, output_dir):
     output.step("📋 Generating manifest...")
     mc = manifest_entry_cfg.manifest_config
 
-    included = _filter_manifest_files(archived_files, mc.files if mc else [])
-    metadata = _load_manifest_metadata(config, mc.zenodo_metadata if mc else [])
+    content = mc.content if mc else None
+    if content is None:
+        # Default: include all "file"-type entries (FILE/PROJECT/MANIFEST), not sig or module outputs
+        included = [af for af in ctx.archived_files
+                    if af.type not in (FileEntryType.SIG, FileEntryType.MODULE_ENTRY)]
+    else:
+        included = _filter_manifest_files(ctx.archived_files, content)
+    metadata = _load_manifest_metadata(ctx.config, mc.zenodo_metadata if mc else [])
 
     manifest_dict = generate_manifest(
-        included, tag_name, commit_env,
+        included, ctx.tag_name, ctx.commit_env,
         commit_fields=mc.commit_info if mc else None,
         metadata=metadata,
     )
-    manifest_path = manifest_to_file(config, manifest_dict, output_dir)
+    manifest_path = manifest_to_file(ctx.config, manifest_dict, ctx.output_dir)
     output.detail("Manifest: {path}", path=str(manifest_path), name="manifest.path")
 
-    archived_files.append(ArchivedFile(
+    manifest_entry = FileEntry(
         file_path=manifest_path,
         config_key="manifest",
         filename="manifest",
         extension="json",
-        kind="manifest",
-        persist=manifest_entry_cfg.archive,
-        has_signature=manifest_entry_cfg.effective_sign(config.signing.sign),
-        publishers=manifest_entry_cfg.publishers,
-    ))
+        type=FileEntryType.MANIFEST,
+        archive=_resolve_archive(FileEntryType.MANIFEST, None, manifest_entry_cfg, ctx.config),
+        publishers=manifest_entry_cfg.publishers or ctx.config.default_publishers,
+        sign_mode=manifest_entry_cfg.effective_sign_mode(ctx.config.signing.sign_mode),
+        identifier=manifest_entry_cfg.identifier,
+        has_signature=manifest_entry_cfg.effective_sign(ctx.config.signing.sign),
+    )
+    # Compute hashes immediately so the manifest entry is ready for signing/identifiers
+    algos = list(ctx.config.hash_algorithms or [])
+    if ctx.config.identity_hash_algo not in algos:
+        algos.append(ctx.config.identity_hash_algo)
+    compute_hashes([manifest_entry], algos)
+
+    ctx.archived_files.append(manifest_entry)
     output.step_ok("Manifest generated")
 
 
 # ---------------------------------------------------------------------------
-# Step 10: Compute hashes
+# Step: Sign
 # ---------------------------------------------------------------------------
 
-def _step_compute_hashes(config, archived_files):
-    """Compute hashes for all entries."""
-    output.step("Computing hashes...")
-    algos = list(config.hash_algorithms or [])
-    if config.sign_hash_algo not in algos:
-        algos.append(config.sign_hash_algo)
-    compute_hashes(archived_files, algos)
-
-    for af in archived_files:
-        output.detail("{filename}", filename=af.file_path.name, name="hash.file")
-        for algo, h in af.hashes.items():
-            output.detail("  {algo}: {hash}", algo=algo, hash=h['value'], name="hash.value")
-    output.data("file_hashes", {
-        af.file_path.name: {algo: h["value"] for algo, h in af.hashes.items()}
-        for af in archived_files
-    })
-    output.step_ok("Hashes computed")
-
-
-# ---------------------------------------------------------------------------
-# Step 11: Sign
-# ---------------------------------------------------------------------------
-
-def _step_sign(config, archived_files, output_dir):
+def _step_sign(ctx: PipelineContext) -> None:
     """Sign all entries that have has_signature=True."""
-    to_sign = [af for af in archived_files if af.has_signature]
+    to_sign = [af for af in ctx.archived_files if af.has_signature]
     if not to_sign:
         output.step_ok("Signing skipped", silent=True)
         return
 
     output.step("🔏 Signing files...")
-    prompt_gpg_key(config.gpg_uid, config.gpg_extra_args)
+    prompt_gpg_key(ctx.config.gpg_uid, ctx.config.gpg_extra_args)
 
-    sig_ext = "asc" if "--armor" in config.gpg_extra_args else "sig"
+    sig_ext = "asc" if "--armor" in ctx.config.gpg_extra_args else "sig"
 
     for af in to_sign:
-        effective_mode = _get_effective_sign_mode(af, config)
-
-        if effective_mode == SignMode.FILE:
+        if af.sign_mode == SignMode.FILE:
             sig_path = gpg_sign_file(
-                af.file_path, output_dir,
-                gpg_uid=config.gpg_uid,
-                extra_args=config.gpg_extra_args,
+                af.file_path, ctx.output_dir,
+                gpg_uid=ctx.config.gpg_uid,
+                extra_args=ctx.config.gpg_extra_args,
             )
-        elif effective_mode == SignMode.FILE_HASH:
-            hash_value = af.hashes[config.sign_hash_algo]["formatted_value"]
-            hash_file = output_dir / f"{af.file_path.name}.{config.sign_hash_algo}"
+        elif af.sign_mode == SignMode.FILE_HASH:
+            hash_value = af.hashes[ctx.config.identity_hash_algo]["formatted_value"]
+            hash_file = ctx.output_dir / f"{af.file_path.name}.{ctx.config.identity_hash_algo}"
             hash_file.write_text(hash_value, encoding="ascii")
             sig_path = gpg_sign_file(
-                hash_file, output_dir,
-                gpg_uid=config.gpg_uid,
-                extra_args=config.gpg_extra_args,
+                hash_file, ctx.output_dir,
+                gpg_uid=ctx.config.gpg_uid,
+                extra_args=ctx.config.gpg_extra_args,
             )
             hash_file.unlink(missing_ok=True)
 
-        sig_af = ArchivedFile(
+        parent_fce = next(
+            (fce for fce in ctx.config.generated_files if fce.key == af.config_key), None
+        )
+        sig_af = FileEntry(
             file_path=sig_path,
-            config_key=f"{af.config_key}_sig",
+            config_key=af.config_key,
             filename=sig_path.stem,
             extension=sig_ext,
-            kind="signature",
-            is_signature=True,
-            persist=af.persist,
-            signed_file_key=af.config_key,
+            type=FileEntryType.SIG,
+            archive=_resolve_archive(FileEntryType.SIG, None, parent_fce, ctx.config),
             publishers=af.publishers,
         )
-        compute_hashes([sig_af], config.hash_algorithms)
-        archived_files.append(sig_af)
+        compute_hashes([sig_af], ctx.config.hash_algorithms)
+        ctx.archived_files.append(sig_af)
 
     output.step_ok("Files signed")
 
 
-def _get_effective_sign_mode(af: ArchivedFile, config) -> SignMode:
-    """Get the effective sign mode for an entry."""
-    for fe in config.generated_files:
-        if fe.key == af.config_key:
-            return fe.effective_sign_mode(config.signing.sign_mode)
-    return config.signing.sign_mode
-
-
 # ---------------------------------------------------------------------------
-# Step 12: Compute identifiers
+# Step: Compute identifiers
 # ---------------------------------------------------------------------------
 
-def _step_compute_identifiers(config, archived_files):
+def _step_compute_identifiers(ctx: PipelineContext) -> None:
     """Compute alternate identifiers for entries with identifier config."""
     has_identifiers = False
-    for fe in config.generated_files:
+    for fe in ctx.config.generated_files:
         if fe.identifier is None:
             continue
 
         ic = fe.identifier
         if ic.source == "file":
             target = next(
-                (af for af in archived_files if af.config_key == fe.key), None,
+                (af for af in ctx.archived_files if af.config_key == fe.key), None,
             )
         elif ic.source == "sig_file":
             target = next(
-                (af for af in archived_files if af.config_key == f"{fe.key}_sig"), None,
+                (af for af in ctx.archived_files if af.type == "sig" and af.config_key == fe.key), None,
             )
         else:
             continue
@@ -468,9 +560,9 @@ def _step_compute_identifiers(config, archived_files):
             output.warn("Identifier source not found for '{key}'", key=fe.key, name="identifier.missing")
             continue
 
-        hash_val = target.hashes.get(config.sign_hash_algo)
+        hash_val = target.hashes.get(ctx.config.identity_hash_algo)
         if hash_val is None:
-            output.warn("Hash {algo} not found for identifier '{key}'", algo=config.sign_hash_algo, key=fe.key, name="identifier.hash_missing")
+            output.warn("Hash {algo} not found for identifier '{key}'", algo=ctx.config.identity_hash_algo, key=fe.key, name="identifier.hash_missing")
             continue
 
         formatted = hash_val['formatted_value']
@@ -488,58 +580,192 @@ def _step_compute_identifiers(config, archived_files):
 
 
 # ---------------------------------------------------------------------------
-# Step 13: Publish (per-file destination routing)
+# Step: Custom modules
 # ---------------------------------------------------------------------------
 
-def _step_publish(config, tag_name, archived_files) -> dict | None:
-    """Route each file to its configured destinations."""
-    record_info = None
+def _step_modules(ctx: PipelineContext) -> None:
+    """Run all configured custom modules for files that declare them."""
+    if not ctx.config.modules_config:
+        return
 
-    zenodo_files = _files_for_destination(archived_files, "zenodo")
-    github_files = _files_for_destination(archived_files, "github")
+    output.step("Running modules...")
 
-    if zenodo_files and config.has_zenodo_config():
-        record_info = _publish_zenodo(
-            config, tag_name, zenodo_files, archived_files,
+    for module_name in ctx.config.modules_config:
+        global_cfg = ctx.config.modules_config[module_name]
+
+        files_input = []
+        for fe in ctx.config.generated_files:
+            if module_name not in fe.modules:
+                continue
+            per_file_cfg = fe.modules[module_name]
+            merged = {**global_cfg, **per_file_cfg}
+            for af in ctx.archived_files:
+                if af.config_key == fe.key and af.type != "sig":
+                    files_input.append({
+                        "file_path": str(af.file_path),
+                        "config_key": af.config_key,
+                        "type": af.type,
+                        "hashes": af.hashes,
+                        "module_config": merged,
+                    })
+
+        if not files_input:
+            raise _ModuleError(
+                f"Module '{module_name}' is configured but no generated_files entry "
+                f"declares it under 'modules:'. Add 'modules: {{{module_name}: {{}}}}' "
+                f"to the relevant generated_files entry, or remove the module from config.",
+                name="no_files",
+            )
+
+        if is_builtin(module_name):
+            module_origin = "built-in module"
+        else:
+            module_origin = f"custom module (.zp/modules/{module_name} or ~/.zp/modules/{module_name})"
+        if not prompts.confirm_run_module.ask(
+            f"Run {module_origin} '{module_name}' on {len(files_input)} file(s)?"
+        ).is_accept:
+            output.warn(
+                "Module '{module_name}' skipped by user",
+                module_name=module_name, name="module.skipped",
+            )
+            continue
+
+        output.detail(
+            "Module '{module_name}' confirmed, running on {n} file(s)...",
+            module_name=module_name, n=len(files_input), name="module.confirmed",
         )
 
+        input_data = {
+            "config": {"identity_hash_algo": ctx.config.identity_hash_algo},
+            "output_dir": str(ctx.output_dir),
+            "files": files_input,
+        }
+
+        output.detail(
+            "Running module '{module_name}' ({n} file(s))...",
+            module_name=module_name, n=len(files_input), name="module.running",
+        )
+
+        raw_files = run_module(module_name, input_data, output,
+                               project_root=ctx.config.project_root)
+
+        for rf in raw_files:
+            config_key = rf["config_key"]
+            parent_fce = next(
+                (fce for fce in ctx.config.generated_files if fce.key == config_key), None
+            )
+            publishers_sentinel = object()
+            publishers_raw = rf.get("publishers", publishers_sentinel)
+            if publishers_raw is publishers_sentinel:
+                # Key absent — fall back to parent entry's publishers, then global default.
+                effective_pub = (
+                    (parent_fce.publishers if parent_fce else None)
+                    or ctx.config.default_publishers
+                )
+                dest_raw = effective_pub.destination
+            elif publishers_raw is None:
+                # Explicit null — publish nowhere.
+                dest_raw = {}
+            else:
+                dest_raw = publishers_raw.get("destination", {})
+            met = rf.get("module_entry_type")
+            # Module output can override archive via archive_types list in JSON
+            module_archive_types = rf.get("archive_types")
+            if module_archive_types is not None:
+                module_archive = module_name in module_archive_types or (
+                    met and f"{module_name}.{met}" in module_archive_types
+                )
+            else:
+                module_archive = _resolve_archive(
+                    FileEntryType.MODULE_ENTRY, module_name, parent_fce, ctx.config,
+                    module_entry_type=met,
+                )
+            fe = FileEntry(
+                file_path=Path(rf["file_path"]),
+                config_key=rf["config_key"],
+                filename=Path(rf["file_path"]).stem,
+                extension=Path(rf["file_path"]).suffix.lstrip("."),
+                type=FileEntryType.MODULE_ENTRY,
+                archive=module_archive,
+                publishers=PublisherDestinations(destination=dest_raw),
+                module_name=module_name,
+                module_entry_type=rf.get("module_entry_type"),
+            )
+            ctx.archived_files.append(fe)
+            output.detail(
+                "Module entry: {filename} (key={config_key}, entry_type={module_entry_type},"
+                " archive={archive})",
+                filename=fe.file_path.name,
+                module_name=module_name,
+                module_entry_type=fe.module_entry_type,
+                config_key=fe.config_key,
+                archive=fe.archive,
+                publishers=dest_raw,
+                name="module.entry",
+            )
+
+        output.detail_ok(
+            "Module '{module_name}' returned {n} file(s)",
+            module_name=module_name, n=len(raw_files), name="module.done",
+        )
+
+    output.step_ok("Modules completed", name="modules.completed")
+
+
+# ---------------------------------------------------------------------------
+# Step: Publish
+# ---------------------------------------------------------------------------
+
+def _step_publish(ctx: PipelineContext) -> None:
+    """Route each file to its configured destinations."""
+    zenodo_files = _files_for_destination(ctx.archived_files, "zenodo")
+    github_files = _files_for_destination(ctx.archived_files, "github")
+
+    if zenodo_files and ctx.config.has_zenodo_config():
+        ctx.record_info = _publish_zenodo(ctx, zenodo_files)
+
     if github_files:
-        _publish_github(config, tag_name, github_files)
-
-    return record_info
+        _publish_github(ctx, github_files)
 
 
-def _files_for_destination(archived_files: list[ArchivedFile],
-                           destination: str) -> list[ArchivedFile]:
+def _files_for_destination(archived_files: list[FileEntry], destination: str) -> list[FileEntry]:
     """Get files destined for a specific publisher."""
     result = []
-    for af in archived_files:
-        if af.publishers is None:
+    for fe in archived_files:
+        if not fe.publishers:
             continue
-        if af.is_signature:
-            if destination in af.publishers.sig_destination:
-                result.append(af)
+        # Same normalization as _resolve_archive: FILE/PROJECT/MANIFEST → "file", SIG → "sig"
+        if fe.type == FileEntryType.MODULE_ENTRY:
+            platforms = set(fe.publishers.destinations_for(fe.module_name))
+            if fe.module_entry_type:
+                platforms |= set(fe.publishers.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
+        elif fe.type == FileEntryType.SIG:
+            platforms = set(fe.publishers.destinations_for(FileEntryType.SIG))
         else:
-            if destination in af.publishers.file_destination:
-                result.append(af)
+            platforms = set(fe.publishers.destinations_for(FileEntryType.FILE))
+        if destination in platforms:
+            result.append(fe)
     return result
 
 
-def _publish_zenodo(config, tag_name, zenodo_files, all_files) -> dict | None:
+def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict | None:
     """Publish to Zenodo."""
     output.step("Zenodo process...")
 
-    publisher = ZenodoPublisher(config)
+    publisher = ZenodoPublisher(ctx.config)
 
-    up_to_date, msg, record_info = publisher.is_up_to_date(tag_name, zenodo_files)
+    up_to_date, msg, record_info = publisher.is_up_to_date(ctx.tag_name, zenodo_files)
     if up_to_date and record_info:
         output.info("Last record url: https://doi.org/{doi}", doi=record_info['doi'], name="zenodo.doi")
         output.info("Last record url: {url}", url=record_info['record_url'], name="zenodo.url")
 
     if msg:
         output.step_ok(msg)
-    if up_to_date and not config.zenodo_force_update:
+    if up_to_date and not ctx.config.zenodo_force_update:
         output.info("No publication made.")
+        for af in zenodo_files:
+            output.detail_skip("{filename} already up to date", filename=af.file_path.name, name="zenodo.asset_ok")
+        output.step_ok("Zenodo publication skipped")
         return record_info
     if up_to_date:
         output.step_warn("Forcing zenodo update")
@@ -548,15 +774,17 @@ def _publish_zenodo(config, tag_name, zenodo_files, all_files) -> dict | None:
         output.warn("No publication made")
         return record_info
 
-    identifiers = [af for af in all_files if af.identifier_value]
+    identifiers = [af for af in ctx.archived_files if af.identifier_value]
 
     try:
         record_info = publisher.publish_new_version(
-            zenodo_files, tag_name, identifiers=identifiers,
+            zenodo_files, ctx.tag_name, identifiers=identifiers,
         )
         output.data("record_info", record_info)
+        for af in zenodo_files:
+            output.detail_ok("{filename} uploaded to Zenodo", filename=af.file_path.name, name="zenodo.asset_uploaded")
         output.detail("Zenodo DOI: {doi}", doi=record_info['doi'], name="zenodo.published_doi")
-        output.step_ok("Publication {tag} completed successfully!", tag=tag_name, name="zenodo.publication_done")
+        output.step_ok("Publication {tag} completed successfully!", tag=ctx.tag_name, name="zenodo.publication_done")
         return record_info
 
     except ZenodoError as e:
@@ -566,18 +794,18 @@ def _publish_zenodo(config, tag_name, zenodo_files, all_files) -> dict | None:
         return record_info
 
 
-def _publish_github(config, tag_name, github_files):
+def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None:
     """Upload files to GitHub release."""
     output.step("Uploading to GitHub release...")
 
     for af in github_files:
         local_sha = compute_file_hash(af.file_path, "sha256")["formatted_value"]
         remote_sha = get_release_asset_digest(
-            config.project_root, tag_name, af.file_path.name,
+            ctx.config.project_root, ctx.tag_name, af.file_path.name,
         )
 
         if remote_sha and local_sha == remote_sha:
-            output.detail("{filename} already up to date on release", filename=af.file_path.name, name="github.asset_ok")
+            output.detail_skip("{filename} already up to date", filename=af.file_path.name, name="github.asset_ok")
             continue
 
         if remote_sha:
@@ -585,16 +813,51 @@ def _publish_github(config, tag_name, github_files):
             output.detail("Remote: {hash}", hash=ellipse_hash(remote_sha), name="github.remote_hash")
             output.detail("Local: {hash}", hash=ellipse_hash(local_sha), name="github.local_hash")
             if not prompts.confirm_github_overwrite.ask(f"Overwrite {af.file_path.name} on release ?").is_accept:
-                output.warn("{filename} not updated on release", filename=af.file_path.name, name="github.asset_skipped")
+                output.detail_skip("{filename} skipped", filename=af.file_path.name, name="github.asset_skipped")
                 continue
 
         upload_release_asset(
-            config.project_root, tag_name, af.file_path,
+            ctx.config.project_root, ctx.tag_name, af.file_path,
             clobber=bool(remote_sha),
         )
         output.detail_ok("{filename} uploaded to release", filename=af.file_path.name, name="github.asset_uploaded")
 
     output.step_ok("GitHub release updated")
+
+
+# ---------------------------------------------------------------------------
+# Step: Persist
+# ---------------------------------------------------------------------------
+
+def _step_persist(ctx: PipelineContext) -> None:
+    """Move files with archive=True to the archive directory."""
+    persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name)
+
+
+# ---------------------------------------------------------------------------
+# Registry builder
+# ---------------------------------------------------------------------------
+
+def _build_registry() -> HookRegistry:
+    """Register all built-in pipeline handlers and return the registry."""
+    reg = HookRegistry()
+    reg.register(HookPoint.MODULE_CHECK,    _step_module_check)
+    reg.register(HookPoint.GIT_CHECK,       _step_git_check)
+    reg.register(HookPoint.RELEASE,         _step_release)
+    reg.register(HookPoint.COMMIT_INFO,     _step_commit_info)
+    reg.register(HookPoint.PROJECT_NAME,    _step_project_name)
+    reg.register(HookPoint.COMPILE,         _step_compile)
+    reg.register(HookPoint.POST_COMPILE,    _step_post_compile)
+    reg.register(HookPoint.RESOLVE_FILES,   _step_resolve_generated_files)
+    reg.register(HookPoint.ARCHIVE,         _step_archive)
+    reg.register(HookPoint.HASH,            _step_compute_hashes)
+    reg.register(HookPoint.MANIFEST,        _step_manifest)
+    reg.register(HookPoint.SIGN,            _step_sign)
+    reg.register(HookPoint.IDENTIFIERS,     _step_compute_identifiers)
+    reg.register(HookPoint.CUSTOM_MODULES,  _step_modules)
+    reg.register(HookPoint.PUBLISH,         _step_publish)
+    reg.register(HookPoint.PERSIST,         _step_persist)
+    return reg
 
 
 # ---------------------------------------------------------------------------
@@ -614,58 +877,13 @@ def run_release(config, *, test=None) -> None:
 
 
 def _run_release(config, *, test=None) -> None:
-    """Main release pipeline."""
+    """Main release pipeline — generic hook-based runner."""
     setup_pipeline(config, test=test)
     prompts.init_prompts(config)
 
     output.info_ok("Main branch: {branch}", branch=config.main_branch, name="config.main_branch")
 
-    # Git check
-    _step_git_check(config)
-
-    # Release check/creation
-    tag_name = _step_release(config)
-
-    # Commit info
-    commit_env = _step_commit_info(config, tag_name)
-
-    # Resolve project name
-    _step_project_name(config, tag_name, commit_env)
-
-    # Compile
-    _step_compile(config, env_vars=commit_env)
-
-    # Re-check git + release still valid after compilation
-    _step_git_check(config)
-    verify_release_on_latest_commit(config.project_root, tag_name)
-
-    # Working directory for all generated files
     with tempfile.TemporaryDirectory() as tmp:
-        output_dir = Path(tmp)
-
-        # Resolve generated files (scan compile_dir for patterns)
-        file_entries = _step_resolve_generated_files(config)
-
-        # Archive (create project ZIP, copy/rename generated files)
-        archived_files = _step_archive(config, tag_name, output_dir, file_entries)
-        
-        # Compute hashes
-        _step_compute_hashes(config, archived_files)
-        
-        # Manifest
-        _step_manifest(config, tag_name, archived_files, commit_env, output_dir)
-
-        # Compute manifest hash (manifest was just appended to archived_files)
-        _step_compute_hashes(config, archived_files)
-
-        # Sign files
-        _step_sign(config, archived_files, output_dir)
-
-        # Compute identifiers
-        _step_compute_identifiers(config, archived_files)
-
-        # Publish (per-file routing)
-        record_info = _step_publish(config, tag_name, archived_files)
-
-        # Persist
-        persist_files(archived_files, config.archive_dir, tag_name)
+        ctx = PipelineContext(config=config, output_dir=Path(tmp))
+        registry = _build_registry()
+        registry.run_pipeline(ctx)

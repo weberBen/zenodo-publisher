@@ -98,6 +98,15 @@ def gpg_sign_file(file_path: Path, output_dir: Path, gpg_uid: str = None,
             extra_args=extra_args,
         )
 
+    if not sig_path.exists():
+        raise GpgError(
+            f"GPG produced no signature for {file_path.name}. "
+            f"Status: {getattr(sig, 'status', 'unknown')}. "
+            f"stderr: {getattr(sig, 'stderr', '').strip() or '(empty)'}. "
+            f"Check that the GPG key is unlocked (agent has the passphrase).",
+            name="sign_no_output",
+        )
+
     # Verify the detached signature against the original file
     with open(sig_path, "rb") as f:
         verified = gpg.verify_file(f, data_filename=str(file_path))

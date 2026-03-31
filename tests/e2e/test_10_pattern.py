@@ -119,8 +119,8 @@ def test_pattern_overlap_identical(tmp_path, fix_log_path):
 
     config = _base_config(
         generated_files={
-            "a": {"pattern": "*.pdf", "publishers": {"file_destination": []}},
-            "b": {"pattern": "*.pdf", "publishers": {"file_destination": []}},
+            "a": {"pattern": "*.pdf", "publishers": {"destination": {"file": []}}},
+            "b": {"pattern": "*.pdf", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -140,8 +140,8 @@ def test_pattern_overlap_wildcard_vs_specific(tmp_path, fix_log_path):
 
     config = _base_config(
         generated_files={
-            "all": {"pattern": "*.pdf", "publishers": {"file_destination": []}},
-            "main": {"pattern": "main.pdf", "publishers": {"file_destination": []}},
+            "all": {"pattern": "*.pdf", "publishers": {"destination": {"file": []}}},
+            "main": {"pattern": "main.pdf", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -163,8 +163,8 @@ def test_pattern_overlap_same_compile_dir(tmp_path, fix_log_path):
     config = _base_config(
         compile={"enabled": False, "dir": "papers"},
         generated_files={
-            "a": {"pattern": "{compile_dir}/*.pdf", "publishers": {"file_destination": []}},
-            "b": {"pattern": "{compile_dir}/*.pdf", "publishers": {"file_destination": []}},
+            "a": {"pattern": "{compile_dir}/*.pdf", "publishers": {"destination": {"file": []}}},
+            "b": {"pattern": "{compile_dir}/*.pdf", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -184,8 +184,8 @@ def test_pattern_no_overlap_different_extensions(tmp_path, fix_log_path):
 
     config = _base_config(
         generated_files={
-            "paper": {"pattern": "*.pdf", "publishers": {"file_destination": []}},
-            "data": {"pattern": "*.csv", "publishers": {"file_destination": []}},
+            "paper": {"pattern": "*.pdf", "publishers": {"destination": {"file": []}}},
+            "data": {"pattern": "*.csv", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -225,7 +225,7 @@ def test_pattern_wildcard_in_directory_same_name_collision(pattern_env, fix_log_
         generated_files={
             "docs": {
                 "pattern": "*ape*/*/*.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -236,12 +236,12 @@ def test_pattern_wildcard_in_directory_same_name_collision(pattern_env, fix_log_
                              log_path=fix_log_path,
                              fail_on="ignore")
 
-    # ZP copies matched files as output_dir/filename (flat), so same-name files
-    # from different directories collide -> FileNotFoundError at persist
+    # ZP detects same-name collision at archive time (flat copy to output_dir)
+    # and raises a PipelineError before persist.
     errors = find_errors(result.events)
     assert errors, "Expected error from same-name file collision"
-    assert any(e.get("error_type") == "FileNotFoundError" for e in errors), \
-        f"Expected FileNotFoundError from name collision. Got: {errors}"
+    assert any("collision" in e.get("name", "") for e in errors), \
+        f"Expected collision error. Got: {errors}"
 
 
 def test_pattern_wildcard_in_directory(pattern_env, fix_log_path):
@@ -270,7 +270,7 @@ def test_pattern_wildcard_in_directory(pattern_env, fix_log_path):
         generated_files={
             "docs": {
                 "pattern": "*ape*/*/*.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -302,7 +302,7 @@ def test_pattern_leading_slash_is_project_root(pattern_env, fix_log_path):
         generated_files={
             "root": {
                 "pattern": "/rootfile.txt",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -347,7 +347,7 @@ def test_pattern_double_star_recursive(pattern_env, fix_log_path):
         generated_files={
             "logs": {
                 "pattern": "**/*.log",
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -379,7 +379,7 @@ def test_pattern_matches_file(pattern_env, fix_log_path):
     config = _base_config(
         archive_dir,
         generated_files={
-            "paper": {"pattern": "output.txt", "publishers": {"file_destination": []}},
+            "paper": {"pattern": "output.txt", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -405,7 +405,7 @@ def test_pattern_nonexistent_compile_dir_rejected(pattern_env, fix_log_path):
         archive_dir,
         compile={"enabled": False, "dir": "nonexistent_dir"},
         generated_files={
-            "data": {"pattern": "data/results.csv", "publishers": {"file_destination": []}},
+            "data": {"pattern": "data/results.csv", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -432,7 +432,7 @@ def test_pattern_without_compile_dir_resolves_from_root(pattern_env, fix_log_pat
         archive_dir,
         compile={"enabled": False, "dir": "somedir"},
         generated_files={
-            "data": {"pattern": "data/results.csv", "publishers": {"file_destination": []}},
+            "data": {"pattern": "data/results.csv", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -470,7 +470,7 @@ def test_pattern_uses_project_root_not_compile_dir(pattern_env, fix_log_path):
         compile={"enabled": False, "dir": "builddir"},
         generated_files={
             # No {compile_dir} template: should match from project root
-            "result": {"pattern": "result.txt", "publishers": {"file_destination": []}},
+            "result": {"pattern": "result.txt", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -503,7 +503,7 @@ def test_pattern_with_compile_dir_template(pattern_env, fix_log_path):
         archive_dir,
         compile={"enabled": False, "dir": "build_test"},
         generated_files={
-            "paper": {"pattern": "{compile_dir}/output.txt", "publishers": {"file_destination": []}},
+            "paper": {"pattern": "{compile_dir}/output.txt", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -525,7 +525,7 @@ def test_pattern_no_match(pattern_env, fix_log_path):
     config = _base_config(
         archive_dir,
         generated_files={
-            "paper": {"pattern": "nonexistent_file_xyz.pdf", "publishers": {"file_destination": []}},
+            "paper": {"pattern": "nonexistent_file_xyz.pdf", "publishers": {"destination": {"file": []}}},
         },
     )
 
@@ -554,11 +554,11 @@ def test_pattern_multiple_matches_in_manifest(pattern_env, fix_log_path):
         archive_dir,
         hash_algorithms=["md5", "sha256"],
         generated_files={
-            "papers": {"pattern": "paper*.txt", "publishers": {"file_destination": []}},
+            "papers": {"pattern": "paper*.txt", "publishers": {"destination": {"file": []}}},
             "manifest": {
                 "files": ["papers"],
                 "commit_info": ["sha"],
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )
@@ -614,7 +614,7 @@ def test_pattern_multiple_matches_all_signed(pattern_env, fix_log_path):
             "docs": {
                 "pattern": "doc*.txt",
                 "sign": True,
-                "publishers": {"file_destination": []},
+                "publishers": {"destination": {"file": []}},
             },
         },
     )

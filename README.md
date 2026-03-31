@@ -101,7 +101,7 @@ chmod +x zp.bash
 ## Usage
 
 ```bash
-# From your project directory (where zenodo_config.yaml is located)
+# From your project directory (where .zp.yaml is located)
 zp
 # or zp.bash or any symlink to the bash launcher if the tool is not installed globally
 zp --help
@@ -128,14 +128,14 @@ zp release --debug     # with flags
 Creates a zip archive of the project at a given git tag using `git archive`, and prints checksums. Does **not** require the full Zenodo pipeline.
 
 ```bash
-# Inside a ZP project (reads project_name from zenodo_config.yaml)
+# Inside a ZP project (reads project_name from .zp.yaml)
 zp archive --tag v1.0.0
 zp archive --tag v1.0.0 --output-dir
 
 # --no-cache: fetch the tag from the remote origin instead of using the local repo
 zp archive --tag v1.0.0 --no-cache
 
-# --remote: archive from any remote git repository (no zenodo_config.yaml needed)
+# --remote: archive from any remote git repository (no .zp.yaml needed)
 zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:user/repo.git
 ```
 
@@ -156,7 +156,7 @@ zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:
 
 ## Project Setup
 
-### 1. Create `zenodo_config.yaml` in your project root
+### 1. Create `.zp.yaml` in your project root
 
 This is the main configuration file. All options except sensitive credentials go here.
 
@@ -179,11 +179,11 @@ archive:
   # gzip_extra_args: []       # override default gzip args
 
 hash_algorithms: [md5, sha256, tree]
+identity_hash_algo: sha256        # single global algo used for identifiers, signing (file_hash mode), and modules
 
 signing:
   sign: true
   # sign_mode: file_hash      # file (sign file directly) or file_hash (sign hash of file)
-  # sign_hash_algo: sha256    # hash algo used in file_hash mode
   # gpg:
   #   uid: "key@example.com"  # GPG key UID (optional, default key if omitted)
   #   extra_args: ["--armor"] # default, use ["--no-armor"] for binary .sig
@@ -203,27 +203,36 @@ generated_files:
     # rename: true            # rename to ProjectName-tag.pdf
     # sign: true              # per-file signing override
     # sign_mode: file         # per-file sign mode override (file or file_hash)
+    # archive_types: [file]   # override global archive.types ([] = do not persist)
     publishers:
-      file_destination: [github, zenodo]
-      # sig_destination: [zenodo]  # where to upload signature
-  
+      destination:
+        file: [github, zenodo]
+        # sig: [zenodo]       # where to upload the GPG signature
+
   myfile:
-    # handle all file individually that match the pattern
+    # handle all files individually that match the pattern
     pattern: "*.md"
     publishers:
-      file_destination: [zenodo]
-  
+      destination:
+        file: [zenodo]
+
   project:
     publishers:
-      file_destination: [zenodo]
-  
+      destination:
+        file: [zenodo]
+
   manifest:
-    files: [paper, project, myfile]
+    content:                  # which entries/types to include in the manifest JSON
+      paper: [file, sig]      # include paper + its signature hash
+      project: [file]         # include project file hash
+      myfile: [file]
     commit_info: [sha, date_epoch]
     zenodo_metadata: [title, creators]
     sign: true
     publishers:
-      file_destination: [zenodo, github]
+      destination:
+        file: [zenodo, github]
+        sig: [zenodo, github]
 
 prompt_validation_level: danger  # danger, light, normal, secure
 ```
@@ -235,7 +244,7 @@ ZENODO_TOKEN=your_zenodo_api_token
 ZENODO_CONCEPT_DOI=123456
 ```
 
-Only sensitive variables go here. Everything else is in `zenodo_config.yaml`.
+Only sensitive variables go here. Everything else is in `.zp.yaml`.
 
 These variables can also be passed via environment variables (e.g. `export ZENODO_TOKEN=...`). Environment variables take priority over `.zenodo.env`. The full resolution order is: CLI > YAML > os environment > `.zenodo.env` > defaults.
 
@@ -381,7 +390,7 @@ If two files end up with the same destination name (e.g. same-name files from di
 
 ### Generated files
 
-The `generated_files` section in `zenodo_config.yaml` declares which files to include in the release. Three types:
+The `generated_files` section in `.zp.yaml` declares which files to include in the release. Three types:
 
 - **pattern entries** (custom key): a file matched by glob pattern. Can be renamed using the project name template.
 - **project** (reserved key): a git archive of the repository. Format controlled by `archive.format`.
@@ -394,7 +403,7 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
 - `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
-- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `signing.sign_hash_algo` (not `hash_algorithms`). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
+- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `identity_hash_algo` (global, see below). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
   - `source: file` (default): hash of the file itself
   - `source: sig_file`: hash of the signature (requires `sign: true`)
   - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file to use?)
@@ -427,7 +436,7 @@ Patterns support standard glob wildcards in any segment of the path: `*` (any ch
 
 Available template variables:
 - `{compile_dir}`: value of `compile.dir` from config (default set to project root)
-- `{project_root}`: absolute path to the project root (where `zenodo_config.yaml` is)
+- `{project_root}`: absolute path to the project root (where `.zp.yaml` is)
 - `{project_name}`: resolved at runtime as `prefix + suffix` (e.g. `MyProject-v1.0.0` with `prefix: "MyProject"`, `suffix: "-{tag_name}"`, tag `v1.0.0`)
 
 If a template variable is used but not set (e.g. `{compile_dir}` without `compile.dir` in config), the config will fail with an error.
@@ -457,7 +466,7 @@ When creating a new release, `check_tag_validity` verifies:
 
 GitHub draft releases are invisible to `gh release list` and to the `/releases/tags/{tag}` API endpoint. When `gh release create` is called with a tag name that matches an existing draft, GitHub silently converts the draft into a published release.
 
-To prevent this, set `github.check_draft: true` in `zenodo_config.yaml`. This scans all releases via the REST API to detect drafts. It is disabled by default because it requires paginating all releases (slower).
+To prevent this, set `github.check_draft: true` in `.zp.yaml`. This scans all releases via the REST API to detect drafts. It is disabled by default because it requires paginating all releases (slower).
 
 ### GPG signing
 
@@ -465,12 +474,12 @@ Signing is configured globally in the `signing` section and can be overridden pe
 
 Two signing modes:
 - **file** (`sign_mode: file`): signs the file directly with GPG. Produces a detached signature.
-- **file_hash** (`sign_mode: file_hash`, default): computes the file's hash using `sign_hash_algo`, writes `algo:hexvalue` to a temp file, and signs that text file with GPG. The temp hash file is deleted after signing, only the signature remains.
+- **file_hash** (`sign_mode: file_hash`, default): computes the file's hash using `identity_hash_algo`, writes `algo:hexvalue` to a temp file, and signs that text file with GPG. The temp hash file is deleted after signing, only the signature remains.
 
 **Two different hash concepts are involved:**
 
-- **`sign_hash_algo`** (config `signing.sign_hash_algo`, default `sha256`): which hash algorithm is used to compute the file digest in `file_hash` mode. This determines what content GPG actually signs. Changing it (e.g. to `sha512`) changes the signed content and therefore the signature. This is a ZP config option.
-- **GPG digest algorithm** (GPG's own `--digest-algo`): which hash GPG uses internally for its own signature computation. This is controlled by GPG itself (via `gpg.conf` or `gpg.extra_args: ["--digest-algo", "SHA512"]`). This is independent from `sign_hash_algo`.
+- **`identity_hash_algo`** (root-level config, default `sha256`): which hash algorithm is used to compute the file digest in `file_hash` mode. This determines what content GPG actually signs. Changing it (e.g. to `sha512`) changes the signed content and therefore the signature. See [`identity_hash_algo`](#identity_hash_algo) for its full role.
+- **GPG digest algorithm** (GPG's own `--digest-algo`): which hash GPG uses internally for its own signature computation. This is controlled by GPG itself (via `gpg.conf` or `gpg.extra_args: ["--digest-algo", "SHA512"]`). This is independent from `identity_hash_algo`.
 
 Per-file overrides available in `generated_files` entries:
 - `sign: true/false` : enable/disable signing for this file (overrides global `signing.sign`)
@@ -506,6 +515,128 @@ This includes the hashes of the PDF, its signature, the ZIP archive, and its sig
 
 The canonical JSON format (JCS) ensures deterministic serialization: the same content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
 
+### Custom modules
+
+Modules are external pipeline steps that run after files are built and hashed, and before publishing. Each module receives a list of files and produces new files (e.g. a timestamp, a certificate) that are then published alongside the originals.
+
+See [`release_tool/modules/README.md`](release_tool/modules/README.md) for the list of built-in modules, as the digicert TSA module.
+
+#### Creating a module
+
+Each module is a **uv project directory** containing at minimum `<name>.py` and `pyproject.toml` (with an optional `uv.lock`). The entry point filename must match the module directory name. ZP looks for modules in this order (first match wins):
+
+1. Built-in: `release_tool/modules/<name>/`
+2. Project: `<project_root>/.zp/modules/<name>/`
+3. User home: `~/.zp/modules/<name>/`
+
+The module's `<name>.py` is invoked inside its own isolated uv environment:
+
+```
+uv run --project <module_dir> <name>.py --input <json_file>
+```
+
+#### Input
+
+```json
+{
+  "config": {
+    "identity_hash_algo": "sha256"
+  },
+  "output_dir": "/tmp/zp-work/",
+  "files": [
+    {
+      "file_path": "/tmp/zp-work/paper.pdf",
+      "config_key": "paper",
+      "type": "file",
+      "hashes": {
+        "sha256": {"type": "sha256", "value": "abc...", "formatted_value": "sha256:abc..."},
+        "md5":    {"type": "md5",    "value": "xyz...", "formatted_value": "md5:xyz..."}
+      },
+      "module_config": {"my_option": true}
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `config.identity_hash_algo` | The algorithm designated as the canonical file identity (same value used for Zenodo identifiers and signing). Use `hashes[identity_hash_algo]` when you need a single hash to represent the file. |
+| `output_dir` | Directory where the module must write its output files. |
+| `files[].file_path` | Absolute path to the source file in the ZP work directory. |
+| `files[].config_key` | Key of the `generated_files` entry this file belongs to. Must be echoed back in each output entry. |
+| `files[].type` | ZP file type: `"file"`, `"project"`, or `"manifest"`. |
+| `files[].hashes` | All hash algorithms computed by the pipeline, keyed by algorithm name. Each entry: `{"type", "value" (hex), "formatted_value" ("algo:hex")}`. Hashes are pre-computed — the module does not need to read the file to hash it. |
+| `files[].module_config` | Module configuration for this specific file. ZP pre-merges the global `modules.<name>:` config with the per-file `generated_files.<key>.modules.<name>:` override (per-file wins). The module receives the final merged value and does not need to handle merging. The module only sees its own config — other modules' configs are not included. |
+
+#### Output
+
+The module writes NDJSON lines to stdout:
+
+- **Event lines**: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "...", ...}`  — relayed by ZP to the user as-is
+- **Result line** (last line): `{"type": "result", "files": [...]}`
+
+Each entry in the result `files` list must have at minimum:
+
+```json
+{
+  "file_path": "/tmp/zp-work/paper.pdf.tsr",
+  "config_key": "paper",
+  "module_entry_type": "tsr"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `file_path` | Absolute path to the produced file (must be inside `output_dir`). |
+| `config_key` | Copied from the input entry — links the output back to its parent generated_files entry. |
+| `module_entry_type` | Free label for the output sub-type (e.g. `"tsr"`, `"cert"`). Used for archive and publisher routing via `<module_name>.<entry_type>` keys. |
+| `publishers` (optional) | `{"destination": {"<type_key>": ["zenodo", "github"]}}` — overrides the publisher routing from `.zp.yaml` for this output. Omit to use the YAML config. |
+
+Declare dependencies in `pyproject.toml`:
+
+```toml
+[project]
+name = "my-module"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+```
+
+Run `uv lock` inside the module directory to generate `uv.lock`. ZP runs the module in its own isolated uv environment — it does not share ZP's dependencies.
+
+#### Module self-check
+
+Every module must also support a `--check` mode that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
+
+```
+uv run --project <module_dir> <name>.py --check --config <json_file>
+```
+
+The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `--check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
+
+#### Configuring a module
+
+Declare the module globally and attach it to files in `.zp.yaml`:
+
+```yaml
+modules:
+  my_module:                 # must match the directory name in .zp/modules/ or ~/.zp/modules/
+    my_option: true          # global config passed to the module for every file
+
+generated_files:
+  paper:
+    pattern: "{compile_dir}/main.pdf"
+    modules:
+      my_module:             # attach module to this file
+        my_option: false     # per-file override (merged over global config)
+
+publishers:
+  destination:
+    my_module: [zenodo]      # where to upload files produced by my_module
+```
+
+The per-file `modules:` key overrides the global `modules:` config for that file only. Both are merged: per-file values take precedence.
+
 ### Recommended hash algorithms
 
 ```yaml
@@ -515,6 +646,21 @@ hash_algorithms: [md5, sha256, tree]
 - **md5**: matches Zenodo's default file checksum, allowing comparison between local files and the Zenodo record without re-downloading
 - **sha256**: cryptographically secure hash for integrity verification
 - **tree** / **tree256**: git tree hash (SHA-1 / SHA-256) that depends only on file content, not the archive format. This provides a reproducible content proof that ZIP or TAR archives may not guarantee on their own (see [Content identification with tree hash](#content-identification-with-tree-hash))
+
+### identity_hash_algo
+
+```yaml
+identity_hash_algo: sha256   # default
+```
+
+A single algorithm used consistently across three roles:
+
+- **Zenodo identifiers**: the hash value embedded in `zp:///` alternate identifiers pushed to `metadata.identifiers`. Keeping this stable means identifiers are reproducible and comparable across releases.
+- **GPG signing in `file_hash` mode**: the file is hashed with this algorithm, and GPG signs the resulting `algo:hexvalue` string. What GPG actually signs depends on this value.
+- **Modules**: passed as `config.identity_hash_algo` in the module input JSON, so modules (e.g. DigiCert timestamp) use the same algorithm to hash files before submitting them to an external service.
+
+**Why it is intentionally global (no per-file override):**
+All three roles must use the same algorithm for a given release so that identifiers, signatures, and module certifications are comparable across entries. A per-file override would make it impossible to cross-verify entries or replay the pipeline simply.
 
 ### Zenodo checks
 - Verifies the version doesn't already exist on Zenodo
@@ -684,7 +830,7 @@ This tool assumes you **don't store PDFs/compiled files in git**. PDFs are gener
 ## Troubleshooting
 
 ### "Project not initialized for Zenodo publisher"
-Create a `zenodo_config.yaml` file in your project root.
+Create a `.zp.yaml` file in your project root.
 
 ### "Compile directory not found"
 Check that `compile.dir` points to a valid directory containing your Makefile, and that `compile.enabled: true`.
