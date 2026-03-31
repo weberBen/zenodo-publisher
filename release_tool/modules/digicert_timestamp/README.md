@@ -44,6 +44,11 @@ openssl ts -verify -in file.tsr -data <original_file> -CAfile digicert-root.pem
 # Expected: Verification: OK
 ```
 
+## Further reading
+
+- [`DIGICERT_TSA_CHAIN.md`](DIGICERT_TSA_CHAIN.md) — full trust chain explanation, certificate lifetimes, cross-signing, long-term archiving, and alternatives (OpenTimestamps, CINES, eIDAS QTSPs)
+- [`verify_tsr.py`](verify_tsr.py) — standalone script to verify a `.tsr` against an original file; auto-resolves the Root CA from the system trust store
+
 ## Dependencies
 
 - [`rfc3161ng`](https://pypi.org/project/rfc3161ng/) — RFC 3161 request/response encoding
