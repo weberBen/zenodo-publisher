@@ -262,3 +262,42 @@ Both features can be combined: sandbox with proxy captures requests while isolat
 - The reset cleans up orphaned drafts and tags
 
 The sandbox repo is meant for this. Do not point tests at a production repo.
+
+## Module tests
+
+Built-in modules (`release_tool/modules/<name>/`) each have their own isolated venv managed by `uv`. Module tests are run via `tests/run_module_tests.py`, which auto-discovers modules (any subdirectory with a `pyproject.toml`).
+
+```bash
+# List available modules
+tests/run_module_tests.py
+
+# Run all modules
+tests/run_module_tests.py --all
+
+# Run one module
+tests/run_module_tests.py digicert_timestamp
+
+# Run one test file at module root
+tests/run_module_tests.py digicert_timestamp.test_module
+
+# Run one test file in a subdirectory (/ → .)
+tests/run_module_tests.py digicert_timestamp.tests.test_module
+
+# Run one function
+tests/run_module_tests.py "digicert_timestamp.tests.test_module::test_func"
+
+# Run a parametrized test
+tests/run_module_tests.py "digicert_timestamp.tests.test_module::test_0[6-10]"
+
+# Forward extra pytest args
+tests/run_module_tests.py digicert_timestamp -- -v -s -m "not network"
+tests/run_module_tests.py digicert_timestamp -v
+```
+
+**Subpath notation:** slashes in test file paths are replaced by dots. A test file at `tests/test_module.py` inside the module is referenced as `module_name.tests.test_module`.
+
+Tab completion is supported via `argcomplete`. To enable it for zsh:
+
+```bash
+eval "$(register-python-argcomplete tests/run_module_tests.py)"
+```
