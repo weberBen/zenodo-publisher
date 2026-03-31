@@ -10,10 +10,11 @@ Usage
 -----
   tests/run_module_tests.py                                          # list modules
   tests/run_module_tests.py --all                                    # run all modules
-  tests/run_module_tests.py digicert_timestamp                       # one module
-  tests/run_module_tests.py digicert_timestamp.test_module           # one file
-  tests/run_module_tests.py "digicert_timestamp.test_module::func"   # one function
-  tests/run_module_tests.py "digicert_timestamp.test_module::test_0[6-10]"
+  tests/run_module_tests.py digicert_timestamp                                    # one module
+  tests/run_module_tests.py digicert_timestamp.test_module                        # one file (root)
+  tests/run_module_tests.py digicert_timestamp.tests.test_module                  # one file in subdir (/ → .)
+  tests/run_module_tests.py "digicert_timestamp.tests.test_module::func"          # one function
+  tests/run_module_tests.py "digicert_timestamp.tests.test_module::test_0[6-10]"
 
 Extra pytest args can come after ``--`` or directly (unknown flags are forwarded):
   tests/run_module_tests.py digicert_timestamp -- -v -s -m "not network"
@@ -22,6 +23,7 @@ Extra pytest args can come after ``--`` or directly (unknown flags are forwarded
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +55,16 @@ def _discover_modules() -> dict[str, Path]:
 
 
 def _discover_test_files(module_dir: Path) -> list[str]:
-    """Return test file stems (without ``.py``) found in *module_dir*."""
-    return sorted(f.stem for f in module_dir.glob("test_*.py"))
+    """Return test file paths relative to module_dir (without ``.py``), via pytest collection."""
+    ids = _collect_pytest_ids(module_dir)
+    seen: set[str] = set()
+    result: list[str] = []
+    for node_id in ids:
+        stem = node_id.split("::")[0].removesuffix(".py")
+        if stem not in seen:
+            seen.add(stem)
+            result.append(stem)
+    return sorted(result)
 
 
 def _collect_pytest_ids(module_dir: Path, test_file: str | None = None) -> list[str]:
@@ -80,11 +90,26 @@ def _collect_pytest_ids(module_dir: Path, test_file: str | None = None) -> list[
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
     ids: list[str] = []
+    current_dir = ""
+    current_module = ""
     for line in proc.stdout.splitlines():
-        line = line.strip()
-        # -q output: "test_file.py::test_name" possibly followed by parametrize id
-        if "::" in line and not line.startswith(("=", "<", "WARN", "ERROR", "no tests")):
-            ids.append(line.split()[0])  # strip trailing counts / warnings
+        stripped = line.strip()
+        # Flat -q format: "path/file.py::test_name"
+        if "::" in stripped and not stripped.startswith(("<", "=", "WARN", "ERROR", "no tests")):
+            ids.append(stripped.split()[0])
+            continue
+        # Tree format: <Dir tests>, <Module file.py>, <Function name>
+        m = re.match(r"<Dir\s+(.+?)>", stripped)
+        if m:
+            current_dir = m.group(1)
+            continue
+        m = re.match(r"<Module\s+(.+?)>", stripped)
+        if m:
+            current_module = (f"{current_dir}/{m.group(1)}" if current_dir else m.group(1))
+            continue
+        m = re.match(r"<Function\s+(.+?)>", stripped)
+        if m and current_module:
+            ids.append(f"{current_module}::{m.group(1)}")
     return ids
 
 
@@ -112,7 +137,7 @@ class _ModuleTestCompleter:
             module_dir = modules.get(module_name)
             if not module_dir:
                 return []
-            ids = _collect_pytest_ids(module_dir, file_stem + ".py")
+            ids = _collect_pytest_ids(module_dir, file_stem.replace(".", "/") + ".py")
             completions: list[str] = []
             for node_id in ids:
                 if "::" not in node_id:
@@ -129,9 +154,9 @@ class _ModuleTestCompleter:
                 return []
             files = _discover_test_files(module_dir)
             return [
-                f"{module_name}.{f}"
+                f"{module_name}.{f.replace('/', '.')}"
                 for f in files
-                if f.startswith(file_prefix)
+                if f.replace("/", ".").startswith(file_prefix)
             ]
 
         return [name for name in modules if name.startswith(prefix)]
@@ -171,7 +196,7 @@ def _run_module(
     cmd = ["uv", "run", "--project", str(module_dir), "pytest"]
 
     if file_stem:
-        node = f"{file_stem}.py"
+        node = f"{file_stem.replace('.', '/')}.py"
         if func_pattern:
             node += f"::{func_pattern}"
         cmd.append(node)
@@ -271,4 +296,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # use argcomplete.warn("my value", value) to display log durint completion
     sys.exit(main())
