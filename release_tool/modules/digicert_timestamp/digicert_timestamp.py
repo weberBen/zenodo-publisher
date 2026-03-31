@@ -36,9 +36,9 @@ TSA_URL = "http://timestamp.digicert.com"
 SUPPORTED_ALGOS = {"sha1", "sha256", "sha384", "sha512"}
 
 
-def emit(type_: str, msg: str, **kwargs) -> None:
+def emit(type_: str, msg: str, name: str = "", **kwargs) -> None:
     """Emit a NDJSON event line to stdout (relayed by ZP to the user)."""
-    event = {"type": type_, "msg": msg}
+    event = {"type": type_, "msg": msg, "name": f"digicert_timestamp.{name}" if name else ""}
     if kwargs:
         event["data"] = kwargs
     print(json.dumps(event), flush=True)
