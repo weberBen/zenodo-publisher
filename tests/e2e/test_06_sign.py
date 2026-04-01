@@ -1356,32 +1356,32 @@ def test_publish_identity_hash_module_type(sign_env, fix_log_path):
     errors = find_errors(result.events)
     assert not errors, f"Unexpected errors: {errors}"
 
-    # Find the two module outputs in persist_dir
-    persist_dir = archive_dir / TAG
-    type_a_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".type_a")]
-    type_b_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".type_b")]
-    assert type_a_files, f"Expected .type_a file in persist_dir. Got: {[f.name for f in fs.list_files(persist_dir)]}"
-    assert type_b_files, f"Expected .type_b file in persist_dir. Got: {[f.name for f in fs.list_files(persist_dir)]}"
-
     assets = gh.list_release_assets(TAG)
     asset_names = [a["name"] for a in assets]
 
+    # Find the two module outputs uploaded to GitHub
+    type_a_names = [n for n in asset_names if n.endswith(".type_a")]
+    type_b_names = [n for n in asset_names if n.endswith(".type_b")]
+    assert type_a_names, f"Expected .type_a asset on GitHub. Got: {asset_names}"
+    assert type_b_names, f"Expected .type_b asset on GitHub. Got: {asset_names}"
+
     # type_a identity hash should be present
-    type_a_hash_name = f"{type_a_files[0].name}.identity_hash.txt"
+    type_a_hash_name = f"{type_a_names[0]}.identity_hash.txt"
     assert type_a_hash_name in asset_names, \
         f"{type_a_hash_name} should be a release asset. Got: {asset_names}"
 
     # type_b identity hash should NOT be present
-    type_b_hash_name = f"{type_b_files[0].name}.identity_hash.txt"
+    type_b_hash_name = f"{type_b_names[0]}.identity_hash.txt"
     assert type_b_hash_name not in asset_names, \
         f"{type_b_hash_name} should NOT be a release asset (filtered out). Got: {asset_names}"
 
-    # Download type_a hash and verify against local file
+    # Download type_a file + its hash, verify hash matches
     with tempfile.TemporaryDirectory() as tmp:
-        downloaded = gh.download_asset(TAG, type_a_hash_name, Path(tmp))
-        content = downloaded.read_text(encoding="ascii").strip()
+        type_a_path = gh.download_asset(TAG, type_a_names[0], Path(tmp))
+        hash_path = gh.download_asset(TAG, type_a_hash_name, Path(tmp))
+        content = hash_path.read_text(encoding="ascii").strip()
+        local_hash = fs.compute_hash(type_a_path, "sha256")
 
-    local_hash = fs.compute_hash(type_a_files[0], "sha256")
     assert content == f"sha256:{local_hash}", \
         f"type_a identity_hash.txt mismatch: {content!r} != sha256:{local_hash}"
 
@@ -1416,25 +1416,26 @@ def test_publish_identity_hash_module_all(sign_env, fix_log_path):
     errors = find_errors(result.events)
     assert not errors, f"Unexpected errors: {errors}"
 
-    persist_dir = archive_dir / TAG
-    type_a_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".type_a")]
-    type_b_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".type_b")]
-    assert type_a_files, f"Expected .type_a in persist_dir"
-    assert type_b_files, f"Expected .type_b in persist_dir"
-
     assets = gh.list_release_assets(TAG)
     asset_names = [a["name"] for a in assets]
 
-    # Both identity hash txts should be present
-    for typed_files, label in ((type_a_files, "type_a"), (type_b_files, "type_b")):
-        hash_name = f"{typed_files[0].name}.identity_hash.txt"
+    # Find the two module outputs uploaded to GitHub
+    type_a_names = [n for n in asset_names if n.endswith(".type_a")]
+    type_b_names = [n for n in asset_names if n.endswith(".type_b")]
+    assert type_a_names, f"Expected .type_a asset on GitHub. Got: {asset_names}"
+    assert type_b_names, f"Expected .type_b asset on GitHub. Got: {asset_names}"
+
+    # Both identity hash txts should be present; verify content matches the downloaded file
+    for type_names, label in ((type_a_names, "type_a"), (type_b_names, "type_b")):
+        hash_name = f"{type_names[0]}.identity_hash.txt"
         assert hash_name in asset_names, \
             f"{hash_name} ({label}) should be a release asset. Got: {asset_names}"
 
         with tempfile.TemporaryDirectory() as tmp:
-            downloaded = gh.download_asset(TAG, hash_name, Path(tmp))
-            content = downloaded.read_text(encoding="ascii").strip()
+            file_path = gh.download_asset(TAG, type_names[0], Path(tmp))
+            hash_path = gh.download_asset(TAG, hash_name, Path(tmp))
+            content = hash_path.read_text(encoding="ascii").strip()
+            local_hash = fs.compute_hash(file_path, "sha256")
 
-        local_hash = fs.compute_hash(typed_files[0], "sha256")
         assert content == f"sha256:{local_hash}", \
             f"{label} identity_hash.txt mismatch: {content!r} != sha256:{local_hash}"
