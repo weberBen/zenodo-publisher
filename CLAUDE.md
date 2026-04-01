@@ -9,6 +9,8 @@ At the start of every conversation, read the following files before doing anythi
 
 Do not automatically run test. Only the user can run test. You can adapt the test code base, but not actually running them. You need to wait for the user response with the test results.
 
+When the user asks you to fix a bug, look in the `results.jsonl` file which contains the detailed error from the last test.
+
 ## Doc
 
 When user ask about updating the doc. You need to update the main Readme.md at the project root, the llms.md (which serve as architectural doc for AI agent to understand the code), and eventually the tests/Readme.md which handle tests doc.
