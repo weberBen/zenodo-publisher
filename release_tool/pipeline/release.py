@@ -596,9 +596,12 @@ def _step_modules(ctx: PipelineContext) -> None:
             module_name=module_name, n=len(files_input), name="module.confirmed",
         )
 
+        module_output_dir = ctx.output_dir / module_name
+        module_output_dir.mkdir(exist_ok=True)
+
         input_data = {
             "config": {"identity_hash_algo": ctx.config.identity_hash_algo},
-            "output_dir": str(ctx.output_dir),
+            "output_dir": str(module_output_dir),
             "files": files_input,
         }
 

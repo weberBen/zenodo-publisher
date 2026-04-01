@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from . import output, prompts
+from .archive_operation import FileEntryType
 
 
 def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> None:
@@ -30,8 +31,15 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     persist_dir = archive_dir / tag_name
     persist_dir.mkdir(parents=True, exist_ok=True)
 
+    def _dest_dir(entry) -> Path:
+        if entry.type == FileEntryType.MODULE_ENTRY and entry.module_name:
+            d = persist_dir / entry.module_name
+            d.mkdir(parents=True, exist_ok=True)
+            return d
+        return persist_dir
+
     # Check which files already exist
-    existing = [e for e in to_persist if (persist_dir / e.file_path.name).exists()]
+    existing = [e for e in to_persist if (_dest_dir(e) / e.file_path.name).exists()]
     if existing:
         output.info("Files already exist in {dir}:", dir=str(persist_dir), name="persist.existing")
         for e in existing:
@@ -40,7 +48,7 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     apply_all = None  # None = ask each time, True = overwrite all, False = skip all
     for entry in to_persist:
         src = entry.file_path
-        dst = persist_dir / src.name
+        dst = _dest_dir(entry) / src.name
 
         if dst.exists():
             if apply_all is not None:
@@ -62,4 +70,4 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
 
         shutil.move(str(src), str(dst))
         entry.file_path = dst
-        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(persist_dir), name="persist.done")
+        output.detail("Persisted {filename} → {dir}", filename=dst.name, dir=str(dst.parent), name="persist.done")
