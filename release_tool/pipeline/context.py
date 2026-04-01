@@ -46,7 +46,6 @@ class HookPoint(str, Enum):
     HASH            = "hash"
     MANIFEST        = "manifest"
     SIGN            = "sign"
-    IDENTIFIERS     = "identifiers"
     CUSTOM_MODULES  = "custom_modules"    # subprocess custom modules
     PUBLISH         = "publish"
     PERSIST         = "persist"

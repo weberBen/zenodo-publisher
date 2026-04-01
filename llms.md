@@ -47,7 +47,7 @@ This section helps you find the right code quickly without reading everything.
 - **Error naming**: `ZPError(name="foo")` with class prefix → `GitError("bar")` produces `git.bar`. Deduplication: `git.git.bar` → `git.bar`
 - **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
-- **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
+- **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules`, `publish_identity_hash` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
 - **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py`. Every module must implement `--check` mode (connectivity/config validation, called at pipeline start) and `--input` mode (normal run). Both modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
 
 ### Common pitfalls
@@ -129,9 +129,9 @@ generated_files:
       paper: [file, sig]       # include paper file + signature hash
       project: [file]          # include project file hash
     commit_info: [sha, date_epoch]
-    identifier:
-      use_as_alternate_identifier: true
-      source: file
+    publish_identity_hash:     # publish manifest identity hash
+      destination:
+        file: [zenodo]         # add as Zenodo alternate identifier
     sign: true
     publishers:
       destination:
@@ -562,11 +562,7 @@ After signing: verifies signature with `gpg.verify_file()`, checks fingerprint m
 
 Signature files are appended to `archived_files` list as `FileEntry(type=SIG)`. The `archive` flag is resolved at creation via `_resolve_archive()` using the parent's `FileConfigEntry` (same `config_key`): if the parent has `archive_types` that excludes `"sig"`, the signature is not archived.
 
-### Step 12: Compute identifiers (`_step_compute_identifiers`)
-
-Per-file alternate identifiers pushed to Zenodo `metadata.identifiers`. Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Not related to manifest. On each run, all existing `zp:///` entries on Zenodo are replaced.
-
-### Step 13: Modules (`_step_modules`)
+### Step 12: Modules (`_step_modules`)
 
 Runs configured modules for files that declare them under `modules:`. Each module:
 1. Collects matching FileEntry entries (by config_key, non-SIG)
@@ -582,13 +578,13 @@ Input JSON: `{"config": {"identity_hash_algo": ...}, "output_dir": ..., "files":
 - `type` = `"file"` / `"project"` / `"manifest"`
 See README "Custom modules → Input" for the full field reference.
 
-### Step 14: Publish (`_step_publish`)
+### Step 13: Publish (`_step_publish`)
 
 Routes each file to destinations per `publishers.destination[type_key]` where `type_key = module_name` for MODULE_ENTRY, else `fe.type`.
 - **Zenodo**: checks `is_up_to_date()` (compares version + MD5 hashes), uploads via InvenioRDM API
 - **GitHub**: `gh release upload <tag> <file>`, compares sha256 to detect changes, prompts for `--clobber`
 
-### Step 15: Persist (`_step_persist`)
+### Step 14: Persist (`_step_persist`)
 
 Copies files where `entry.archive == True` to `archive_dir/{tag}/` via `shutil.move()`. Updates `entry.file_path` in-place.
 `archive` was resolved at FileEntry creation — no re-filtering here.
@@ -620,9 +616,9 @@ class FileConfigEntry:
     sign: bool | None                 # per-file override (None = use global)
     sign_mode: SignMode | None        # per-file override
     archive_types: list[str] | None   # per-file override (None = global, [] = veto)
-    publishers: PublisherDestinations | None  # per-file override (None = use global)
-    modules: dict[str, dict]          # per-file module config overrides
-    identifier: IdentifierConfig | None
+    publishers: PublisherDestinations | None       # per-file override (None = use global)
+    modules: dict[str, dict]                      # per-file module config overrides
+    publish_identity_hash: PublisherDestinations | None  # where to publish identity hash
     manifest_config: ManifestInclusion | None
     resolved_paths: list[Path]        # populated at runtime by step 7
 ```
@@ -683,13 +679,12 @@ class FileEntry:
     archive: bool                 # resolved at creation via _resolve_archive()
     publishers: PublisherDestinations | None
     sign_mode: SignMode | None    # resolved; None if not signable
-    identifier: IdentifierConfig | None
     module_name: str | None       # which module produced this (type == MODULE_ENTRY)
     module_entry_type: str | None # module output sub-type (e.g. "tsr")
     is_preview: bool = False
     has_signature: bool = False   # whether this file needs to be signed
+    internal_identifier: str | None = None  # "{algo}:{hex}" computed at creation
     hashes: dict = {}             # {algo: {"type", "value", "formatted_value"}}
-    identifier_value: str | None = None
 ```
 
 ### Pattern resolution details
@@ -720,23 +715,31 @@ Step 8 copies matched files as `output_dir / src_path.name` (filename only, no s
 
 Uses `interegular` FSM library. Checks segment-by-segment. Normalizes paths (resolve `..`, remove `.`). Different depth: checks if shorter is prefix of longer. Raises `ConfigError("config.generated_files.pattern_overlap")`.
 
-### Identifier config
+### Identity hash & publish_identity_hash
 
-Computed from the file hash using `identity_hash_algo` (single algo, default `sha256`), pushed to Zenodo `metadata.identifiers`. Note: `identity_hash_algo` is at **root** YAML level, not under `signing:`.
+Every `FileEntry` has an `internal_identifier: str` computed immediately at creation using `identity_hash_algo` (default `sha256`). Format: `"{algo}:{hex}"` (e.g. `"sha256:abc123..."`).
 
+**`identity_key`** (root YAML, default `"name"`) controls the format of Zenodo alternate identifiers and manifest file keys:
+- `"name"` → Zenodo: `zp:///<filename>;<algo>:<hex>` / Manifest: `{"key": "filename.pdf", ...}`
+- `"hash"` → Zenodo: `zp:///<algo>:<hex>` / Manifest: `{"identity_hash": "sha256:abc...", ...}`
+
+In both cases the manifest includes `"identity_hash_algo"` at the root.
+
+**`publish_identity_hash`** (per-file, same structure as `publishers`) controls where the identity hash is published:
 ```yaml
-identifier:
-  use_as_alternate_identifier: true
-  source: file        # "file" (hash the file) or "sig_file" (hash the signature)
+paper:
+  publish_identity_hash:
+    destination:
+      file: [github]    # → upload <filename>.identity_hash.txt to GitHub release
+      sig: [zenodo]     # → add signature hash as Zenodo alternate identifier
 ```
 
-Format: `zp:///{filename};{identity_hash_algo}:{hex_value}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc...`). The filename is the actual output filename after renaming.
+GitHub: creates `{filename}.identity_hash.txt` containing the `internal_identifier` value.
+Zenodo: adds as `{"scheme": "other", "identifier": "zp:///..."}` in `metadata.identifiers`.
 
-Constraints:
-- `source: sig_file` requires `sign: true` on the entry
-- Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file?)
-- User keys must not end with `_sig` (reserved for signature references)
-- All ZP identifiers use the `zp:///` scheme. On each run, all `zp:///` entries on the Zenodo record are removed and replaced with the current ones
+On each publish run, all `zp:///` entries on the Zenodo record are removed and replaced with current ones.
+
+**GitHub release cleanup**: before uploading, lists all remote assets and prompts to delete any that are not in the current upload set (leftovers from previous runs).
 
 ---
 

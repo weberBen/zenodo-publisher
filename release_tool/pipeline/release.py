@@ -17,6 +17,8 @@ from ..git_operations import (
     get_last_commit_info,
     get_release_asset_digest,
     upload_release_asset,
+    list_release_assets,
+    delete_release_asset,
     archive_zip_project,
 )
 from ..zenodo_operations import ZenodoPublisher, ZenodoError
@@ -24,6 +26,7 @@ from ..archive_operation import (
     FileEntry,
     FileEntryType,
     compute_file_hash,
+    compute_identity_hash,
     compute_hashes,
     format_hash_info,
     generate_manifest,
@@ -302,9 +305,9 @@ def _step_archive(ctx: PipelineContext) -> None:
                     archive=_resolve_archive(FileEntryType.FILE, None, entry, ctx.config),
                     publishers=entry.publishers or ctx.config.default_publishers,
                     sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
-                    identifier=entry.identifier,
                     is_preview=(dst.suffix.lstrip(".") == "pdf"),
                     has_signature=entry.effective_sign(ctx.config.signing.sign),
+                    internal_identifier=compute_identity_hash(dst, ctx.config.identity_hash_algo),
                 ))
                 output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
@@ -342,8 +345,8 @@ def _step_archive(ctx: PipelineContext) -> None:
                 archive=_resolve_archive(FileEntryType.PROJECT, None, entry, ctx.config),
                 publishers=entry.publishers or ctx.config.default_publishers,
                 sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
-                identifier=entry.identifier,
                 has_signature=entry.effective_sign(ctx.config.signing.sign),
+                internal_identifier=compute_identity_hash(final_path, ctx.config.identity_hash_algo),
                 hashes=pre_hashes,
             ))
             output.detail("project archive: {filename}", filename=final_path.name, name="archive.project")
@@ -455,6 +458,8 @@ def _step_manifest(ctx: PipelineContext) -> None:
         included, ctx.tag_name, ctx.commit_env,
         commit_fields=mc.commit_info if mc else None,
         metadata=metadata,
+        identity_key=ctx.config.identity_key,
+        identity_hash_algo=ctx.config.identity_hash_algo,
     )
     manifest_path = manifest_to_file(ctx.config, manifest_dict, ctx.output_dir)
     output.detail("Manifest: {path}", path=str(manifest_path), name="manifest.path")
@@ -468,8 +473,8 @@ def _step_manifest(ctx: PipelineContext) -> None:
         archive=_resolve_archive(FileEntryType.MANIFEST, None, manifest_entry_cfg, ctx.config),
         publishers=manifest_entry_cfg.publishers or ctx.config.default_publishers,
         sign_mode=manifest_entry_cfg.effective_sign_mode(ctx.config.signing.sign_mode),
-        identifier=manifest_entry_cfg.identifier,
         has_signature=manifest_entry_cfg.effective_sign(ctx.config.signing.sign),
+        internal_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
     )
     # Compute hashes immediately so the manifest entry is ready for signing/identifiers
     algos = list(ctx.config.hash_algorithms or [])
@@ -526,57 +531,13 @@ def _step_sign(ctx: PipelineContext) -> None:
             type=FileEntryType.SIG,
             archive=_resolve_archive(FileEntryType.SIG, None, parent_fce, ctx.config),
             publishers=af.publishers,
+            internal_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
         )
         compute_hashes([sig_af], ctx.config.hash_algorithms)
         ctx.archived_files.append(sig_af)
 
     output.step_ok("Files signed")
 
-
-# ---------------------------------------------------------------------------
-# Step: Compute identifiers
-# ---------------------------------------------------------------------------
-
-def _step_compute_identifiers(ctx: PipelineContext) -> None:
-    """Compute alternate identifiers for entries with identifier config."""
-    has_identifiers = False
-    for fe in ctx.config.generated_files:
-        if fe.identifier is None:
-            continue
-
-        ic = fe.identifier
-        if ic.source == "file":
-            target = next(
-                (af for af in ctx.archived_files if af.config_key == fe.key), None,
-            )
-        elif ic.source == "sig_file":
-            target = next(
-                (af for af in ctx.archived_files if af.type == "sig" and af.config_key == fe.key), None,
-            )
-        else:
-            continue
-
-        if target is None:
-            output.warn("Identifier source not found for '{key}'", key=fe.key, name="identifier.missing")
-            continue
-
-        hash_val = target.hashes.get(ctx.config.identity_hash_algo)
-        if hash_val is None:
-            output.warn("Hash {algo} not found for identifier '{key}'", algo=ctx.config.identity_hash_algo, key=fe.key, name="identifier.hash_missing")
-            continue
-
-        formatted = hash_val['formatted_value']
-        filename = target.file_path.name
-        identifier_value = f"zp:///{filename};{formatted}"
-        target.identifier_value = identifier_value
-
-        if not has_identifiers:
-            output.step("Computing identifiers...")
-            has_identifiers = True
-        output.detail("Identifier ({key}): {value}", key=fe.key, value=identifier_value, name="identifier.computed")
-
-    if has_identifiers:
-        output.step_ok("Identifiers computed")
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +651,7 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=PublisherDestinations(destination=dest_raw),
                 module_name=module_name,
                 module_entry_type=rf.get("module_entry_type"),
+                internal_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
             )
             ctx.archived_files.append(fe)
             output.detail(
@@ -728,23 +690,44 @@ def _step_publish(ctx: PipelineContext) -> None:
         _publish_github(ctx, github_files)
 
 
+def _entry_destinations(pub: PublisherDestinations, fe: FileEntry) -> set[str]:
+    """Return the set of destinations for a FileEntry from a PublisherDestinations.
+
+    Shared by publishers and publish_identity_hash lookups.
+    """
+    if fe.type == FileEntryType.MODULE_ENTRY:
+        platforms = set(pub.destinations_for(fe.module_name))
+        if fe.module_entry_type:
+            platforms |= set(pub.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
+        return platforms
+    if fe.type == FileEntryType.SIG:
+        return set(pub.destinations_for(FileEntryType.SIG))
+    return set(pub.destinations_for(FileEntryType.FILE))
+
+
 def _files_for_destination(archived_files: list[FileEntry], destination: str) -> list[FileEntry]:
     """Get files destined for a specific publisher."""
+    return [
+        fe for fe in archived_files
+        if fe.publishers and destination in _entry_destinations(fe.publishers, fe)
+    ]
+
+
+def _files_for_identity_destination(
+    archived_files: list[FileEntry],
+    config_entries: list,
+    destination: str,
+) -> list[FileEntry]:
+    """Get FileEntry instances whose publish_identity_hash includes the given destination."""
     result = []
-    for fe in archived_files:
-        if not fe.publishers:
+    for af in archived_files:
+        fce = next((f for f in config_entries if f.key == af.config_key), None)
+        if fce is None:
             continue
-        # Same normalization as _resolve_archive: FILE/PROJECT/MANIFEST → "file", SIG → "sig"
-        if fe.type == FileEntryType.MODULE_ENTRY:
-            platforms = set(fe.publishers.destinations_for(fe.module_name))
-            if fe.module_entry_type:
-                platforms |= set(fe.publishers.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
-        elif fe.type == FileEntryType.SIG:
-            platforms = set(fe.publishers.destinations_for(FileEntryType.SIG))
-        else:
-            platforms = set(fe.publishers.destinations_for(FileEntryType.FILE))
-        if destination in platforms:
-            result.append(fe)
+        if fce.publish_identity_hash is None:
+            continue
+        if destination in _entry_destinations(fce.publish_identity_hash, af):
+            result.append(af)
     return result
 
 
@@ -774,11 +757,13 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
         output.warn("No publication made")
         return record_info
 
-    identifiers = [af for af in ctx.archived_files if af.identifier_value]
+    zenodo_identifiers = _files_for_identity_destination(
+        ctx.archived_files, ctx.config.generated_files, "zenodo",
+    )
 
     try:
         record_info = publisher.publish_new_version(
-            zenodo_files, ctx.tag_name, identifiers=identifiers,
+            zenodo_files, ctx.tag_name, identifiers=zenodo_identifiers,
         )
         output.data("record_info", record_info)
         for af in zenodo_files:
@@ -794,10 +779,47 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
         return record_info
 
 
+def _github_identity_hash_files(ctx: PipelineContext, github_files: list[FileEntry]) -> list[Path]:
+    """Create .identity_hash.txt files for entries with publish_identity_hash: [github, ...]."""
+    txt_files = []
+    for af in github_files:
+        fce = next((f for f in ctx.config.generated_files if f.key == af.config_key), None)
+        if not fce or not fce.publish_identity_hash:
+            continue
+        if "github" not in _entry_destinations(fce.publish_identity_hash, af):
+            continue
+        txt_path = af.file_path.parent / f"{af.file_path.name}.identity_hash.txt"
+        txt_path.write_text(af.internal_identifier or "", encoding="ascii")
+        txt_files.append(txt_path)
+    return txt_files
+
+
 def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None:
     """Upload files to GitHub release."""
     output.step("Uploading to GitHub release...")
 
+    # Build the set of names we will upload (including .identity_hash.txt files)
+    identity_txt_files = _github_identity_hash_files(ctx, github_files)
+    local_names = {af.file_path.name for af in github_files} | {f.name for f in identity_txt_files}
+
+    # Cleanup: list remote assets and ask to delete leftovers
+    remote_assets = list_release_assets(ctx.config.project_root, ctx.tag_name)
+    leftovers = [a for a in remote_assets if a.get("name") not in local_names]
+    if leftovers:
+        output.step_warn("Leftover assets found on release (not in current upload set)")
+        for asset in leftovers:
+            remote_digest = asset.get("digest") or "unknown"
+            output.detail(
+                "Leftover: {filename} (remote sha256: {hash})",
+                filename=asset["name"], hash=ellipse_hash(remote_digest), name="github.leftover",
+            )
+            if prompts.confirm_delete_asset.ask(f"Delete {asset['name']} from release?").is_accept:
+                delete_release_asset(ctx.config.project_root, asset["id"])
+                output.detail_ok("{filename} deleted", filename=asset["name"], name="github.leftover_deleted")
+            else:
+                output.detail_skip("{filename} kept", filename=asset["name"], name="github.leftover_kept")
+
+    # Upload regular files
     for af in github_files:
         local_sha = compute_file_hash(af.file_path, "sha256")["formatted_value"]
         remote_sha = get_release_asset_digest(
@@ -821,6 +843,13 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
             clobber=bool(remote_sha),
         )
         output.detail_ok("{filename} uploaded to release", filename=af.file_path.name, name="github.asset_uploaded")
+
+    # Upload .identity_hash.txt files
+    for txt_path in identity_txt_files:
+        upload_release_asset(
+            ctx.config.project_root, ctx.tag_name, txt_path, clobber=True,
+        )
+        output.detail_ok("{filename} uploaded to release", filename=txt_path.name, name="github.identity_hash_uploaded")
 
     output.step_ok("GitHub release updated")
 
@@ -853,7 +882,6 @@ def _build_registry() -> HookRegistry:
     reg.register(HookPoint.HASH,            _step_compute_hashes)
     reg.register(HookPoint.MANIFEST,        _step_manifest)
     reg.register(HookPoint.SIGN,            _step_sign)
-    reg.register(HookPoint.IDENTIFIERS,     _step_compute_identifiers)
     reg.register(HookPoint.CUSTOM_MODULES,  _step_modules)
     reg.register(HookPoint.PUBLISH,         _step_publish)
     reg.register(HookPoint.PERSIST,         _step_persist)

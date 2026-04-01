@@ -20,6 +20,10 @@ Example YAML:
           destination:
             file: [zenodo, github]
             sig: []
+        publish_identity_hash:      # publish identity hash of each matched file
+          destination:
+            file: [github]          # upload <filename>.identity_hash.txt to GitHub
+            sig: [zenodo]           # add signature hash as Zenodo alternate identifier
       project:                      # PROJECT — git archive ZIP
         publishers:
           destination:
@@ -29,9 +33,6 @@ Example YAML:
         content:                    # which entries/types to include (None = all non-sig files)
           paper: [file, sig]        # include paper file + its signature
           project: [file]           # include project file only
-        identifier:
-          use_as_alternate_identifier: true
-          source: file              # hash of this file becomes Zenodo identifier
 """
 
 from dataclasses import dataclass, field
@@ -87,16 +88,6 @@ class PublisherDestinations:
         return self.destination.get(type_name, [])
 
 
-@dataclass
-class IdentifierConfig:
-    """Per-file alternate identifier for Zenodo metadata.
-
-    The hash of `source` (the file itself or its signature) is formatted
-    as "zp:///<filename>;{algo}:{hash}" and added as an alternate identifier on Zenodo.
-    """
-    use_as_alternate_identifier: bool = True
-    source: str = "file"       # "file" = hash the file, "sig_file" = hash the signature
-
 
 @dataclass
 class ManifestInclusion:
@@ -131,10 +122,10 @@ class FileConfigEntry:
         sign_mode:       per-file sign mode override (None = use global default)
         archive_types:   per-entry override of global archive.types policy (None = use global,
                          [] = archive nothing from this entry)
-        publishers:      per-file publisher override (None = use global default)
-        modules:         module_name -> per-file config override (presence = module active)
-        identifier:      alternate identifier config for Zenodo
-        manifest_config: manifest-specific config (MANIFEST only)
+        publishers:            per-file publisher override (None = use global default)
+        modules:               module_name -> per-file config override (presence = module active)
+        publish_identity_hash: where to publish each file's identity hash (same structure as publishers)
+        manifest_config:       manifest-specific config (MANIFEST only)
         resolved_paths:  populated at runtime after glob resolution
     """
     key: str
@@ -148,7 +139,7 @@ class FileConfigEntry:
     archive_types: list[str] | None = None
     publishers: PublisherDestinations | None = None
     modules: dict[str, dict] = field(default_factory=dict)
-    identifier: IdentifierConfig | None = None
+    publish_identity_hash: PublisherDestinations | None = None
     manifest_config: ManifestInclusion | None = None
 
     # Resolved at runtime (not from YAML)
@@ -181,33 +172,6 @@ def _validate_manifest_refs(manifest_entry: FileConfigEntry, all_keys: set[str])
             )
 
 
-def _validate_identifier(entry: FileConfigEntry) -> None:
-    """Validate identifier config constraints.
-
-    Rules:
-      - source must be "file" or "sig_file"
-      - source=sig_file requires sign=true (need a signature to hash)
-      - glob patterns with '*' can't be identifier source (ambiguous multi-match)
-    """
-    if entry.identifier is None:
-        return
-    if entry.identifier.source not in ("file", "sig_file"):
-        raise ConfigError(
-            f"'{entry.key}': identifier.source must be 'file' or 'sig_file', "
-            f"got '{entry.identifier.source}'",
-            name="generated_files.identifier.invalid_source",
-        )
-    if entry.identifier.source == "sig_file" and entry.sign is False:
-        raise ConfigError(
-            f"'{entry.key}' has identifier.source=sig_file but sign=false",
-            name="generated_files.identifier.sign.need",
-        )
-    if entry.type == FileEntryKind.PATTERN and entry.pattern and "*" in entry.pattern:
-        raise ConfigError(
-            f"'{entry.key}' uses glob pattern '*' and has identifier config. "
-            f"Glob patterns matching multiple files can't be used as identifier source.",
-            name="generated_files.identifier.glob_conflict",
-        )
 
 def validate_no_pattern_overlap(entries) -> None:
     """Check that no two FileEntry patterns can match the same files.
@@ -289,15 +253,6 @@ def _parse_file_modules(raw: Any) -> dict[str, dict]:
         raise ConfigError(str(e), name="config.modules.invalid_name") from e
 
 
-def _parse_identifier(raw: Any) -> IdentifierConfig | None:
-    """Parse an identifier block from YAML. Returns None if absent."""
-    if not raw or not isinstance(raw, dict):
-        return None
-    return IdentifierConfig(
-        use_as_alternate_identifier=raw.get("use_as_alternate_identifier", True),
-        source=raw.get("source", "file"),
-    )
-
 
 def _parse_sign_mode(raw: Any) -> SignMode | None:
     """Parse optional per-file sign_mode override. Returns None if absent."""
@@ -356,7 +311,7 @@ def _parse_pattern_entry(key: str, raw: dict) -> FileConfigEntry:
         archive_types=raw.get("archive_types"),
         publishers=_parse_publishers(raw.get("publishers")),
         modules=_parse_file_modules(raw.get("modules")),
-        identifier=_parse_identifier(raw.get("identifier")),
+        publish_identity_hash=_parse_publishers(raw.get("publish_identity_hash")),
     )
 
 
@@ -371,7 +326,7 @@ def _parse_project_entry(raw: dict | None) -> FileConfigEntry:
         archive_types=raw.get("archive_types"),
         publishers=_parse_publishers(raw.get("publishers")),
         modules=_parse_file_modules(raw.get("modules")),
-        identifier=_parse_identifier(raw.get("identifier")),
+        publish_identity_hash=_parse_publishers(raw.get("publish_identity_hash")),
     )
 
 
@@ -386,7 +341,7 @@ def _parse_manifest_entry(raw: dict | None) -> FileConfigEntry:
         archive_types=raw.get("archive_types"),
         publishers=_parse_publishers(raw.get("publishers")),
         modules=_parse_file_modules(raw.get("modules")),
-        identifier=_parse_identifier(raw.get("identifier")),
+        publish_identity_hash=_parse_publishers(raw.get("publish_identity_hash")),
         manifest_config=_parse_manifest_config(raw),
     )
 
@@ -422,6 +377,5 @@ def parse_generated_files(raw: Any) -> list[FileConfigEntry]:
     for entry in entries:
         if entry.type == FileEntryKind.MANIFEST:
             _validate_manifest_refs(entry, all_keys)
-        _validate_identifier(entry)
 
     return entries

@@ -11,7 +11,7 @@ from pathlib import Path
 from .git_operations import extract_zip, compute_tree_hash, pack_tar
 from .config.transform_common import TREE_ALGORITHMS
 from .config.transform_release import COMMIT_FIELD_MAP
-from .config.generated_files import PublisherDestinations, IdentifierConfig
+from .config.generated_files import PublisherDestinations
 from .config.signing import SignMode
 
 
@@ -33,7 +33,7 @@ class FileEntry:
     """Runtime representation of a single file in the pipeline.
 
     Config fields are fully resolved at creation (no None meaning 'use global').
-    Computed fields (hashes, identifier_value) are populated by pipeline steps.
+    internal_identifier is computed immediately at creation; hashes are populated by pipeline steps.
 
     type:       "file" | "sig" | "project" | "manifest" | "module_entry"
     config_key: references FileConfigEntry.key (sigs share the same key as their parent file)
@@ -48,15 +48,15 @@ class FileEntry:
     archive: bool = False        # resolved at creation via _resolve_archive()
     publishers: PublisherDestinations | None = None   # always resolved at creation
     sign_mode: SignMode | None = None                 # resolved; None if not signable
-    identifier: IdentifierConfig | None = None        # resolved from FileConfigEntry.identifier
     # --- type-specific fields ---
     module_name: str | None = None        # which module produced this (type == "module_entry")
     module_entry_type: str | None = None  # module output sub-type: "sig", "cert", custom...
     is_preview: bool = False
     has_signature: bool = False           # whether this file needs to be signed
+    # --- computed at creation ---
+    internal_identifier: str | None = None  # "{algo}:{hex}" using identity_hash_algo
     # --- computed by pipeline steps ---
     hashes: dict = field(default_factory=dict)
-    identifier_value: str | None = None
 
 
 
@@ -80,6 +80,11 @@ def compute_file_hash(file_path: Path, algorithm: str) -> dict:
             h.update(chunk)
     hex_value = h.hexdigest()
     return format_hash_info(algorithm, hex_value)
+
+
+def compute_identity_hash(file_path: Path, algo: str) -> str:
+    """Compute the identity hash of a file. Returns "{algo}:{hex}" string."""
+    return compute_file_hash(file_path, algo)["formatted_value"]
 
 
 # ---------------------------------------------------------------------------
@@ -163,15 +168,20 @@ def compute_hashes(entries: list[FileEntry], algorithms: list[str] | None = None
 
 def generate_manifest(archived_files: list[FileEntry], version: str,
                       commit_info: dict, commit_fields: list[str] | None = None,
-                      metadata: dict | None = None) -> dict:
+                      metadata: dict | None = None,
+                      identity_key: str = "name",
+                      identity_hash_algo: str = "sha256") -> dict:
     """Generate a manifest dict listing archived files with their hashes.
 
     Args:
-        archived_files: List of FileEntry instances (with hashes computed).
-        version: Tag name / version string.
-        commit_info: Dict with ZP_* keys from the pipeline.
-        commit_fields: List of field names to include (keys of COMMIT_FIELD_MAP).
-        metadata: Optional dict of metadata fields to include.
+        archived_files:     List of FileEntry instances (with hashes computed).
+        version:            Tag name / version string.
+        commit_info:        Dict with ZP_* keys from the pipeline.
+        commit_fields:      List of field names to include (keys of COMMIT_FIELD_MAP).
+        metadata:           Optional dict of metadata fields to include.
+        identity_key:       "name" → key field is the filename;
+                            "hash" → key field is the internal_identifier value.
+        identity_hash_algo: Algorithm used for internal_identifier (recorded in manifest).
 
     Returns:
         Manifest dict.
@@ -193,16 +203,21 @@ def generate_manifest(archived_files: list[FileEntry], version: str,
     if has_tag_sha:
         version_info["sha"] = commit_info.get("ZP_TAG_SHA", "")
 
+    def _file_entry(entry: FileEntry) -> dict:
+        if identity_key == "hash":
+            id_field = {"identity_hash": entry.internal_identifier}
+        else:
+            id_field = {"key": entry.file_path.name}
+        return {
+            **id_field,
+            **{algo: h["value"] for algo, h in entry.hashes.items()},
+        }
+
     manifest = {
         "version": version_info,
         "commit": commit,
-        "files": [
-            {
-                "key": entry.file_path.name,
-                **{algo: h["value"] for algo, h in entry.hashes.items()},
-            }
-            for entry in archived_files
-        ],
+        "identity_hash_algo": identity_hash_algo,
+        "files": [_file_entry(entry) for entry in archived_files],
     }
 
     if metadata:

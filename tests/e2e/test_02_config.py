@@ -285,6 +285,40 @@ def test_signing_invalid_hash_algo(tmp_path, fix_log_path):
     _assert_has_error(result, name="config_error.loading.config.invalid_option.identity_hash_algo")
 
 
+def test_identity_key_name_valid(tmp_path, fix_log_path):
+    """identity_key: name is a valid value — config should load."""
+    _git_init(tmp_path)
+    config = {**MINIMAL_CONFIG, "identity_key": "name"}
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    assert has_step_ok(result.events, "config.checked"), \
+        f"identity_key=name should load: events={result.events}"
+
+
+def test_identity_key_hash_valid(tmp_path, fix_log_path):
+    """identity_key: hash is a valid value — config should load."""
+    _git_init(tmp_path)
+    config = {**MINIMAL_CONFIG, "identity_key": "hash"}
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    assert has_step_ok(result.events, "config.checked"), \
+        f"identity_key=hash should load: events={result.events}"
+
+
+def test_identity_key_invalid(tmp_path, fix_log_path):
+    """Invalid identity_key value: should fail."""
+    _git_init(tmp_path)
+    config = {**MINIMAL_CONFIG, "identity_key": "bogus_value"}
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_has_error(result, name="config_error.loading.config.invalid_option.identity_key")
+
+
 def test_signing_cli_override(tmp_path, fix_log_path):
     """--sign CLI flag should override signing.sign: false in YAML."""
     _git_init(tmp_path)

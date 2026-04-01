@@ -17,6 +17,7 @@ release_notes = output.Prompt([output.TEXT_OPTIONAL], name="release_notes")
 confirm_build: output.Prompt
 confirm_publish: output.Prompt
 confirm_github_overwrite: output.Prompt
+confirm_delete_asset: output.Prompt
 confirm_persist_overwrite: output.Prompt
 confirm_gpg_key: output.Prompt
 confirm_run_module: output.Prompt
@@ -25,7 +26,7 @@ confirm_run_module: output.Prompt
 def init_prompts(config):
     """Instantiate all confirm prompts after config is available."""
     global confirm_build, confirm_publish, confirm_github_overwrite
-    global confirm_persist_overwrite, confirm_gpg_key, confirm_run_module
+    global confirm_delete_asset, confirm_persist_overwrite, confirm_gpg_key, confirm_run_module
 
     level_map = {"danger": "danger", "light": "light",
                  "normal": "complete", "secure": "complete"}
@@ -44,6 +45,10 @@ def init_prompts(config):
     )
     confirm_github_overwrite = output.Prompt(
         [output.YES, output.NO], name="confirm_github_overwrite",
+        level=level, enter_confirms=enter, secure_value=secure,
+    )
+    confirm_delete_asset = output.Prompt(
+        [output.YES, output.NO], name="confirm_delete_asset",
         level=level, enter_confirms=enter, secure_value=secure,
     )
     confirm_persist_overwrite = output.Prompt(

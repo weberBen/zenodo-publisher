@@ -211,17 +211,11 @@ class ZenodoPublisher:
                 name="publication_date.override",
             )
 
-        # Check for identifier collisions
+        # Check for identifier collisions with zp:/// alternate identifiers
         if "identifiers" in overrides and identifiers:
-            id_prefixes = set()
-            for af in identifiers:
-                prefix = af.identifier_value.split(":")[0] if ":" in af.identifier_value else None
-                if prefix:
-                    id_prefixes.add(prefix)
-
             collisions = [
                 i for i in overrides["identifiers"]
-                if any(i.get("identifier", "").startswith(f"{p}:") for p in id_prefixes)
+                if i.get("identifier", "").startswith("zp:///")
             ]
             if collisions:
                 collision_values = [c["identifier"] for c in collisions]
@@ -233,6 +227,16 @@ class ZenodoPublisher:
 
         return overrides if overrides else None
 
+    def _format_alternate_identifier(self, af) -> str:
+        """Format a FileEntry's internal_identifier as a Zenodo alternate identifier string.
+
+        identity_key="name": "zp:///<filename>;<algo>:<hex>"
+        identity_key="hash": "zp:///<algo>:<hex>"
+        """
+        if self.config.identity_key == "hash":
+            return f"zp:///{af.internal_identifier}"
+        return f"zp:///{af.file_path.name};{af.internal_identifier}"
+
     def _update_metadata(self, draft_record, publication_date, version: str,
                          identifiers: list | None = None,
                          metadata_overrides: dict | None = None) -> None:
@@ -240,7 +244,7 @@ class ZenodoPublisher:
 
         Args:
             version: Version string (git tag)
-            identifiers: List of FileEntry with identifier_value set
+            identifiers: List of FileEntry to publish as alternate identifiers
             metadata_overrides: Dict from .zenodo.json
         """
         if metadata_overrides:
@@ -258,7 +262,8 @@ class ZenodoPublisher:
             existing = [i for i in existing
                         if not i.get("identifier", "").startswith("zp:///")]
             for af in identifiers:
-                existing.append({"scheme": "other", "identifier": af.identifier_value})
+                ident_str = self._format_alternate_identifier(af)
+                existing.append({"scheme": "other", "identifier": ident_str})
             draft_record.data["metadata"]["identifiers"] = existing
 
         draft_record.update()
@@ -274,7 +279,7 @@ class ZenodoPublisher:
         Args:
             archived_files: List of FileEntry instances to upload
             tag_name: Tag name (used as version)
-            identifiers: List of FileEntry with identifier_value set
+            identifiers: List of FileEntry to publish as alternate identifiers
 
         Returns:
             Record info dict with 'doi' and 'record_url'

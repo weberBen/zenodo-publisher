@@ -71,6 +71,13 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  default="sha256",
                  validate=_validate_hash_algo,
                  help="Hash algorithm for identifiers, signing (file_hash mode), and module certification"),
+    ConfigOption("identity_key", env_key=None,
+                 yaml_path="identity_key",
+                 default="name",
+                 choices=["name", "hash"],
+                 help="How to identify files in manifest and Zenodo alternate identifiers: "
+                      "'name' (filename-based: zp:///<filename>;{algo}:{hash}) or "
+                      "'hash' (hash-based: zp:///{algo}:{hash})"),
 
     # GitHub checks
     ConfigOption("check_gh_draft", env_key=None,
@@ -131,10 +138,30 @@ class ReleaseConfig(CommonConfig):
     _options = COMMON_OPTIONS + RELEASE_OPTIONS + SIGNING_OPTIONS
     _required: list[str] = []
     _cli_aliases: dict[str, str] = {}
-    # Chemins valides non couverts par ConfigOption (parsés manuellement)
-    _extra_yaml_paths: list[str] = ["signing.gpg.extra_args"]
-    # Sections dont la structure interne est libre-form (parsées séparément)
-    _opaque_sections: list[str] = ["generated_files", "publishers", "modules"]
+    # Chemins valides non couverts par ConfigOption (parsés manuellement).
+    # '*' dans un segment = clé dynamique (WILDCARD) : valide n'importe quelle clé
+    # à ce niveau tout en validant les sous-clés selon le reste du chemin.
+    _extra_yaml_paths: list[str] = [
+        "signing.gpg.extra_args",
+        # Clés valides pour chaque entrée generated_files (pattern, project, manifest)
+        "generated_files.*.pattern",
+        "generated_files.*.rename",
+        "generated_files.*.sign",
+        "generated_files.*.sign_mode",
+        "generated_files.*.archive_types",
+        "generated_files.*.publishers.destination.*",
+        "generated_files.*.publish_identity_hash.destination.*",
+        "generated_files.*.commit_info",
+        "generated_files.*.zenodo_metadata",
+    ]
+    # Sections dont la structure interne est libre-form (pas de validation récursive).
+    # Supporte les wildcards '*' pour les sections imbriquées.
+    _opaque_sections: list[str] = [
+        "publishers",
+        "modules",
+        "generated_files.*.modules",
+        "generated_files.*.content",
+    ]
 
     signing: SigningConfig
     generated_files: list[FileConfigEntry]

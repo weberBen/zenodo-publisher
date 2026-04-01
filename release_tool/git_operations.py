@@ -717,3 +717,34 @@ def upload_release_asset(
     if clobber:
         args.append("--clobber")
     run_gh_command(args, project_root)
+
+
+def list_release_assets(project_root: Path, tag_name: str) -> list[dict]:
+    """Return [{name, id, digest}] for all assets of a release.
+
+    Returns an empty list if the release does not exist or has no assets.
+    digest is a sha256 string like "sha256:abc123..." or None if unavailable.
+    """
+    result = run_gh_command(
+        ["api", f"repos/{{owner}}/{{repo}}/releases/tags/{tag_name}",
+            "--jq", ".assets[] | {name: .name, id: .id, digest: .digest}"],
+        project_root,
+    )
+
+    assets = []
+    if result:
+        for line in result.strip().splitlines():
+            line = line.strip()
+            if line:
+                assets.append(json.loads(line))
+
+    return assets
+
+
+def delete_release_asset(project_root: Path, asset_id: int) -> None:
+    """Delete a release asset by its numeric ID."""
+    run_gh_command(
+        ["api", "--method", "DELETE",
+         f"repos/{{owner}}/{{repo}}/releases/assets/{asset_id}"],
+        project_root,
+    )

@@ -556,7 +556,7 @@ def test_pattern_multiple_matches_in_manifest(pattern_env, fix_log_path):
         generated_files={
             "papers": {"pattern": "paper*.txt", "publishers": {"destination": {"file": []}}},
             "manifest": {
-                "files": ["papers"],
+                "content": {"papers": ["file"]},
                 "commit_info": ["sha"],
                 "publishers": {"destination": {"file": []}},
             },

@@ -130,3 +130,105 @@ def test_opaque_section_modules_no_error(tmp_path, fix_log_path):
                                          fail_on="ignore")
     assert not find_by_name(result.events, "config_error.loading.config.yaml.unknown_key"), \
         "No yaml.unknown_key expected for modules (opaque section)"
+
+
+# ---------------------------------------------------------------------------
+# Tests: validation des clés dans generated_files
+# ---------------------------------------------------------------------------
+
+def test_generated_files_unknown_key_pattern(tmp_path, fix_log_path):
+    """Clé inconnue dans une entrée pattern → yaml.unknown_key."""
+    _git_init(tmp_path)
+    config = {
+        **BASE_CONFIG,
+        "generated_files": {
+            "paper": {
+                "pattern": "output.txt",
+                "typo_field": "value",
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    }
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_unknown_key_error(result, "generated_files.paper.typo_field")
+
+
+def test_generated_files_unknown_key_project(tmp_path, fix_log_path):
+    """Clé inconnue dans project → yaml.unknown_key."""
+    _git_init(tmp_path)
+    config = {
+        **BASE_CONFIG,
+        "generated_files": {
+            "project": {
+                "typo_project_key": "value",
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    }
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_unknown_key_error(result, "generated_files.project.typo_project_key")
+
+
+def test_generated_files_unknown_key_manifest(tmp_path, fix_log_path):
+    """Clé inconnue dans manifest → yaml.unknown_key."""
+    _git_init(tmp_path)
+    config = {
+        **BASE_CONFIG,
+        "generated_files": {
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "typo_manifest_key": "value",
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    }
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_unknown_key_error(result, "generated_files.manifest.typo_manifest_key")
+
+
+def test_generated_files_removed_identifier_pattern(tmp_path, fix_log_path):
+    """identifier: (clé supprimée) dans une entrée pattern → yaml.unknown_key."""
+    _git_init(tmp_path)
+    config = {
+        **BASE_CONFIG,
+        "generated_files": {
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": []}},
+                "identifier": {"source": "file", "use_as_alternate_identifier": True},
+            },
+        },
+    }
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_unknown_key_error(result, "generated_files.paper.identifier")
+
+
+def test_generated_files_removed_identifier_project(tmp_path, fix_log_path):
+    """identifier: (clé supprimée) dans project → yaml.unknown_key."""
+    _git_init(tmp_path)
+    config = {
+        **BASE_CONFIG,
+        "generated_files": {
+            "project": {
+                "publishers": {"destination": {"file": []}},
+                "identifier": {"source": "file", "use_as_alternate_identifier": True},
+            },
+        },
+    }
+    result = ZpRunner(tmp_path).run_test("release", config=config,
+                                         test_config=_TEST_CONFIG,
+                                         log_path=fix_log_path,
+                                         fail_on="ignore")
+    _assert_unknown_key_error(result, "generated_files.project.identifier")
