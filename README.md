@@ -179,7 +179,7 @@ archive:
   # gzip_extra_args: []       # override default gzip args
 
 hash_algorithms: [md5, sha256, tree]
-identity_hash_algo: sha256        # algo for identity hash (internal_identifier), signing (file_hash mode), and modules
+identity_hash_algo: sha256        # algo for external_identifier (zp:/// identifiers), signing (file_hash mode), and modules
 # identity_key: name              # "name" (default) or "hash" — controls zp:/// format and manifest key field
 
 signing:
@@ -664,7 +664,7 @@ identity_hash_algo: sha256   # default
 
 A single algorithm used consistently across several roles:
 
-- **Identity hash** (`FileEntry.internal_identifier`): every file gets `"{algo}:{hex}"` computed at the moment it's added to the pipeline. This is the canonical per-file fingerprint used everywhere below.
+- **Identity hash** (`FileEntry.external_identifier`): every file gets `"{algo}:{hex}"` computed at the moment it's added to the pipeline. This is the canonical per-file fingerprint used everywhere below.
 - **`publish_identity_hash`**: the identity hash is what gets published — as a `.identity_hash.txt` on GitHub or as a `zp:///` alternate identifier on Zenodo.
 - **GPG signing in `file_hash` mode**: GPG signs the identity hash string (`algo:hexvalue`).
 - **Modules**: passed as `config.identity_hash_algo` in the module input JSON, so modules use the same algorithm.
@@ -892,7 +892,7 @@ To reproduce the exact same archive as the one on Zenodo, use the **exact same p
 
 ### GPG signature verification fails on the manifest
 
-The GPG signature is **not** on the manifest file itself: it signs the manifest's **identity hash**. The identity hash is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a temp file, and that file is what gets signed. This is the `internal_identifier` of the manifest `FileEntry`.
+The GPG signature is **not** on the manifest file itself: it signs the manifest's **identity hash**. The identity hash is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a temp file, and that file is what gets signed. This is the `external_identifier` of the manifest `FileEntry`.
 
 To verify the signature:
 

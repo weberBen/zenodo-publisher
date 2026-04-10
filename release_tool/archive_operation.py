@@ -33,7 +33,8 @@ class FileEntry:
     """Runtime representation of a single file in the pipeline.
 
     Config fields are fully resolved at creation (no None meaning 'use global').
-    internal_identifier is computed immediately at creation; hashes are populated by pipeline steps.
+    identifier (sha256) and external_identifier are computed immediately at creation;
+    hashes are populated by pipeline steps.
 
     type:       "file" | "sig" | "project" | "manifest" | "module_entry"
     config_key: references FileConfigEntry.key (sigs share the same key as their parent file)
@@ -53,10 +54,19 @@ class FileEntry:
     module_entry_type: str | None = None  # module output sub-type: "sig", "cert", custom...
     is_preview: bool = False
     has_signature: bool = False           # whether this file needs to be signed
-    # --- computed at creation ---
-    internal_identifier: str | None = None  # "{algo}:{hex}" using identity_hash_algo
+    # --- computed at creation (settable) ---
+    external_identifier: str | None = None  # "{algo}:{hex}" using identity_hash_algo
+    # --- computed at creation (immutable sha256, set by __post_init__) ---
+    identifier: str = field(init=False)
     # --- computed by pipeline steps ---
     hashes: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        h = hashlib.sha256()
+        with open(self.file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        self.identifier = h.hexdigest()
 
 
 
@@ -180,8 +190,8 @@ def generate_manifest(archived_files: list[FileEntry], version: str,
         commit_fields:      List of field names to include (keys of COMMIT_FIELD_MAP).
         metadata:           Optional dict of metadata fields to include.
         identity_key:       "name" → key field is the filename;
-                            "hash" → key field is the internal_identifier value.
-        identity_hash_algo: Algorithm used for internal_identifier (recorded in manifest).
+                            "hash" → key field is the external_identifier value.
+        identity_hash_algo: Algorithm used for external_identifier (recorded in manifest).
 
     Returns:
         Manifest dict.
@@ -205,7 +215,7 @@ def generate_manifest(archived_files: list[FileEntry], version: str,
 
     def _file_entry(entry: FileEntry) -> dict:
         if identity_key == "hash":
-            id_field = {"identity_hash": entry.internal_identifier}
+            id_field = {"identity_hash": entry.external_identifier}
         else:
             id_field = {"key": entry.file_path.name}
         return {

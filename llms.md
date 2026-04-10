@@ -683,7 +683,8 @@ class FileEntry:
     module_entry_type: str | None # module output sub-type (e.g. "tsr")
     is_preview: bool = False
     has_signature: bool = False   # whether this file needs to be signed
-    internal_identifier: str | None = None  # "{algo}:{hex}" computed at creation
+    external_identifier: str | None = None  # "{algo}:{hex}" using identity_hash_algo, set at creation
+    identifier: str               # SHA256 hex, always computed by __post_init__, not settable
     hashes: dict = {}             # {algo: {"type", "value", "formatted_value"}}
 ```
 
@@ -717,7 +718,10 @@ Uses `interegular` FSM library. Checks segment-by-segment. Normalizes paths (res
 
 ### Identity hash & publish_identity_hash
 
-Every `FileEntry` has an `internal_identifier: str` computed immediately at creation using `identity_hash_algo` (default `sha256`). Format: `"{algo}:{hex}"` (e.g. `"sha256:abc123..."`).
+Every `FileEntry` has two identifier fields computed immediately at creation:
+
+- **`identifier`** (`str`, immutable): raw SHA256 hex digest of the file, always SHA256, set by `__post_init__`, cannot be passed as constructor argument. Provides a stable, algorithm-independent content fingerprint.
+- **`external_identifier`** (`str | None`): formatted `"{algo}:{hex}"` string using `identity_hash_algo` (e.g. `"sha256:abc123..."`). This is the value embedded in `zp:///` Zenodo alternate identifiers and manifest entries.
 
 **`identity_key`** (root YAML, default `"name"`) controls the format of Zenodo alternate identifiers and manifest file keys:
 - `"name"` → Zenodo: `zp:///<filename>;<algo>:<hex>` / Manifest: `{"key": "filename.pdf", ...}`
@@ -734,7 +738,7 @@ paper:
       sig: [zenodo]     # → add signature hash as Zenodo alternate identifier
 ```
 
-GitHub: creates `{filename}.identity_hash.txt` containing the `internal_identifier` value.
+GitHub: creates `{filename}.identity_hash.txt` containing the `external_identifier` value.
 Zenodo: adds as `{"scheme": "other", "identifier": "zp:///..."}` in `metadata.identifiers`.
 
 On each publish run, all `zp:///` entries on the Zenodo record are removed and replaced with current ones.

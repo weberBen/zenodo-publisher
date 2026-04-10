@@ -228,14 +228,14 @@ class ZenodoPublisher:
         return overrides if overrides else None
 
     def _format_alternate_identifier(self, af) -> str:
-        """Format a FileEntry's internal_identifier as a Zenodo alternate identifier string.
+        """Format a FileEntry's external_identifier as a Zenodo alternate identifier string.
 
         identity_key="name": "zp:///<filename>;<algo>:<hex>"
         identity_key="hash": "zp:///<algo>:<hex>"
         """
         if self.config.identity_key == "hash":
-            return f"zp:///{af.internal_identifier}"
-        return f"zp:///{af.file_path.name};{af.internal_identifier}"
+            return f"zp:///{af.external_identifier}"
+        return f"zp:///{af.file_path.name};{af.external_identifier}"
 
     def _update_metadata(self, draft_record, publication_date, version: str,
                          identifiers: list | None = None,

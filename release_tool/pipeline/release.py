@@ -307,7 +307,7 @@ def _step_archive(ctx: PipelineContext) -> None:
                     sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
                     is_preview=(dst.suffix.lstrip(".") == "pdf"),
                     has_signature=entry.effective_sign(ctx.config.signing.sign),
-                    internal_identifier=compute_identity_hash(dst, ctx.config.identity_hash_algo),
+                    external_identifier=compute_identity_hash(dst, ctx.config.identity_hash_algo),
                 ))
                 output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
@@ -346,7 +346,7 @@ def _step_archive(ctx: PipelineContext) -> None:
                 publishers=entry.publishers or ctx.config.default_publishers,
                 sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
                 has_signature=entry.effective_sign(ctx.config.signing.sign),
-                internal_identifier=compute_identity_hash(final_path, ctx.config.identity_hash_algo),
+                external_identifier=compute_identity_hash(final_path, ctx.config.identity_hash_algo),
                 hashes=pre_hashes,
             ))
             output.detail("project archive: {filename}", filename=final_path.name, name="archive.project")
@@ -474,7 +474,7 @@ def _step_manifest(ctx: PipelineContext) -> None:
         publishers=manifest_entry_cfg.publishers or ctx.config.default_publishers,
         sign_mode=manifest_entry_cfg.effective_sign_mode(ctx.config.signing.sign_mode),
         has_signature=manifest_entry_cfg.effective_sign(ctx.config.signing.sign),
-        internal_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
+        external_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
     )
     # Compute hashes immediately so the manifest entry is ready for signing/identifiers
     algos = list(ctx.config.hash_algorithms or [])
@@ -531,7 +531,7 @@ def _step_sign(ctx: PipelineContext) -> None:
             type=FileEntryType.SIG,
             archive=_resolve_archive(FileEntryType.SIG, None, parent_fce, ctx.config),
             publishers=af.publishers,
-            internal_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
+            external_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
         )
         compute_hashes([sig_af], ctx.config.hash_algorithms)
         ctx.archived_files.append(sig_af)
@@ -654,7 +654,7 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=PublisherDestinations(destination=dest_raw),
                 module_name=module_name,
                 module_entry_type=rf.get("module_entry_type"),
-                internal_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
+                external_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
             )
             ctx.archived_files.append(fe)
             output.detail(
@@ -792,7 +792,7 @@ def _github_identity_hash_files(ctx: PipelineContext, github_files: list[FileEnt
         if "github" not in _entry_destinations(fce.publish_identity_hash, af):
             continue
         txt_path = af.file_path.parent / f"{af.file_path.name}.identity_hash.txt"
-        txt_path.write_text(af.internal_identifier or "", encoding="ascii")
+        txt_path.write_text(af.external_identifier or "", encoding="ascii")
         txt_files.append(txt_path)
     return txt_files
 
