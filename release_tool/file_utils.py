@@ -4,10 +4,10 @@ import shutil
 from pathlib import Path
 
 from . import output, prompts
-from .archive_operation import FileEntryType
 
 
-def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> None:
+def persist_files(entries: list, archive_dir: Path | None, tag_name: str,
+                  output_dir: Path | None = None) -> None:
     """Move files with archive=True to archive_dir/tag_name.
 
     If files already exist at the destination, lists them first then
@@ -16,10 +16,15 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
 
     Updates each entry's file_path in-place after moving.
 
+    The directory tree relative to output_dir is preserved under persist_dir.
+    For example, output_dir/module_name/subdir/file.pdf →
+    persist_dir/module_name/subdir/file.pdf.
+
     Args:
         entries: List of FileEntry instances (archive resolved at creation).
         archive_dir: Base directory for persistent archives (None = skip).
         tag_name: Tag name used as subdirectory.
+        output_dir: Tmp directory root used during the pipeline (preserves tree structure).
     """
     if not archive_dir:
         return
@@ -32,10 +37,14 @@ def persist_files(entries: list, archive_dir: Path | None, tag_name: str) -> Non
     persist_dir.mkdir(parents=True, exist_ok=True)
 
     def _dest_dir(entry) -> Path:
-        if entry.type == FileEntryType.MODULE_ENTRY and entry.module_name:
-            d = persist_dir / entry.module_name
-            d.mkdir(parents=True, exist_ok=True)
-            return d
+        if output_dir:
+            try:
+                rel = entry.file_path.relative_to(output_dir)
+                d = persist_dir / rel.parent
+                d.mkdir(parents=True, exist_ok=True)
+                return d
+            except ValueError:
+                pass
         return persist_dir
 
     # Check which files already exist

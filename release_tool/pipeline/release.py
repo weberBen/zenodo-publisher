@@ -863,7 +863,7 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
 
 def _step_persist(ctx: PipelineContext) -> None:
     """Move files with archive=True to the archive directory."""
-    persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name)
+    persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name, ctx.output_dir)
 
 
 # ---------------------------------------------------------------------------
