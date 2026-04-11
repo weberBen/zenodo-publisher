@@ -85,6 +85,12 @@ RELEASE_OPTIONS: list[ConfigOption] = [
                  type="bool", default=False, cli=False,
                  help="Reject tags associated with draft releases (scans all releases via API)"),
 
+    # Pipeline caching
+    ConfigOption("pipeline_caching", env_key=None,
+                 yaml_path="pipeline.caching",
+                 type="bool", default=True, cli=True,
+                 help="Cache pipeline working files in .zp/archives/{tag_name}/ for resume support"),
+
     # Runtime options
     ConfigOption("prompt_validation_level", env_key=None,
                  yaml_path="prompt_validation_level",

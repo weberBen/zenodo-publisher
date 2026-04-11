@@ -43,7 +43,10 @@ from ..modules import run_module, check_module, find_module_path, is_builtin
 from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
-
+from .checkpoint import (
+    delete_cache_dir, does_cache_exists, get_cache_dir,
+    read_checkpoint, restore_from_checkpoint, write_checkpoint,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -501,20 +504,22 @@ def _step_sign(ctx: PipelineContext) -> None:
     prompt_gpg_key(ctx.config.gpg_uid, ctx.config.gpg_extra_args)
 
     sig_ext = "asc" if "--armor" in ctx.config.gpg_extra_args else "sig"
+    sig_dir = ctx.output_dir / "gpg_sign"
+    sig_dir.mkdir(exist_ok=True)
 
     for af in to_sign:
         if af.sign_mode == SignMode.FILE:
             sig_path = gpg_sign_file(
-                af.file_path, ctx.output_dir,
+                af.file_path, sig_dir,
                 gpg_uid=ctx.config.gpg_uid,
                 extra_args=ctx.config.gpg_extra_args,
             )
         elif af.sign_mode == SignMode.FILE_HASH:
             hash_value = af.hashes[ctx.config.identity_hash_algo]["formatted_value"]
-            hash_file = ctx.output_dir / f"{af.file_path.name}.{ctx.config.identity_hash_algo}"
+            hash_file = sig_dir / f"{af.file_path.name}.{ctx.config.identity_hash_algo}"
             hash_file.write_text(hash_value, encoding="ascii")
             sig_path = gpg_sign_file(
-                hash_file, ctx.output_dir,
+                hash_file, sig_dir,
                 gpg_uid=ctx.config.gpg_uid,
                 extra_args=ctx.config.gpg_extra_args,
             )
@@ -907,6 +912,56 @@ def run_release(config, *, test=None) -> None:
         output.fatal("Error during process execution", exc=e)
 
 
+# Steps that run before the cache dir is known (tag_name not yet set).
+# Must complete before _setup_cache() can determine cache_dir = .zp/cache/{tag_name}/.
+_PRE_CACHE_STEPS = {HookPoint.MODULE_CHECK, HookPoint.GIT_CHECK, HookPoint.RELEASE}
+
+
+def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
+    """Prepare cache dir. Returns last completed HookPoint if resuming, else None.
+
+    Side effects: sets ctx.output_dir = cache_dir and ctx.caching_active = True.
+    """
+    
+
+    if does_cache_exists(ctx.config.project_root, cache_id):
+        checkpoint = read_checkpoint(cache_id, ctx.config.project_root)
+        if checkpoint:
+            last = checkpoint["last_completed_step"]
+            if last == HookPoint.PERSIST.value:
+                output.info_ok(
+                    "Pipeline already completed for {tag} — cache cleaned up",
+                    tag=ctx.tag_name, name="cache.complete",
+                )
+                delete_cache_dir(cache_id, ctx.config.project_root)
+            else:
+                output.info(
+                    "Cache found for {tag} (last completed step: {step})",
+                    tag=ctx.tag_name, step=last, name="cache.found",
+                )
+                if prompts.confirm_resume.ask("Resume from checkpoint?").is_accept:
+                    resume_after = restore_from_checkpoint(ctx, checkpoint)
+                    ctx.output_dir = get_cache_dir(ctx.config.project_root, cache_id)
+                    ctx.caching_active = True
+                    output.step_ok(
+                        "Resuming after step '{step}'",
+                        step=resume_after.value, name="cache.resume",
+                    )
+                    return resume_after
+                else:
+                    output.warn("Starting fresh — discarding cache", name="cache.discard")
+                    delete_cache_dir(cache_id, ctx.config.project_root)
+        else:
+            # Directory exists without a checkpoint (orphan) — clean up
+            delete_cache_dir(cache_id, ctx.config.project_root)
+
+    cache_dir = get_cache_dir(ctx.config.project_root, cache_id)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ctx.output_dir = cache_dir
+    ctx.caching_active = True
+    return None
+
+
 def _run_release(config, *, test=None) -> None:
     """Main release pipeline — generic hook-based runner."""
     setup_pipeline(config, test=test)
@@ -917,4 +972,34 @@ def _run_release(config, *, test=None) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         ctx = PipelineContext(config=config, output_dir=Path(tmp))
         registry = _build_registry()
-        registry.run_pipeline(ctx)
+
+        if not config.pipeline_caching:
+            registry.run_pipeline(ctx)
+            return
+
+        # Run pre-cache steps (MODULE_CHECK → GIT_CHECK → RELEASE) to learn tag_name.
+        for hp in HookPoint:
+            registry.fire(hp, ctx)
+            if hp == HookPoint.RELEASE:
+                break
+
+        # Set up cache dir now that tag_name is known, handle resume or fresh start.
+        cache_id = ctx.tag_name
+        resume_after = _setup_cache(ctx, cache_id)
+
+        # Run remaining steps with a checkpoint written after each one.
+        # If an exception escapes, the cache dir + checkpoint are preserved for resume.
+
+        resume_done = (resume_after is None)
+        for hp in HookPoint:
+            if hp in _PRE_CACHE_STEPS:
+                continue  # already executed above
+            if not resume_done:
+                if hp == resume_after:
+                    resume_done = True
+                continue  # skip already-completed steps
+            registry.fire(hp, ctx)
+            write_checkpoint(ctx, cache_id, hp)
+
+        # Successful completion: remove cache dir (files have been persisted to archive_dir)
+        delete_cache_dir(cache_id, config.project_root)

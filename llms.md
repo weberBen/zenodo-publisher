@@ -48,6 +48,7 @@ This section helps you find the right code quickly without reading everything.
 - **Output events**: every `output.step_ok(...)`, `output.warn(...)`, etc. emits a NDJSON event in test mode. The `name=` parameter is what tests assert on
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
 - **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules`, `publish_identity_hash` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
+- **Signature subdirectory**: GPG signatures (`.asc`/`.sig`) are placed in `output_dir/gpg_sign/` (mirrors module subdirectory pattern). After persist they land in `archive_dir/tag_name/gpg_sign/`
 - **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py`. Every module must implement `--check` mode (connectivity/config validation, called at pipeline start) and `--input` mode (normal run). Both modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
 
 ### Common pitfalls
@@ -744,6 +745,32 @@ Zenodo: adds as `{"scheme": "other", "identifier": "zp:///..."}` in `metadata.id
 On each publish run, all `zp:///` entries on the Zenodo record are removed and replaced with current ones.
 
 **GitHub release cleanup**: before uploading, lists all remote assets and prompts to delete any that are not in the current upload set (leftovers from previous runs).
+
+---
+
+### Pipeline caching
+
+`pipeline.caching: true` (default) replaces the temp dir with a persistent `.zp/archives/{tag_name}/` working directory inside the project root.
+
+**Flow** (in `_run_release`):
+1. Phase 1 — fire MODULE_CHECK, GIT_CHECK, RELEASE (no output_dir writes); `ctx.tag_name` is now known
+2. Phase 2 — call `_setup_cache()`: determine `cache_dir = project_root/.zp/archives/{tag_name}`, handle resume or fresh start
+3. Phase 3 — fire remaining steps; write a dill checkpoint (`cache_dir/.zp_checkpoint.pkl`) after each step
+
+**Resume**: if `cache_dir` exists with a valid checkpoint, user is prompted (`confirm_resume`). On yes: `ctx` state (including `ctx.config`) is fully restored from the dill-serialized checkpoint — already-completed steps are skipped.
+
+**Checkpoint format** (`pipeline/checkpoint.py`, uses `dill`):
+```python
+{
+    "version": "x.y.z",           # app version — loading refused if mismatch
+    "last_completed_step": "hash", # HookPoint.value of last completed step
+    "ctx": <PipelineContext>,      # full context serialized by dill
+}
+```
+
+**Cleanup**: cache dir is deleted after successful pipeline completion (files have been persisted to `archive_dir`). If the pipeline fails mid-run, the cache dir is preserved for resume.
+
+**Key files**: `pipeline/release.py` (`_run_release`, `_setup_cache`), `pipeline/checkpoint.py`.
 
 ---
 

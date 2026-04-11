@@ -288,9 +288,9 @@ def test_both_file_mode_signatures_match_own_file(override_env, fix_log_path):
     files = fs.list_files(persist_dir)
 
     pattern_file = persist_dir / "output.txt"
-    pattern_sig = persist_dir / "output.txt.asc"
+    pattern_sig = persist_dir / "gpg_sign" / "output.txt.asc"
     zip_files = [f for f in files if f.suffix == ".zip"]
-    zip_sig = persist_dir / (zip_files[0].name + ".asc")
+    zip_sig = persist_dir / "gpg_sign" / (zip_files[0].name + ".asc")
 
     assert pattern_file.exists() and pattern_sig.exists()
     assert zip_files and zip_sig.exists()
@@ -356,9 +356,9 @@ def test_both_file_hash_mode_signatures_match_own_hash(override_env, fix_log_pat
 
     pattern_file = persist_dir / "output.txt"
     # file_hash mode: sig name is {filename}.{algo}.asc
-    pattern_sig = persist_dir / f"output.txt.{sign_hash_algo}.asc"
+    pattern_sig = persist_dir / "gpg_sign" / f"output.txt.{sign_hash_algo}.asc"
     zip_files = [f for f in files if f.suffix == ".zip"]
-    zip_sig = persist_dir / f"{zip_files[0].name}.{sign_hash_algo}.asc"
+    zip_sig = persist_dir / "gpg_sign" / f"{zip_files[0].name}.{sign_hash_algo}.asc"
 
     assert pattern_file.exists(), f"Pattern file missing. Got: {[f.name for f in files]}"
     assert pattern_sig.exists(), f"Pattern sig missing. Expected {pattern_sig.name}. Got: {[f.name for f in files]}"

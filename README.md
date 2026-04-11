@@ -182,6 +182,8 @@ hash_algorithms: [md5, sha256, tree]
 identity_hash_algo: sha256        # algo for external_identifier (zp:/// identifiers), signing (file_hash mode), and modules
 # identity_key: name              # "name" (default) or "hash" — controls zp:/// format and manifest key field
 
+# pipeline.caching: true          # cache working files in .zp/archives/{tag}/ for resume support (default: true)
+
 signing:
   sign: true
   # sign_mode: file_hash      # file (sign file directly) or file_hash (sign hash of file)
@@ -327,9 +329,9 @@ This is highly recommended, not mandatory, but without these the only reference 
 8. **Archive**: copies/renames PATTERN files, creates PROJECT archive via `git archive`
 9. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
 10. **Manifest**: generates JSON manifest (JCS/RFC 8785) with file hashes included, then the manifest itself is hashed
-11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files
+11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files in a `gpg_sign/` subdirectory (mirroring module output dirs). After persist: `archive.dir/{tag_name}/gpg_sign/`
 12. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
-13. **Persist**: copies files to `archive.dir/{tag_name}/`
+13. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
 
 
 This tool uses `git fetch` (not in dry run mode). If fetching regularly is a problem for your project, do not use this tool.
@@ -346,6 +348,29 @@ The pipeline is designed to be **re-run safely** after a failure. Each step hand
 - **Step 14 (Persist)**: if the archive directory already contains files from a previous run, the user is prompted before overwriting.
 
 In short: re-running `zp release` after a failure will pick up where it left off. The release and tag are reused, unchanged files are skipped, and you are prompted before any overwrite.
+
+### Pipeline caching and resume
+
+When `pipeline.caching: true` (the default), ZP uses `.zp/archives/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
+
+If you interrupt the pipeline (Ctrl-C, crash, GPG failure…) and re-run `zp release` for the same tag, ZP detects the existing cache and asks:
+
+```
+Cache found for v1.2.0 (last completed step: sign)
+Resume from checkpoint? [y/n]
+```
+
+- **Yes**: restores the full pipeline state (including config) from the checkpoint and skips already-completed steps. The config used is the one that was active at the start of the interrupted run, ensuring determinism even if you modified `.zp.yaml` in the meantime.
+- **No**: discards the cache and starts fresh.
+
+The cache directory is deleted automatically after the pipeline completes successfully. To disable caching entirely:
+
+```yaml
+pipeline:
+  caching: false
+```
+
+> **Note**: add `.zp/archives/` to your `.gitignore` to avoid accidentally committing working files.
 
 ### Prompt validation level
 

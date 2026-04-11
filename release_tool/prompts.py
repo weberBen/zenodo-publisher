@@ -21,12 +21,14 @@ confirm_delete_asset: output.Prompt
 confirm_persist_overwrite: output.Prompt
 confirm_gpg_key: output.Prompt
 confirm_run_module: output.Prompt
+confirm_resume: output.Prompt
 
 
 def init_prompts(config):
     """Instantiate all confirm prompts after config is available."""
     global confirm_build, confirm_publish, confirm_github_overwrite
     global confirm_delete_asset, confirm_persist_overwrite, confirm_gpg_key, confirm_run_module
+    global confirm_resume
 
     level_map = {"danger": "danger", "light": "light",
                  "normal": "complete", "secure": "complete"}
@@ -61,4 +63,7 @@ def init_prompts(config):
     confirm_run_module = output.Prompt(
         [output.YES, output.NO], name="confirm_run_module",
         level=level, enter_confirms=enter, secure_value=secure,
+    )
+    confirm_resume = output.Prompt(
+        [output.YES, output.NO], name="confirm_resume", level="light",
     )
