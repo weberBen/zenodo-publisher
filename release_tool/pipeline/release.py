@@ -1000,6 +1000,12 @@ def _run_release(config, *, test=None) -> None:
                 continue  # skip already-completed steps
             registry.fire(hp, ctx)
             write_checkpoint(ctx, cache_id, hp)
+            if test and test.fail_after_step == hp.value:
+                output.fatal(
+                    "[test] Forced crash after step '{step}'",
+                    name=f"test.crash.{hp.value}",
+                    step=hp.value,
+                )
 
         # Successful completion: remove cache dir (files have been persisted to archive_dir)
         delete_cache_dir(cache_id, config.project_root)

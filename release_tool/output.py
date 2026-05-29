@@ -288,6 +288,7 @@ class Output:
         if exc:
             _enrich_event_from_exc(event, exc)
         self.emit(event)
+        sys.exit(1)
 
     def debug(self, msg: str, **kwargs):
         self.emit(self._build_event("debug", msg, **kwargs))

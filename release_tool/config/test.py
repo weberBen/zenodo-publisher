@@ -15,6 +15,7 @@ class TestConfig:
     mode: bool = True
     prompts: dict[str, str] = field(default_factory=dict)
     cli: dict[str, Any] = field(default_factory=dict)
+    fail_after_step: str = ""
 
     @classmethod
     def from_args(cls, args) -> "TestConfig | None":
@@ -53,6 +54,9 @@ def parse_test_config(raw: Any) -> TestConfig | None:
         if not isinstance(cli, dict):
             raise ConfigError("'cli' must be a YAML mapping", name="test.invalid_cli")
         cfg.cli = cli
+
+    if "fail_after_step" in raw:
+        cfg.fail_after_step = str(raw["fail_after_step"])
 
     return cfg
 
