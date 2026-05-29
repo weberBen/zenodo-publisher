@@ -11,6 +11,7 @@ Loading is refused if the stored version doesn't match the current app version,
 preventing partial restores across incompatible releases.
 """
 
+import datetime
 import shutil
 import dill
 from importlib.metadata import version as _pkg_version
@@ -53,6 +54,7 @@ def write_checkpoint(ctx: PipelineContext, cache_id: str, last_completed: HookPo
     data = {
         "version": _APP_VERSION,
         "last_completed_step": last_completed.value,
+        "saved_at": datetime.datetime.now().timestamp(),
         "ctx": ctx,
     }
     with open(cache_dir / CHECKPOINT_FILE, "wb") as f:

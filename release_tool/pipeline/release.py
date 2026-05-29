@@ -1,5 +1,6 @@
 """Main release logic."""
 
+import datetime
 import json
 import shutil
 import tempfile
@@ -935,9 +936,15 @@ def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
                 )
                 delete_cache_dir(cache_id, ctx.config.project_root)
             else:
+                saved_ts = checkpoint.get("saved_at")
+                saved_at = (
+                    datetime.datetime.fromtimestamp(saved_ts).strftime("%Y-%m-%d %H:%M:%S")
+                    if saved_ts else "unknown"
+                )
                 output.info(
-                    "Cache found for {tag} (last completed step: {step})",
-                    tag=ctx.tag_name, step=last, name="cache.found",
+                    "Cache found for {tag} (last completed step: {step}, saved: {saved_at})",
+                    tag=ctx.tag_name, step=last, saved_at=saved_at,
+                    name="cache.found",
                 )
                 if prompts.confirm_resume.ask("Resume from checkpoint?").is_accept:
                     resume_after = restore_from_checkpoint(ctx, checkpoint)
