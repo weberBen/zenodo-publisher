@@ -750,11 +750,11 @@ On each publish run, all `zp:///` entries on the Zenodo record are removed and r
 
 ### Pipeline caching
 
-`pipeline.caching: true` (default) replaces the temp dir with a persistent `.zp/archives/{tag_name}/` working directory inside the project root.
+`pipeline.caching: true` (default) replaces the temp dir with a persistent `.zp/cache/{tag_name}/` working directory inside the project root.
 
 **Flow** (in `_run_release`):
 1. Phase 1 — fire MODULE_CHECK, GIT_CHECK, RELEASE (no output_dir writes); `ctx.tag_name` is now known
-2. Phase 2 — call `_setup_cache()`: determine `cache_dir = project_root/.zp/archives/{tag_name}`, handle resume or fresh start
+2. Phase 2 — call `_setup_cache()`: determine `cache_dir = project_root/.zp/cache/{tag_name}`, handle resume or fresh start
 3. Phase 3 — fire remaining steps; write a dill checkpoint (`cache_dir/.zp_checkpoint.pkl`) after each step
 
 **Resume**: if `cache_dir` exists with a valid checkpoint, user is prompted (`confirm_resume`). On yes: `ctx` state (including `ctx.config`) is fully restored from the dill-serialized checkpoint — already-completed steps are skipped.

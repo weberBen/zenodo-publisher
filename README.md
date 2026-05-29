@@ -182,7 +182,7 @@ hash_algorithms: [md5, sha256, tree]
 identity_hash_algo: sha256        # algo for external_identifier (zp:/// identifiers), signing (file_hash mode), and modules
 # identity_key: name              # "name" (default) or "hash" — controls zp:/// format and manifest key field
 
-# pipeline.caching: true          # cache working files in .zp/archives/{tag}/ for resume support (default: true)
+# pipeline.caching: true          # cache working files in .zp/cache/{tag}/ for resume support (default: true)
 
 signing:
   sign: true
