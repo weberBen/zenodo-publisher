@@ -458,9 +458,11 @@ def test_module_archive_by_module_name(release_env, fix_log_path):
 
     persist_dir = archive_dir / TAG
     assert persist_dir.exists(), f"Persist dir not created: {persist_dir}"
-    names = [f.name for f in fs.list_files(persist_dir)]
+    module_subdir = persist_dir / "dummy_module"
+    assert module_subdir.exists(), f"Module subdir not created: {module_subdir}"
+    names = [f.name for f in fs.list_files(module_subdir)]
     assert any(n.endswith(".dummy") for n in names), \
-        f"Expected .dummy file archived. Got: {names}"
+        f"Expected .dummy file archived in module subdir. Got: {names}"
 
 
 def test_module_archive_by_entry_type(release_env, fix_log_path):
@@ -481,9 +483,11 @@ def test_module_archive_by_entry_type(release_env, fix_log_path):
         "ZP should emit module.done confirming files were received"
 
     persist_dir = archive_dir / TAG
-    names = [f.name for f in fs.list_files(persist_dir)]
+    module_subdir = persist_dir / "dummy_module"
+    assert module_subdir.exists(), f"Module subdir not created: {module_subdir}"
+    names = [f.name for f in fs.list_files(module_subdir)]
     assert any(n.endswith(".dummy") for n in names), \
-        f"Expected .dummy archived via entry_type match. Got: {names}"
+        f"Expected .dummy archived in module subdir via entry_type match. Got: {names}"
 
 
 def test_module_no_archive_wrong_entry_type(release_env, fix_log_path):
@@ -508,7 +512,8 @@ def test_module_no_archive_wrong_entry_type(release_env, fix_log_path):
         "module.done should report files received, even if none get archived"
 
     persist_dir = archive_dir / TAG
-    names = [f.name for f in fs.list_files(persist_dir)] if persist_dir.exists() else []
+    module_subdir = persist_dir / "dummy_module"
+    names = [f.name for f in fs.list_files(module_subdir)] if module_subdir.exists() else []
     assert not any(n.endswith(".dummy") for n in names), \
         f"Expected .dummy NOT archived (entry_type mismatch). Got: {names}"
 
@@ -678,9 +683,11 @@ def test_module_result_files_received_by_zp(release_env, fix_log_path):
 
     persist_dir = archive_dir / TAG
     assert persist_dir.exists(), f"Persist dir not created: {persist_dir}"
-    names = [f.name for f in fs.list_files(persist_dir)]
+    module_subdir = persist_dir / "dummy_module"
+    assert module_subdir.exists(), f"Module subdir not created: {module_subdir}"
+    names = [f.name for f in fs.list_files(module_subdir)]
     assert any(n.endswith(".dummy") for n in names), \
-        f"ZP did not archive module result files. Archived: {names}"
+        f"ZP did not archive module result files in module subdir. Archived: {names}"
 
 
 def test_module_check_ok_event_relayed_by_zp(release_env, fix_log_path):

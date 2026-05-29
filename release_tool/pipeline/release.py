@@ -1,5 +1,6 @@
 """Main release logic."""
 
+import datetime
 import json
 import shutil
 import tempfile
@@ -17,6 +18,8 @@ from ..git_operations import (
     get_last_commit_info,
     get_release_asset_digest,
     upload_release_asset,
+    list_release_assets,
+    delete_release_asset,
     archive_zip_project,
 )
 from ..zenodo_operations import ZenodoPublisher, ZenodoError
@@ -24,6 +27,7 @@ from ..archive_operation import (
     FileEntry,
     FileEntryType,
     compute_file_hash,
+    compute_identity_hash,
     compute_hashes,
     format_hash_info,
     generate_manifest,
@@ -40,7 +44,10 @@ from ..modules import run_module, check_module, find_module_path, is_builtin
 from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
-
+from .checkpoint import (
+    delete_cache_dir, does_cache_exists, get_cache_dir,
+    read_checkpoint, restore_from_checkpoint, write_checkpoint,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -302,9 +309,9 @@ def _step_archive(ctx: PipelineContext) -> None:
                     archive=_resolve_archive(FileEntryType.FILE, None, entry, ctx.config),
                     publishers=entry.publishers or ctx.config.default_publishers,
                     sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
-                    identifier=entry.identifier,
                     is_preview=(dst.suffix.lstrip(".") == "pdf"),
                     has_signature=entry.effective_sign(ctx.config.signing.sign),
+                    external_identifier=compute_identity_hash(dst, ctx.config.identity_hash_algo),
                 ))
                 output.detail("{src} → {dst}", src=src_path.name, dst=dst.name, name="archive.copy")
 
@@ -342,8 +349,8 @@ def _step_archive(ctx: PipelineContext) -> None:
                 archive=_resolve_archive(FileEntryType.PROJECT, None, entry, ctx.config),
                 publishers=entry.publishers or ctx.config.default_publishers,
                 sign_mode=entry.effective_sign_mode(ctx.config.signing.sign_mode),
-                identifier=entry.identifier,
                 has_signature=entry.effective_sign(ctx.config.signing.sign),
+                external_identifier=compute_identity_hash(final_path, ctx.config.identity_hash_algo),
                 hashes=pre_hashes,
             ))
             output.detail("project archive: {filename}", filename=final_path.name, name="archive.project")
@@ -455,6 +462,8 @@ def _step_manifest(ctx: PipelineContext) -> None:
         included, ctx.tag_name, ctx.commit_env,
         commit_fields=mc.commit_info if mc else None,
         metadata=metadata,
+        identity_key=ctx.config.identity_key,
+        identity_hash_algo=ctx.config.identity_hash_algo,
     )
     manifest_path = manifest_to_file(ctx.config, manifest_dict, ctx.output_dir)
     output.detail("Manifest: {path}", path=str(manifest_path), name="manifest.path")
@@ -468,8 +477,8 @@ def _step_manifest(ctx: PipelineContext) -> None:
         archive=_resolve_archive(FileEntryType.MANIFEST, None, manifest_entry_cfg, ctx.config),
         publishers=manifest_entry_cfg.publishers or ctx.config.default_publishers,
         sign_mode=manifest_entry_cfg.effective_sign_mode(ctx.config.signing.sign_mode),
-        identifier=manifest_entry_cfg.identifier,
         has_signature=manifest_entry_cfg.effective_sign(ctx.config.signing.sign),
+        external_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
     )
     # Compute hashes immediately so the manifest entry is ready for signing/identifiers
     algos = list(ctx.config.hash_algorithms or [])
@@ -496,20 +505,22 @@ def _step_sign(ctx: PipelineContext) -> None:
     prompt_gpg_key(ctx.config.gpg_uid, ctx.config.gpg_extra_args)
 
     sig_ext = "asc" if "--armor" in ctx.config.gpg_extra_args else "sig"
+    sig_dir = ctx.output_dir / "gpg_sign"
+    sig_dir.mkdir(exist_ok=True)
 
     for af in to_sign:
         if af.sign_mode == SignMode.FILE:
             sig_path = gpg_sign_file(
-                af.file_path, ctx.output_dir,
+                af.file_path, sig_dir,
                 gpg_uid=ctx.config.gpg_uid,
                 extra_args=ctx.config.gpg_extra_args,
             )
         elif af.sign_mode == SignMode.FILE_HASH:
             hash_value = af.hashes[ctx.config.identity_hash_algo]["formatted_value"]
-            hash_file = ctx.output_dir / f"{af.file_path.name}.{ctx.config.identity_hash_algo}"
+            hash_file = sig_dir / f"{af.file_path.name}.{ctx.config.identity_hash_algo}"
             hash_file.write_text(hash_value, encoding="ascii")
             sig_path = gpg_sign_file(
-                hash_file, ctx.output_dir,
+                hash_file, sig_dir,
                 gpg_uid=ctx.config.gpg_uid,
                 extra_args=ctx.config.gpg_extra_args,
             )
@@ -526,57 +537,13 @@ def _step_sign(ctx: PipelineContext) -> None:
             type=FileEntryType.SIG,
             archive=_resolve_archive(FileEntryType.SIG, None, parent_fce, ctx.config),
             publishers=af.publishers,
+            external_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
         )
         compute_hashes([sig_af], ctx.config.hash_algorithms)
         ctx.archived_files.append(sig_af)
 
     output.step_ok("Files signed")
 
-
-# ---------------------------------------------------------------------------
-# Step: Compute identifiers
-# ---------------------------------------------------------------------------
-
-def _step_compute_identifiers(ctx: PipelineContext) -> None:
-    """Compute alternate identifiers for entries with identifier config."""
-    has_identifiers = False
-    for fe in ctx.config.generated_files:
-        if fe.identifier is None:
-            continue
-
-        ic = fe.identifier
-        if ic.source == "file":
-            target = next(
-                (af for af in ctx.archived_files if af.config_key == fe.key), None,
-            )
-        elif ic.source == "sig_file":
-            target = next(
-                (af for af in ctx.archived_files if af.type == "sig" and af.config_key == fe.key), None,
-            )
-        else:
-            continue
-
-        if target is None:
-            output.warn("Identifier source not found for '{key}'", key=fe.key, name="identifier.missing")
-            continue
-
-        hash_val = target.hashes.get(ctx.config.identity_hash_algo)
-        if hash_val is None:
-            output.warn("Hash {algo} not found for identifier '{key}'", algo=ctx.config.identity_hash_algo, key=fe.key, name="identifier.hash_missing")
-            continue
-
-        formatted = hash_val['formatted_value']
-        filename = target.file_path.name
-        identifier_value = f"zp:///{filename};{formatted}"
-        target.identifier_value = identifier_value
-
-        if not has_identifiers:
-            output.step("Computing identifiers...")
-            has_identifiers = True
-        output.detail("Identifier ({key}): {value}", key=fe.key, value=identifier_value, name="identifier.computed")
-
-    if has_identifiers:
-        output.step_ok("Identifiers computed")
 
 
 # ---------------------------------------------------------------------------
@@ -635,9 +602,12 @@ def _step_modules(ctx: PipelineContext) -> None:
             module_name=module_name, n=len(files_input), name="module.confirmed",
         )
 
+        module_output_dir = ctx.output_dir / module_name
+        module_output_dir.mkdir(exist_ok=True)
+
         input_data = {
             "config": {"identity_hash_algo": ctx.config.identity_hash_algo},
-            "output_dir": str(ctx.output_dir),
+            "output_dir": str(module_output_dir),
             "files": files_input,
         }
 
@@ -690,6 +660,7 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=PublisherDestinations(destination=dest_raw),
                 module_name=module_name,
                 module_entry_type=rf.get("module_entry_type"),
+                external_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
             )
             ctx.archived_files.append(fe)
             output.detail(
@@ -728,23 +699,44 @@ def _step_publish(ctx: PipelineContext) -> None:
         _publish_github(ctx, github_files)
 
 
+def _entry_destinations(pub: PublisherDestinations, fe: FileEntry) -> set[str]:
+    """Return the set of destinations for a FileEntry from a PublisherDestinations.
+
+    Shared by publishers and publish_identity_hash lookups.
+    """
+    if fe.type == FileEntryType.MODULE_ENTRY:
+        platforms = set(pub.destinations_for(fe.module_name))
+        if fe.module_entry_type:
+            platforms |= set(pub.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
+        return platforms
+    if fe.type == FileEntryType.SIG:
+        return set(pub.destinations_for(FileEntryType.SIG))
+    return set(pub.destinations_for(FileEntryType.FILE))
+
+
 def _files_for_destination(archived_files: list[FileEntry], destination: str) -> list[FileEntry]:
     """Get files destined for a specific publisher."""
+    return [
+        fe for fe in archived_files
+        if fe.publishers and destination in _entry_destinations(fe.publishers, fe)
+    ]
+
+
+def _files_for_identity_destination(
+    archived_files: list[FileEntry],
+    config_entries: list,
+    destination: str,
+) -> list[FileEntry]:
+    """Get FileEntry instances whose publish_identity_hash includes the given destination."""
     result = []
-    for fe in archived_files:
-        if not fe.publishers:
+    for af in archived_files:
+        fce = next((f for f in config_entries if f.key == af.config_key), None)
+        if fce is None:
             continue
-        # Same normalization as _resolve_archive: FILE/PROJECT/MANIFEST → "file", SIG → "sig"
-        if fe.type == FileEntryType.MODULE_ENTRY:
-            platforms = set(fe.publishers.destinations_for(fe.module_name))
-            if fe.module_entry_type:
-                platforms |= set(fe.publishers.destinations_for(f"{fe.module_name}.{fe.module_entry_type}"))
-        elif fe.type == FileEntryType.SIG:
-            platforms = set(fe.publishers.destinations_for(FileEntryType.SIG))
-        else:
-            platforms = set(fe.publishers.destinations_for(FileEntryType.FILE))
-        if destination in platforms:
-            result.append(fe)
+        if fce.publish_identity_hash is None:
+            continue
+        if destination in _entry_destinations(fce.publish_identity_hash, af):
+            result.append(af)
     return result
 
 
@@ -774,11 +766,13 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
         output.warn("No publication made")
         return record_info
 
-    identifiers = [af for af in ctx.archived_files if af.identifier_value]
+    zenodo_identifiers = _files_for_identity_destination(
+        ctx.archived_files, ctx.config.generated_files, "zenodo",
+    )
 
     try:
         record_info = publisher.publish_new_version(
-            zenodo_files, ctx.tag_name, identifiers=identifiers,
+            zenodo_files, ctx.tag_name, identifiers=zenodo_identifiers,
         )
         output.data("record_info", record_info)
         for af in zenodo_files:
@@ -794,10 +788,47 @@ def _publish_zenodo(ctx: PipelineContext, zenodo_files: list[FileEntry]) -> dict
         return record_info
 
 
+def _github_identity_hash_files(ctx: PipelineContext, github_files: list[FileEntry]) -> list[Path]:
+    """Create .identity_hash.txt files for entries with publish_identity_hash: [github, ...]."""
+    txt_files = []
+    for af in github_files:
+        fce = next((f for f in ctx.config.generated_files if f.key == af.config_key), None)
+        if not fce or not fce.publish_identity_hash:
+            continue
+        if "github" not in _entry_destinations(fce.publish_identity_hash, af):
+            continue
+        txt_path = af.file_path.parent / f"{af.file_path.name}.identity_hash.txt"
+        txt_path.write_text(af.external_identifier or "", encoding="ascii")
+        txt_files.append(txt_path)
+    return txt_files
+
+
 def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None:
     """Upload files to GitHub release."""
     output.step("Uploading to GitHub release...")
 
+    # Build the set of names we will upload (including .identity_hash.txt files)
+    identity_txt_files = _github_identity_hash_files(ctx, github_files)
+    local_names = {af.file_path.name for af in github_files} | {f.name for f in identity_txt_files}
+
+    # Cleanup: list remote assets and ask to delete leftovers
+    remote_assets = list_release_assets(ctx.config.project_root, ctx.tag_name)
+    leftovers = [a for a in remote_assets if a.get("name") not in local_names]
+    if leftovers:
+        output.step_warn("Leftover assets found on release (not in current upload set)")
+        for asset in leftovers:
+            remote_digest = asset.get("digest") or "unknown"
+            output.detail(
+                "Leftover: {filename} (remote sha256: {hash})",
+                filename=asset["name"], hash=ellipse_hash(remote_digest), name="github.leftover",
+            )
+            if prompts.confirm_delete_asset.ask(f"Delete {asset['name']} from release?").is_accept:
+                delete_release_asset(ctx.config.project_root, asset["id"])
+                output.detail_ok("{filename} deleted", filename=asset["name"], name="github.leftover_deleted")
+            else:
+                output.detail_skip("{filename} kept", filename=asset["name"], name="github.leftover_kept")
+
+    # Upload regular files
     for af in github_files:
         local_sha = compute_file_hash(af.file_path, "sha256")["formatted_value"]
         remote_sha = get_release_asset_digest(
@@ -822,6 +853,13 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
         )
         output.detail_ok("{filename} uploaded to release", filename=af.file_path.name, name="github.asset_uploaded")
 
+    # Upload .identity_hash.txt files
+    for txt_path in identity_txt_files:
+        upload_release_asset(
+            ctx.config.project_root, ctx.tag_name, txt_path, clobber=True,
+        )
+        output.detail_ok("{filename} uploaded to release", filename=txt_path.name, name="github.identity_hash_uploaded")
+
     output.step_ok("GitHub release updated")
 
 
@@ -831,7 +869,7 @@ def _publish_github(ctx: PipelineContext, github_files: list[FileEntry]) -> None
 
 def _step_persist(ctx: PipelineContext) -> None:
     """Move files with archive=True to the archive directory."""
-    persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name)
+    persist_files(ctx.archived_files, ctx.config.archive_dir, ctx.tag_name, ctx.output_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -853,7 +891,6 @@ def _build_registry() -> HookRegistry:
     reg.register(HookPoint.HASH,            _step_compute_hashes)
     reg.register(HookPoint.MANIFEST,        _step_manifest)
     reg.register(HookPoint.SIGN,            _step_sign)
-    reg.register(HookPoint.IDENTIFIERS,     _step_compute_identifiers)
     reg.register(HookPoint.CUSTOM_MODULES,  _step_modules)
     reg.register(HookPoint.PUBLISH,         _step_publish)
     reg.register(HookPoint.PERSIST,         _step_persist)
@@ -876,6 +913,62 @@ def run_release(config, *, test=None) -> None:
         output.fatal("Error during process execution", exc=e)
 
 
+# Steps that run before the cache dir is known (tag_name not yet set).
+# Must complete before _setup_cache() can determine cache_dir = .zp/cache/{tag_name}/.
+_PRE_CACHE_STEPS = {HookPoint.MODULE_CHECK, HookPoint.GIT_CHECK, HookPoint.RELEASE}
+
+
+def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
+    """Prepare cache dir. Returns last completed HookPoint if resuming, else None.
+
+    Side effects: sets ctx.output_dir = cache_dir and ctx.caching_active = True.
+    """
+    
+
+    if does_cache_exists(ctx.config.project_root, cache_id):
+        checkpoint = read_checkpoint(cache_id, ctx.config.project_root)
+        if checkpoint:
+            last = checkpoint["last_completed_step"]
+            if last == HookPoint.PERSIST.value:
+                output.info_ok(
+                    "Pipeline already completed for {tag} — cache cleaned up",
+                    tag=ctx.tag_name, name="cache.complete",
+                )
+                delete_cache_dir(cache_id, ctx.config.project_root)
+            else:
+                saved_ts = checkpoint.get("saved_at")
+                saved_at = (
+                    datetime.datetime.fromtimestamp(saved_ts).strftime("%Y-%m-%d %H:%M:%S")
+                    if saved_ts else "unknown"
+                )
+                output.info(
+                    "Cache found for {tag} (last completed step: {step}, saved: {saved_at})",
+                    tag=ctx.tag_name, step=last, saved_at=saved_at,
+                    name="cache.found",
+                )
+                if prompts.confirm_resume.ask("Resume from checkpoint?").is_accept:
+                    resume_after = restore_from_checkpoint(ctx, checkpoint)
+                    ctx.output_dir = get_cache_dir(ctx.config.project_root, cache_id)
+                    ctx.caching_active = True
+                    output.step_ok(
+                        "Resuming after step '{step}'",
+                        step=resume_after.value, name="cache.resume",
+                    )
+                    return resume_after
+                else:
+                    output.warn("Starting fresh — discarding cache", name="cache.discard")
+                    delete_cache_dir(cache_id, ctx.config.project_root)
+        else:
+            # Directory exists without a checkpoint (orphan) — clean up
+            delete_cache_dir(cache_id, ctx.config.project_root)
+
+    cache_dir = get_cache_dir(ctx.config.project_root, cache_id)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ctx.output_dir = cache_dir
+    ctx.caching_active = True
+    return None
+
+
 def _run_release(config, *, test=None) -> None:
     """Main release pipeline — generic hook-based runner."""
     setup_pipeline(config, test=test)
@@ -886,4 +979,40 @@ def _run_release(config, *, test=None) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         ctx = PipelineContext(config=config, output_dir=Path(tmp))
         registry = _build_registry()
-        registry.run_pipeline(ctx)
+
+        if not config.pipeline_caching:
+            registry.run_pipeline(ctx)
+            return
+
+        # Run pre-cache steps (MODULE_CHECK → GIT_CHECK → RELEASE) to learn tag_name.
+        for hp in HookPoint:
+            registry.fire(hp, ctx)
+            if hp == HookPoint.RELEASE:
+                break
+
+        # Set up cache dir now that tag_name is known, handle resume or fresh start.
+        cache_id = ctx.tag_name
+        resume_after = _setup_cache(ctx, cache_id)
+
+        # Run remaining steps with a checkpoint written after each one.
+        # If an exception escapes, the cache dir + checkpoint are preserved for resume.
+
+        resume_done = (resume_after is None)
+        for hp in HookPoint:
+            if hp in _PRE_CACHE_STEPS:
+                continue  # already executed above
+            if not resume_done:
+                if hp == resume_after:
+                    resume_done = True
+                continue  # skip already-completed steps
+            registry.fire(hp, ctx)
+            write_checkpoint(ctx, cache_id, hp)
+            if test and test.fail_after_step == hp.value:
+                output.fatal(
+                    "[test] Forced crash after step '{step}'",
+                    name=f"test.crash.{hp.value}",
+                    step=hp.value,
+                )
+
+        # Successful completion: remove cache dir (files have been persisted to archive_dir)
+        delete_cache_dir(cache_id, config.project_root)

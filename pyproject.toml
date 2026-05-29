@@ -5,6 +5,7 @@ description = "Local CLI tool for publishing LaTeX and compiled projects to Zeno
 requires-python = ">=3.10"
 dependencies = [
     "argcomplete>=3.6.3",
+    "dill>=0.3.8",
     "interegular>=0.3.3",
     "inveniordm-py>=0.1.1",
     "jcs==0.2.1",

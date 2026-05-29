@@ -179,7 +179,10 @@ archive:
   # gzip_extra_args: []       # override default gzip args
 
 hash_algorithms: [md5, sha256, tree]
-identity_hash_algo: sha256        # single global algo used for identifiers, signing (file_hash mode), and modules
+identity_hash_algo: sha256        # algo for external_identifier (zp:/// identifiers), signing (file_hash mode), and modules
+# identity_key: name              # "name" (default) or "hash" — controls zp:/// format and manifest key field
+
+# pipeline.caching: true          # cache working files in .zp/cache/{tag}/ for resume support (default: true)
 
 signing:
   sign: true
@@ -326,10 +329,9 @@ This is highly recommended, not mandatory, but without these the only reference 
 8. **Archive**: copies/renames PATTERN files, creates PROJECT archive via `git archive`
 9. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
 10. **Manifest**: generates JSON manifest (JCS/RFC 8785) with file hashes included, then the manifest itself is hashed
-11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files
-12. **Compute identifiers**: per-file alternate identifiers pushed to Zenodo metadata (`metadata.identifiers`), computed from the file hash (e.g. `sha256:abc123...`)
-13. **Publish**: routes each file to zenodo and/or github based on `publishers` config
-14. **Persist**: copies files to `archive.dir/{tag_name}/`
+11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files in a `gpg_sign/` subdirectory (mirroring module output dirs). After persist: `archive.dir/{tag_name}/gpg_sign/`
+12. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
+13. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
 
 
 This tool uses `git fetch` (not in dry run mode). If fetching regularly is a problem for your project, do not use this tool.
@@ -346,6 +348,29 @@ The pipeline is designed to be **re-run safely** after a failure. Each step hand
 - **Step 14 (Persist)**: if the archive directory already contains files from a previous run, the user is prompted before overwriting.
 
 In short: re-running `zp release` after a failure will pick up where it left off. The release and tag are reused, unchanged files are skipped, and you are prompted before any overwrite.
+
+### Pipeline caching and resume
+
+When `pipeline.caching: true` (the default), ZP uses `.zp/archives/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
+
+If you interrupt the pipeline (Ctrl-C, crash, GPG failure…) and re-run `zp release` for the same tag, ZP detects the existing cache and asks:
+
+```
+Cache found for v1.2.0 (last completed step: sign)
+Resume from checkpoint? [y/n]
+```
+
+- **Yes**: restores the full pipeline state (including config) from the checkpoint and skips already-completed steps. The config used is the one that was active at the start of the interrupted run, ensuring determinism even if you modified `.zp.yaml` in the meantime.
+- **No**: discards the cache and starts fresh.
+
+The cache directory is deleted automatically after the pipeline completes successfully. To disable caching entirely:
+
+```yaml
+pipeline:
+  caching: false
+```
+
+> **Note**: add `.zp/archives/` to your `.gitignore` to avoid accidentally committing working files.
 
 ### Prompt validation level
 
@@ -403,11 +428,20 @@ Each entry can specify:
 - `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
 - `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
 - `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
-- `identifier`: compute an alternate identifier pushed to Zenodo metadata (`metadata.identifiers`). The hash algorithm used is `identity_hash_algo` (global, see below). Format: `zp:///{filename};{algo}:{hex}` (e.g. `zp:///MyProject-v1.0.0.json;sha256:abc123...`). Options:
-  - `source: file` (default): hash of the file itself
-  - `source: sig_file`: hash of the signature (requires `sign: true`)
-  - Glob patterns with `*` (multi-match) cannot have an identifier (ambiguous: which matched file to use?)
+- `publish_identity_hash`: where to publish each file's identity hash (same structure as `publishers`). Options per type key (`file`, `sig`, `<module_name>`, `<module_name>.<type>`):
+  - `github`: creates a `<filename>.identity_hash.txt` file (content: `{algo}:{hex}`) and uploads it to the GitHub release
+  - `zenodo`: adds the hash as a `zp:///` alternate identifier in Zenodo `metadata.identifiers`
+  - Supports patterns matching multiple files (each file gets its own `.identity_hash.txt`)
   - All ZP-generated identifiers use the `zp:///` scheme. On each run, existing `zp:///` entries on Zenodo are removed and replaced with the current ones
+
+  ```yaml
+  paper:
+    pattern: "*.pdf"
+    publish_identity_hash:
+      destination:
+        file: [github]    # → paper.pdf.identity_hash.txt uploaded to GitHub
+        sig: [zenodo]     # → signature hash added as Zenodo alternate identifier
+  ```
 
 #### Pattern path resolution
 
@@ -653,14 +687,30 @@ hash_algorithms: [md5, sha256, tree]
 identity_hash_algo: sha256   # default
 ```
 
-A single algorithm used consistently across three roles:
+A single algorithm used consistently across several roles:
 
-- **Zenodo identifiers**: the hash value embedded in `zp:///` alternate identifiers pushed to `metadata.identifiers`. Keeping this stable means identifiers are reproducible and comparable across releases.
-- **GPG signing in `file_hash` mode**: the file is hashed with this algorithm, and GPG signs the resulting `algo:hexvalue` string. What GPG actually signs depends on this value.
-- **Modules**: passed as `config.identity_hash_algo` in the module input JSON, so modules (e.g. DigiCert timestamp) use the same algorithm to hash files before submitting them to an external service.
+- **Identity hash** (`FileEntry.external_identifier`): every file gets `"{algo}:{hex}"` computed at the moment it's added to the pipeline. This is the canonical per-file fingerprint used everywhere below.
+- **`publish_identity_hash`**: the identity hash is what gets published — as a `.identity_hash.txt` on GitHub or as a `zp:///` alternate identifier on Zenodo.
+- **GPG signing in `file_hash` mode**: GPG signs the identity hash string (`algo:hexvalue`).
+- **Modules**: passed as `config.identity_hash_algo` in the module input JSON, so modules use the same algorithm.
 
 **Why it is intentionally global (no per-file override):**
-All three roles must use the same algorithm for a given release so that identifiers, signatures, and module certifications are comparable across entries. A per-file override would make it impossible to cross-verify entries or replay the pipeline simply.
+All roles must use the same algorithm for a given release so that identifiers, signatures, and module certifications are comparable across entries.
+
+### identity_key
+
+```yaml
+identity_key: name   # default ("name" or "hash")
+```
+
+Controls the format of `zp:///` Zenodo alternate identifiers and the key field in manifest file entries:
+
+| `identity_key` | Zenodo identifier | Manifest file entry |
+|---|---|---|
+| `name` (default) | `zp:///<filename>;<algo>:<hex>` | `{"key": "paper.pdf", ...}` |
+| `hash` | `zp:///<algo>:<hex>` | `{"identity_hash": "sha256:abc...", ...}` |
+
+In both cases the manifest root includes `"identity_hash_algo": "sha256"` (or whichever algorithm is configured).
 
 ### Zenodo checks
 - Verifies the version doesn't already exist on Zenodo
@@ -680,7 +730,7 @@ Only the fields present in the file are updated. Missing fields keep their value
 
 - **`version`**: not allowed. The pipeline sets it from the git tag. The process will stop if present.
 - **`publication_date`**: allowed. Overrides the config value (with a warning).
-- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any use the `zp:` scheme, which is reserved for pipeline-generated identifiers.
+- **`identifiers`**: allowed for custom identifiers (URL, ARK, DOI...). The process will stop if any use the `zp:///` scheme, which is reserved for pipeline-generated identifiers (`publish_identity_hash`).
 
 Example `.zenodo.json`:
 
@@ -867,20 +917,15 @@ To reproduce the exact same archive as the one on Zenodo, use the **exact same p
 
 ### GPG signature verification fails on the manifest
 
-The GPG signature is **not** on the manifest file itself : it signs the manifest's **identifier hash**. The identifier is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a text file, and that file is what gets signed.
+The GPG signature is **not** on the manifest file itself: it signs the manifest's **identity hash**. The identity hash is written as `algorithm:hex_value` (e.g. `sha256:a1b2c3...`) into a temp file, and that file is what gets signed. This is the `external_identifier` of the manifest `FileEntry`.
 
 To verify the signature:
 
-1. The identifier file (`identifier-*.txt`) and its signature (`identifier-*.txt.asc` or `.sig`) are persisted alongside the manifest when `sig` and `identifier` is in `PERSIST_TYPES`.
-2. Verify directly: `gpg --verify identifier-v1.0.0.txt.asc identifier-v1.0.0.txt`
+1. Compute the manifest hash using `identity_hash_algo` (default `sha256`): `sha256sum manifest-v1.0.0.json`
+2. Write `algorithm:hex_value` into a file **with no trailing newline**: `printf 'sha256:abc123...' > identity.txt` or `echo -n 'sha256:abc123...' > identity.txt` (note: plain `echo` adds a newline which changes the hash)
+3. Verify: `gpg --verify manifest-v1.0.0.json.sha256.asc identity.txt`
 
-If you want to verify from scratch (without the persisted identifier file):
-
-1. Compute the manifest hash: for example `sha256sum manifest-v1.0.0.json` (or whichever algorithm is configured)
-2. Write `algorithm:hex_value` into a file **with no trailing newline**: `printf 'sha256:abc123...' > identifier.txt` or `echo -n 'sha256:abc123...' > identifier.txt` (note that only using `echo` without `-n` add an extra line break thus result in a different hash)
-3. Verify: `gpg --verify identifier-v1.0.0.txt.asc identifier.txt`
-
-The content must match **byte-for-byte** : any extra newline, whitespace or formatting (other than `ascii`) will cause verification to fail.
+The content must match **byte-for-byte**: any extra newline, whitespace or encoding difference will cause verification to fail.
 
 ### GitHub CLI errors
 Make sure `gh` is installed and authenticated: `gh auth login`

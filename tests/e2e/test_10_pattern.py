@@ -556,7 +556,7 @@ def test_pattern_multiple_matches_in_manifest(pattern_env, fix_log_path):
         generated_files={
             "papers": {"pattern": "paper*.txt", "publishers": {"destination": {"file": []}}},
             "manifest": {
-                "files": ["papers"],
+                "content": {"papers": ["file"]},
                 "commit_info": ["sha"],
                 "publishers": {"destination": {"file": []}},
             },
@@ -639,7 +639,7 @@ def test_pattern_multiple_matches_all_signed(pattern_env, fix_log_path):
     # Each signature verifies its own file
     import subprocess as sp
     for txt in txt_files:
-        sig = persist_dir / f"{txt.name}.asc"
+        sig = persist_dir / "gpg_sign" / f"{txt.name}.asc"
         assert sig.exists(), f"Missing {sig.name}"
         verify = sp.run(["gpg", "--verify", str(sig), str(txt)],
                         capture_output=True, text=True)
