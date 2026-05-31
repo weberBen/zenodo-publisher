@@ -71,8 +71,8 @@ def _add_options(parser: argparse.ArgumentParser, config_cls) -> None:
                   choices=opt.choices)
 
 
-def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
-    """Add common flags + all config options to a subparser."""
+def _add_infra_flags(parser: argparse.ArgumentParser) -> None:
+    """Add infrastructure flags shared by all subparsers."""
     parser.add_argument(
         "--work-dir", type=str, default=None,
         help="Working directory (default: current directory)",
@@ -82,6 +82,10 @@ def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
         help="Path to config file (overrides auto-discovered)",
     )
     parser.add_argument(
+        "--debug", action="store_true", default=False,
+        help="Enable debug output",
+    )
+    parser.add_argument(
         "--test-mode", action="store_true", default=False,
         help=argparse.SUPPRESS,
     )
@@ -89,6 +93,11 @@ def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
         "--test-config", type=str, default=None,
         help=argparse.SUPPRESS,
     )
+
+
+def _setup_subparser(parser: argparse.ArgumentParser, config_cls) -> None:
+    """Add infra flags + all config options to a subparser."""
+    _add_infra_flags(parser)
     _add_options(parser, config_cls)
 
 
@@ -119,6 +128,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _setup_subparser(archive_p, ArchiveConfig)
+
+    # --- zp modules --------------------------------------------------------
+    modules_p = subparsers.add_parser(
+        "modules", help="Run pipeline modules in standalone mode")
+    _add_infra_flags(modules_p)
+    modules_sub = modules_p.add_subparsers(dest="modules_command")
+    modules_sub.add_parser("list", help="List available modules")
+    run_p = modules_sub.add_parser(
+        "run", help="Run a module standalone", add_help=False)
+    run_p.add_argument("module_name", nargs="?", default=None)
 
     return parser
 
@@ -179,6 +198,13 @@ def run_cmd(args, fn):
     setup_work_dir(args)
     test_mode = getattr(args, "test_mode", False)
     debug = getattr(args, "debug", False)
+    if debug:
+        os.environ["ZP_DEBUG"] = "1"
+    if test_mode:
+        os.environ["ZP_TEST_MODE"] = "1"
+    test_config = getattr(args, "test_config", None)
+    if test_config:
+        os.environ["ZP_TEST_CONFIG"] = test_config
     output.before_init_setup(test_mode=test_mode, debug=debug)
     
     try:
@@ -188,9 +214,48 @@ def run_cmd(args, fn):
             raise
         output.fatal(str(e), name="config_error.loading", exc=e)
 
+def cmd_modules(args):
+    """Run pipeline modules in standalone mode."""
+    from .config.env import find_project_root
+    from .modules import run_module_standalone, list_modules, ModuleError
+
+    try:
+        project_root = find_project_root()
+    except RuntimeError:
+        project_root = None
+
+    subcmd = getattr(args, "modules_command", None)
+
+    if subcmd == "list":
+        for name, (source, _) in list_modules(project_root).items():
+            output.info(f"  {name:<30s} ({source})")
+        return
+
+    if subcmd == "run":
+        module_name = getattr(args, "module_name", None)
+        if not module_name:
+            output.info("Usage: zp modules run <module_name> [args...]")
+            output.detail("Use 'zp modules run <module_name> --help' for module-specific options.")
+            return
+        # Everything after module_name is passed raw to the module subprocess
+        idx = sys.argv.index(module_name)
+        module_args = sys.argv[idx + 1:]
+        try:
+            rc = run_module_standalone(module_name, module_args, project_root=project_root)
+        except ModuleError as e:
+            output.fatal(str(e), name="module.error", exc=e)
+        sys.exit(rc)
+
+    # No subcmd — show modules help
+    output.info("Usage: zp modules <list|run>")
+    output.detail("list                          List available modules")
+    output.detail("run <module_name> [args...]    Run a module standalone")
+
+
 CMD = {
     "release": cmd_release,
-    "archive": cmd_archive
+    "archive": cmd_archive,
+    "modules": cmd_modules,
 }
 
 # ---------------------------------------------------------------------------
@@ -205,6 +270,6 @@ def main():
     if args.command not in CMD:
         parser.print_help()
         sys.exit(1)
-    
+
     fn = CMD[args.command]
     run_cmd(args, fn)

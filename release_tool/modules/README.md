@@ -22,3 +22,15 @@ Modules use subcommands for pipeline integration:
 - `<name>.py run --input <json>` — normal execution (process files, produce output)
 
 Modules may also define additional standalone subcommands alongside the pipeline ones.
+
+### Environment variables
+
+ZP sets the following environment variables in the module subprocess:
+
+| Variable | Description |
+|----------|-------------|
+| `ZP_DEBUG` | Set to `"1"` when `--debug` is passed to ZP. Modules can use this to enable verbose output. |
+| `ZP_TEST_MODE` | Set to `"1"` when `--test-mode` is active. Modules can use this to adapt their behavior for testing. |
+| `ZP_TEST_CONFIG` | Path to the test config JSON file when `--test-config` is provided. |
+
+These variables are only present when the corresponding flag/option is active — modules should check with `os.environ.get("ZP_DEBUG") == "1"`.
