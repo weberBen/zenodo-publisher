@@ -62,12 +62,14 @@ def emit(type_, msg, name="", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--config")
-    parser.add_argument("--input")
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
     args = parser.parse_args()
 
-    if args.check:
+    if args.command == "check":
         emit("detail_ok", "isolation_module: check ok",
              name="isolation_module.check.ok",
              python_prefix=sys.prefix)
@@ -103,12 +105,14 @@ def emit(type_: str, msg: str, name: str = "", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--config")
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
     args = parser.parse_args()
 
-    if args.check:
+    if args.command == "check":
         module_cfg = {}
         if args.config:
             with open(args.config, encoding="utf-8") as f:

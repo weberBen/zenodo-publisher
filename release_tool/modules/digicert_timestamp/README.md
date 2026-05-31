@@ -27,6 +27,28 @@ modules:
 
 `identity_hash_algo` must be one of: `sha1`, `sha256`, `sha384`, `sha512`. MD5 is not supported by the RFC 3161 protocol.
 
+## Standalone usage
+
+The module can be used independently via `zp modules run`, without the full pipeline:
+
+```bash
+# Show available subcommands
+zp modules run digicert_timestamp --help
+
+# Certify a file (request a timestamp from DigiCert TSA)
+zp modules run digicert_timestamp certify paper.pdf
+zp modules run digicert_timestamp certify paper.pdf --algo sha512 --output-dir ./timestamps
+
+# Verify a file against a .tsr timestamp
+zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
+zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr --check-chain
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `certify` | Request a RFC 3161 timestamp for a file. Options: `--algo` (hash algorithm), `--full-chain`/`--no-full-chain`, `--output-dir` |
+| `verify` | Verify a file against a `.tsr` timestamp. Options: `--algo`, `--check-chain`, `--root-cert` |
+
 ## Verification
 
 ```bash

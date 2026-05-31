@@ -154,6 +154,33 @@ zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:
 
 > **Standalone script:** For a lightweight alternative that doesn't require the full tool, the [`remote_repo_to_archive.sh`](./examples/remote_repo_to_archive.sh) script fetches a git archive (ZIP) from any remote repository at a given tag or commit (without cloning the full history as for the ZP script).
 
+### `zp modules` -- Manage and run modules
+
+#### `zp modules list`
+
+Lists available modules (built-in and user-defined):
+
+```bash
+zp modules list
+```
+
+#### `zp modules run <module_name> [args...]`
+
+Runs a module in standalone mode, without the full pipeline config. Each module exposes its own subcommands when run standalone:
+
+```bash
+# Show module help and available subcommands
+zp modules run digicert_timestamp --help
+
+# Certify a file with a RFC 3161 timestamp
+zp modules run digicert_timestamp certify paper.pdf --algo sha256
+
+# Verify a file against a .tsr timestamp
+zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
+```
+
+Arguments after the module name are passed directly to the module.
+
 ## Project Setup
 
 ### 1. Create `.zp.yaml` in your project root
@@ -563,11 +590,14 @@ Each module is a **uv project directory** containing at minimum `<name>.py` and 
 2. Project: `<project_root>/.zp/modules/<name>/`
 3. User home: `~/.zp/modules/<name>/`
 
-The module's `<name>.py` is invoked inside its own isolated uv environment:
+The module's `<name>.py` is invoked inside its own isolated uv environment using subcommands:
 
 ```
-uv run --project <module_dir> <name>.py --input <json_file>
+uv run --project <module_dir> <name>.py run --input <json_file>
+uv run --project <module_dir> <name>.py check --config <json_file>
 ```
+
+Modules use subcommands (`run`, `check`) instead of top-level flags. This allows modules to also expose their own standalone subcommands (e.g. `certify`, `verify` for `digicert_timestamp`) that are accessible via `zp modules run <name> <subcommand>`.
 
 #### Input
 
@@ -640,13 +670,13 @@ Run `uv lock` inside the module directory to generate `uv.lock`. ZP runs the mod
 
 #### Module self-check
 
-Every module must also support a `--check` mode that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
+Every module must also support a `check` subcommand that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
 
 ```
-uv run --project <module_dir> <name>.py --check --config <json_file>
+uv run --project <module_dir> <name>.py check --config <json_file>
 ```
 
-The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `--check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
+The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
 
 #### Configuring a module
 

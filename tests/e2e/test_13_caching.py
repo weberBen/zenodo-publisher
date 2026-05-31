@@ -56,12 +56,14 @@ def emit(type_: str, msg: str, name: str = "", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--config")
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
     args = parser.parse_args()
 
-    if args.check:
+    if args.command == "check":
         emit("detail_ok", "dummy_module: check ok", name="dummy_module.check.ok")
         return
 

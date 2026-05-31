@@ -160,17 +160,17 @@ def test_request_timestamp_http_error(tmp_path):
 
 def test_main_check_valid(capsys):
     """main --check sans --config émet check.ok et retourne 0."""
-    sys.argv = ["digicert_timestamp.py", "--check"]
+    sys.argv = ["digicert_timestamp.py", "check"]
     mod.main()
     event = json.loads(capsys.readouterr().out.strip())
     assert event["name"] == "digicert_timestamp.check.ok"
 
 
 def test_main_check_invalid_config(tmp_path, capsys):
-    """main --check --config <file> avec full_chain invalide émet check.invalid_config et exit 1."""
+    """main check --config <file> avec full_chain invalide émet check.invalid_config et exit 1."""
     cfg = tmp_path / "cfg.json"
     cfg.write_text(json.dumps({"module_config": {"full_chain": "bad"}}))
-    sys.argv = ["digicert_timestamp.py", "--check", "--config", str(cfg)]
+    sys.argv = ["digicert_timestamp.py", "check", "--config", str(cfg)]
     with pytest.raises(SystemExit) as exc:
         mod.main()
     assert exc.value.code == 1
@@ -185,7 +185,7 @@ def test_main_unsupported_algo(tmp_path, capsys):
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with pytest.raises(SystemExit) as exc:
         mod.main()
     assert exc.value.code == 1
@@ -200,7 +200,7 @@ def test_main_missing_hash(tmp_path, capsys):
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with pytest.raises(SystemExit) as exc:
         mod.main()
     assert exc.value.code == 1
@@ -219,7 +219,7 @@ def test_main_success_result(tmp_path, capsys):
     mock_resp.content = b"fake-tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -244,7 +244,7 @@ def test_main_success_events(tmp_path, capsys):
     mock_resp.content = b"fake-tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -266,7 +266,7 @@ def test_main_tsa_error(tmp_path, capsys):
     mock_resp = MagicMock()
     mock_resp.raise_for_status.side_effect = req_lib.HTTPError("503")
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -288,7 +288,7 @@ def test_main_full_chain_false_forwarded(tmp_path, capsys):
     mock_resp.content = b"tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()) as mock_make, \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -308,7 +308,7 @@ def _run_module(input_data: dict, tmp_path: Path):
     input_file.write_text(json.dumps(input_data))
     proc = subprocess.run(
         ["uv", "run", "--project", str(MODULE_DIR),
-         str(MODULE_DIR / "digicert_timestamp.py"), "--input", str(input_file)],
+         str(MODULE_DIR / "digicert_timestamp.py"), "run", "--input", str(input_file)],
         capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
     )
@@ -471,7 +471,7 @@ def test_live_check_mode(tmp_path):
     """--check mode exits 0 and emits check.ok."""
     proc = subprocess.run(
         ["uv", "run", "--project", str(MODULE_DIR),
-         str(MODULE_DIR / "digicert_timestamp.py"), "--check"],
+         str(MODULE_DIR / "digicert_timestamp.py"), "check"],
         capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
     )

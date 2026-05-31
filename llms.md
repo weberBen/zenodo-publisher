@@ -29,7 +29,7 @@ This section helps you find the right code quickly without reading everything.
 | How archive/hashing works | `release_tool/archive_operation.py` (ArchivedFile, hashing, manifest), `git_operations.py` (git archive, tree hash) |
 | What error name ZP emits | `release_tool/errors.py` (base + normalize_name), then grep for the `name=` parameter in the relevant module |
 | How tests work | `tests/conftest.py` (fixtures, reset), `tests/utils/cli.py` (ZpRunner), `tests/utils/ndjson.py` (event parsing) |
-| How a built-in module works | `release_tool/modules/<name>/README.md` (purpose, config, events) — each module has its own README; `release_tool/modules/<name>/tests/README.md` for its test suite |
+| How a built-in module works | `release_tool/modules/<name>/README.md` (purpose, config, events) — each module has its own README; `release_tool/modules/<name>/tests/README.md` for its test suite. Modules use subcommands: `run --input`, `check --config` for pipeline use, plus standalone subcommands (e.g. `certify`, `verify` for digicert_timestamp) accessible via `zp modules run <name> <subcommand>` |
 | How the CLI is built | `release_tool/cli.py` — auto-generated from ConfigOption lists |
 
 ### Search patterns
@@ -49,7 +49,7 @@ This section helps you find the right code quickly without reading everything.
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
 - **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules`, `publish_identity_hash` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
 - **Signature subdirectory**: GPG signatures (`.asc`/`.sig`) are placed in `output_dir/gpg_sign/` (mirrors module subdirectory pattern). After persist they land in `archive_dir/tag_name/gpg_sign/`
-- **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py`. Every module must implement `--check` mode (connectivity/config validation, called at pipeline start) and `--input` mode (normal run). Both modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
+- **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py <subcommand> <args>`. Modules use **subcommands** instead of top-level flags: `check --config <json>` (config validation, called at pipeline start) and `run --input <json>` (normal run). Modules may also expose standalone subcommands (e.g. `certify`, `verify`) accessible via `zp modules run <name> <subcommand>`. Both pipeline modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
 
 ### Common pitfalls
 
@@ -260,7 +260,7 @@ The pipeline will:
 
 ```
 release_tool/
-├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign
+├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign + 'modules' subcommand
 ├── __main__.py                     # python -m release_tool
 ├── errors.py                       # ZPError base + normalize_name (prefix.name.suffix with dedup)
 ├── prompts.py                      # Interactive prompts (init_prompts, confirm levels)
@@ -278,10 +278,10 @@ release_tool/
 │   ├── transform_common.py         # Shared transforms (tar, gzip, hash, COMMIT_FIELD_MAP)
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
 ├── modules/
-│   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, check_module, is_builtin
+│   ├── __init__.py                 # Module loader: find_module_path, run_module, check_module, run_module_standalone, list_modules, is_builtin
 │   ├── README.md                   # Index of built-in modules (see for full list)
 │   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
-│       ├── digicert_timestamp.py   #   Module entry point (--input / --check modes)
+│       ├── digicert_timestamp.py   #   Module entry point (subcommands: run, check, certify, verify)
 │       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
 │       ├── uv.lock                 #   Locked dependency graph
 │       ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
@@ -308,6 +308,8 @@ release_tool/
 uv run zp release              # Full release pipeline (default when no subcommand)
 uv run zp release --sign       # Release with GPG signing
 uv run zp archive --tag v1.0.0 # Standalone archive
+uv run zp modules list         # List available modules (built-in + user)
+uv run zp modules run <name> <subcommand> [args...]  # Run a module in standalone mode
 uv run zp --help               # CLI help
 ```
 
@@ -567,9 +569,9 @@ Signature files are appended to `archived_files` list as `FileEntry(type=SIG)`. 
 
 Runs configured modules for files that declare them under `modules:`. Each module:
 1. Collects matching FileEntry entries (by config_key, non-SIG)
-2. Runs `--check` mode: `uv run --project <module_dir> <name>.py --check --config <json_file>` — relays NDJSON events; aborts pipeline on non-zero exit
+2. Runs `check` subcommand: `uv run --project <module_dir> <name>.py check --config <json_file>` — relays NDJSON events; aborts pipeline on non-zero exit
 3. Prompts user to confirm running (indicates built-in vs custom)
-4. Runs `--input` mode: `uv run --project <module_dir> <name>.py --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
+4. Runs `run` subcommand: `uv run --project <module_dir> <name>.py run --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
 5. Reads NDJSON events + result files from stdout
 6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
 

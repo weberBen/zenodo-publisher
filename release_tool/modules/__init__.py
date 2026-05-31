@@ -89,7 +89,7 @@ def load_module(provider_name: str, project_root: Path | None = None) -> Path:
 
 def is_builtin(provider_name: str) -> bool:
     """Return True if the module is a built-in ZP module."""
-    return (Path(__file__).parent / provider_name / "main.py").exists()
+    return (Path(__file__).parent / provider_name / f"{provider_name}.py").exists()
 
 
 def check_module(provider_name: str, module_config: dict, output_module,
@@ -109,7 +109,7 @@ def check_module(provider_name: str, module_config: dict, output_module,
 
     try:
         proc = subprocess.run(
-            _build_uv_cmd(module_path, "--check", "--config", config_path),
+            _build_uv_cmd(module_path, "check", "--config", config_path),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -161,7 +161,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
 
     try:
         proc = subprocess.run(
-            _build_uv_cmd(module_path, "--input", input_path),
+            _build_uv_cmd(module_path, "run", "--input", input_path),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -199,3 +199,49 @@ def run_module(provider_name: str, input_data: dict, output_module,
         }, module_name=provider_name)
 
     return result_files
+
+
+def run_module_standalone(provider_name: str, args: list[str],
+                          project_root: Path | None = None) -> int:
+    """Run a module in standalone mode, passing args directly to the module subprocess.
+
+    Returns the subprocess exit code.
+    """
+    module_path = find_module_path(provider_name, project_root=project_root)
+    cmd = _build_uv_cmd(module_path, *args)
+    proc = subprocess.run(cmd, env=_subprocess_env())
+    return proc.returncode
+
+
+def list_modules(project_root: Path | None = None) -> dict[str, tuple[str, Path]]:
+    """List all available modules with their source and path.
+
+    Returns dict of {name: (source, module_dir)} where source is
+    "built-in", "project", or "user".
+    """
+    modules = {}
+
+    # 1. Built-in
+    builtin_dir = Path(__file__).parent
+    for entry in sorted(builtin_dir.iterdir()):
+        if entry.is_dir() and (entry / f"{entry.name}.py").exists():
+            modules[entry.name] = ("built-in", entry)
+
+    # 2. Project root
+    if project_root is not None:
+        proj_dir = project_root / ".zp" / "modules"
+        if proj_dir.exists():
+            for entry in sorted(proj_dir.iterdir()):
+                if entry.is_dir() and (entry / f"{entry.name}.py").exists():
+                    if entry.name not in modules:
+                        modules[entry.name] = ("project", entry)
+
+    # 3. User home
+    user_dir = Path.home() / ".zp" / "modules"
+    if user_dir.exists():
+        for entry in sorted(user_dir.iterdir()):
+            if entry.is_dir() and (entry / f"{entry.name}.py").exists():
+                if entry.name not in modules:
+                    modules[entry.name] = ("user", entry)
+
+    return modules
