@@ -79,26 +79,21 @@ def check(module_config: dict) -> None:
          name="check.ok")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="DigiCert timestamp module")
-    parser.add_argument("--input", help="Path to input JSON file")
-    parser.add_argument("--check", action="store_true", help="Run self-check and exit")
-    parser.add_argument("--config", help="Path to module config JSON (used with --check)")
-    args = parser.parse_args()
+def compute_file_hash(file_path: Path, algo: str) -> str:
+    """Compute hash of a file and return hex digest."""
+    import hashlib
+    h = hashlib.new(algo)
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    if args.check:
-        module_config = {}
-        if args.config:
-            with open(args.config, encoding="utf-8") as f:
-                module_config = json.load(f).get("module_config", {})
-        check(module_config)
-        return
 
-    if not args.input:
-        emit("error", "--input is required when not running --check",
-             name="missing_input")
-        sys.exit(1)
+# ---------------------------------------------------------------------------
+# Pipeline handlers (called by ZP via 'run --input' / 'check --config')
+# ---------------------------------------------------------------------------
 
+def _cmd_run(args):
     with open(args.input, encoding="utf-8") as f:
         data = json.load(f)
 
@@ -152,6 +147,143 @@ def main() -> None:
         })
 
     print(json.dumps({"type": "result", "files": result_files}), flush=True)
+
+
+def _cmd_check(args):
+    module_config = {}
+    if args.config:
+        with open(args.config, encoding="utf-8") as f:
+            module_config = json.load(f).get("module_config", {})
+    check(module_config)
+
+
+# ---------------------------------------------------------------------------
+# Standalone handlers (via 'zp modules run digicert_timestamp')
+# ---------------------------------------------------------------------------
+
+def _cmd_certify(args):
+    file_path = args.file.resolve()
+    if not file_path.exists():
+        emit("error", f"File not found: {file_path}", name="file_not_found")
+        sys.exit(1)
+
+    output_dir = (args.output_dir or file_path.parent).resolve()
+
+    emit("detail", f"Computing {args.algo} hash of {file_path.name}...",
+         filename=file_path.name, algo=args.algo, name="hash")
+    hex_hash = compute_file_hash(file_path, args.algo)
+    emit("detail_ok", f"{args.algo}: {hex_hash}", algo=args.algo, hash=hex_hash, name="hash.done")
+
+    emit("detail", "Requesting RFC 3161 timestamp from DigiCert TSA...", name="start")
+    try:
+        tsr_path = request_timestamp(hex_hash, args.algo, args.full_chain, output_dir, file_path.name)
+    except requests.RequestException as e:
+        emit("error", f"DigiCert TSA request failed: {e}", name="tsa_error")
+        sys.exit(1)
+
+    emit("detail_ok", f"Timestamp saved: {tsr_path}",
+         tsr=str(tsr_path), full_chain=args.full_chain, name="done")
+
+
+def _cmd_info(args):
+    from verify_tsr import tsr_info
+
+    tsr_path = args.tsr.resolve()
+    if not tsr_path.exists():
+        emit("error", f"TSR not found: {tsr_path}", name="tsr_not_found")
+        sys.exit(1)
+
+    if not tsr_info(tsr_path, show_chain=args.check_chain):
+        sys.exit(1)
+
+
+def _cmd_verify(args):
+    from verify_tsr import verify_file
+
+    file_path = args.file.resolve()
+    tsr_path = args.tsr.resolve()
+    if not file_path.exists():
+        emit("error", f"File not found: {file_path}", name="file_not_found")
+        sys.exit(1)
+    if not tsr_path.exists():
+        emit("error", f"TSR not found: {tsr_path}", name="tsr_not_found")
+        sys.exit(1)
+
+    root_cert = args.root_cert.resolve() if args.root_cert else None
+    if root_cert and not root_cert.exists():
+        emit("error", f"Root certificate not found: {root_cert}", name="root_cert_not_found")
+        sys.exit(1)
+
+    ok = verify_file(file_path, tsr_path, args.algo,
+                     show_chain=args.check_chain, root_cert=root_cert)
+    if not ok:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Unified parser + entry point
+# ---------------------------------------------------------------------------
+
+SORTED_ALGOS = sorted(SUPPORTED_ALGOS)
+
+_HANDLERS = {}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="zp modules run digicert_timestamp",
+        description="DigiCert RFC 3161 timestamp module",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    # Pipeline (hidden from --help)
+    run_p = sub.add_parser("run", help=argparse.SUPPRESS)
+    run_p.add_argument("--input", required=True)
+
+    check_p = sub.add_parser("check", help=argparse.SUPPRESS)
+    check_p.add_argument("--config")
+
+    # Standalone
+    certify_p = sub.add_parser("certify", help="Certify a file with RFC 3161 timestamp")
+    certify_p.add_argument("file", type=Path, help="File to certify")
+    certify_p.add_argument("--algo", default="sha256", choices=SORTED_ALGOS,
+                           help="Hash algorithm (default: sha256)")
+    certify_p.add_argument("--full-chain", "--no-full-chain",
+                           action=argparse.BooleanOptionalAction, default=True,
+                           help="Embed full cert chain in the TSR (default: true)")
+    certify_p.add_argument("--output-dir", type=Path, default=None,
+                           help="Output directory (default: same as input file)")
+
+    info_p = sub.add_parser("info", help="Display TSR metadata (timestamp, algo, chain)")
+    info_p.add_argument("tsr", type=Path, help="TSR file (.tsr)")
+    info_p.add_argument("--check-chain", action="store_true", default=False,
+                         help="Display certificate chain from TSR")
+
+    verify_p = sub.add_parser("verify", help="Verify a file against a .tsr")
+    verify_p.add_argument("file", type=Path, help="Original file")
+    verify_p.add_argument("tsr", type=Path, help="TSR file (.tsr)")
+    verify_p.add_argument("--algo", default=None, choices=SORTED_ALGOS,
+                          help="Hash algorithm (default: auto-detected from TSR)")
+    verify_p.add_argument("--check-chain", action="store_true", default=False,
+                          help="Display certificate chain from TSR")
+    verify_p.add_argument("--root-cert", type=Path, default=None,
+                          help="Root CA for chain validation (auto-discovered if omitted)")
+
+    _HANDLERS.update({"run": _cmd_run, "check": _cmd_check,
+                      "certify": _cmd_certify, "info": _cmd_info,
+                      "verify": _cmd_verify})
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    handler = _HANDLERS.get(args.command)
+    if handler:
+        handler(args)
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
