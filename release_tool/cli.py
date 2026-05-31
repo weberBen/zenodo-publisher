@@ -241,7 +241,9 @@ def cmd_modules(args):
             return
         module_args = getattr(args, "module_args", [])
         try:
-            rc = run_module_standalone(module_name, module_args, project_root=project_root)
+            rc = run_module_standalone(module_name, module_args,
+                                      project_root=project_root,
+                                      output_module=output)
         except ModuleError as e:
             output.fatal(str(e), name="module.error", exc=e)
         sys.exit(rc)

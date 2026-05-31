@@ -17,11 +17,13 @@ zp modules run digicert_timestamp verify paper.pdf f.tsr # verify a timestamp
 
 ## Module protocol
 
-Modules use subcommands for pipeline integration:
-- `<name>.py check --config <json>` — validate config and connectivity (called at pipeline start)
+Every module must implement at least two **subcommands** (positional, not flags):
 - `<name>.py run --input <json>` — normal execution (process files, produce output)
+- `<name>.py check --config <json>` — validate config and connectivity (called at pipeline start)
 
-Modules may also define additional standalone subcommands alongside the pipeline ones.
+Without arguments, the module should display help and exit with code 1.
+
+Modules may also define additional standalone subcommands alongside the pipeline ones (e.g. `certify`, `verify`).
 
 ### Environment variables
 

@@ -590,14 +590,14 @@ Each module is a **uv project directory** containing at minimum `<name>.py` and 
 2. Project: `<project_root>/.zp/modules/<name>/`
 3. User home: `~/.zp/modules/<name>/`
 
-The module's `<name>.py` is invoked inside its own isolated uv environment using subcommands:
+The module's `<name>.py` must implement at least two **subcommands** (positional arguments, not flags):
 
 ```
 uv run --project <module_dir> <name>.py run --input <json_file>
 uv run --project <module_dir> <name>.py check --config <json_file>
 ```
 
-Modules use subcommands (`run`, `check`) instead of top-level flags. This allows modules to also expose their own standalone subcommands (e.g. `certify`, `verify` for `digicert_timestamp`) that are accessible via `zp modules run <name> <subcommand>`.
+Without arguments, the module should display help and exit with code 1. Modules may also define additional standalone subcommands (e.g. `certify`, `verify` for `digicert_timestamp`) accessible via `zp modules run <name> <subcommand>`.
 
 #### Environment variables
 

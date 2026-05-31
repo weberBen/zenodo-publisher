@@ -202,14 +202,45 @@ def run_module(provider_name: str, input_data: dict, output_module,
 
 
 def run_module_standalone(provider_name: str, args: list[str],
-                          project_root: Path | None = None) -> int:
+                          project_root: Path | None = None,
+                          output_module=None) -> int:
     """Run a module in standalone mode, passing args directly to the module subprocess.
+
+    When output_module is provided, stdout is captured and NDJSON events are
+    relayed through output_module.module_emit(). Non-NDJSON lines are printed
+    as-is. When output_module is None, stdout passes through directly.
 
     Returns the subprocess exit code.
     """
     module_path = find_module_path(provider_name, project_root=project_root)
     cmd = _build_uv_cmd(module_path, *args)
-    proc = subprocess.run(cmd, env=_subprocess_env())
+
+    if output_module is None:
+        proc = subprocess.run(cmd, env=_subprocess_env())
+        return proc.returncode
+
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=_subprocess_env(),
+    )
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            print(line)
+            continue
+        output_module.module_emit(event, module_name=provider_name)
+
+    proc.wait()
+    stderr = proc.stderr.read().strip()
+    if stderr:
+        output_module.module_emit(
+            {"type": "warn", "msg": stderr, "name": "module.stderr"},
+            module_name=provider_name,
+        )
     return proc.returncode
 
 
