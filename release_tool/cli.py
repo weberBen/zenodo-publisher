@@ -138,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p = modules_sub.add_parser(
         "run", help="Run a module standalone", add_help=False)
     run_p.add_argument("module_name", nargs="?", default=None)
+    run_p.add_argument("module_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     return parser
 
@@ -237,9 +238,7 @@ def cmd_modules(args):
             output.info("Usage: zp modules run <module_name> [args...]")
             output.detail("Use 'zp modules run <module_name> --help' for module-specific options.")
             return
-        # Everything after module_name is passed raw to the module subprocess
-        idx = sys.argv.index(module_name)
-        module_args = sys.argv[idx + 1:]
+        module_args = getattr(args, "module_args", [])
         try:
             rc = run_module_standalone(module_name, module_args, project_root=project_root)
         except ModuleError as e:
