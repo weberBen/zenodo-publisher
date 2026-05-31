@@ -148,8 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 def setup_work_dir(args):
-    if getattr(args, "work_dir", None):
-        os.chdir(args.work_dir)
+    work_dir = getattr(args, "work_dir", None) or os.environ.get("ZP_WORK_DIR")
+    if work_dir:
+        os.chdir(work_dir)
 
 # ---------------------------------------------------------------------------
 # Command handlers
