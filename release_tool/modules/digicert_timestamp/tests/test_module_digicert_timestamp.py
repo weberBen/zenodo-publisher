@@ -480,6 +480,213 @@ def test_live_check_mode(tmp_path):
     assert event["name"] == "digicert_timestamp.check.ok"
 
 
+# ---------------------------------------------------------------------------
+# Standalone subcommands helpers
+# ---------------------------------------------------------------------------
+
+def _run_standalone(args: list[str], tmp_path: Path):
+    """Run module standalone subcommand and return (events, returncode)."""
+    proc = subprocess.run(
+        ["uv", "run", "--project", str(MODULE_DIR),
+         str(MODULE_DIR / "digicert_timestamp.py"), *args],
+        capture_output=True, text=True,
+        env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
+    )
+    events = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events, proc.returncode
+
+
+# ---------------------------------------------------------------------------
+# Standalone: certify
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_certify_produces_tsr(tmp_path):
+    """certify subcommand produces a .tsr file."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"certify test")
+
+    events, rc = _run_standalone(
+        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+
+    assert rc == 0, f"certify failed (rc={rc}). Events: {events}"
+    tsr_path = tmp_path / "test.bin.tsr"
+    assert tsr_path.exists(), "TSR file not produced"
+    assert tsr_path.stat().st_size > 0
+
+
+@pytest.mark.network
+def test_live_certify_algo_sha512(tmp_path):
+    """certify with --algo sha512 produces a TSR with sha512."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"certify sha512 test")
+
+    events, rc = _run_standalone(
+        ["certify", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+
+    assert rc == 0
+    tsr_path = tmp_path / "test.bin.tsr"
+    assert tsr_path.exists()
+    algo = verify_tsr.parse_tsr_algo(tsr_path)
+    assert algo == "sha512", f"Expected sha512, got {algo}"
+
+
+# ---------------------------------------------------------------------------
+# Standalone: verify (round-trip with certify)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_verify_roundtrip(tmp_path):
+    """certify then verify: full round-trip succeeds."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"roundtrip test")
+
+    # Certify
+    _, rc = _run_standalone(
+        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(dummy), str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"verify failed (rc={rc}). Events: {events}"
+    names = [e.get("name") for e in events]
+    assert any("verify.ok" in n for n in names if n), \
+        f"Expected verify.ok event. Names: {names}"
+
+
+@pytest.mark.network
+def test_live_verify_auto_detects_algo(tmp_path):
+    """verify without --algo auto-detects from TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"auto algo test")
+
+    # Certify with sha512
+    _, rc = _run_standalone(
+        ["certify", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify without --algo
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(dummy), str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"verify failed (rc={rc}). Events: {events}"
+    algo_event = next((e for e in events if "verify.algo.auto" in (e.get("name") or "")), None)
+    assert algo_event is not None, f"Expected verify.algo.auto event. Events: {events}"
+    assert "sha512" in algo_event["msg"]
+
+
+@pytest.mark.network
+def test_live_verify_wrong_file_fails(tmp_path):
+    """verify with a different file than the one certified fails."""
+    original = tmp_path / "original.bin"
+    original.write_bytes(b"original content")
+    tampered = tmp_path / "tampered.bin"
+    tampered.write_bytes(b"tampered content")
+
+    # Certify original
+    _, rc = _run_standalone(
+        ["certify", str(original), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify with tampered file
+    tsr_path = tmp_path / "original.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(tampered), str(tsr_path)], tmp_path)
+
+    assert rc == 1, "verify should fail for tampered file"
+    names = [e.get("name") for e in events]
+    assert any("verify.hash.mismatch" in n for n in names if n), \
+        f"Expected hash mismatch event. Names: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Standalone: info
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_info_shows_metadata(tmp_path):
+    """info subcommand emits TSR metadata fields."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"info test")
+
+    # Certify first
+    _, rc = _run_standalone(
+        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Info
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(["info", str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"info failed (rc={rc}). Events: {events}"
+    msgs = " ".join(e.get("msg", "") for e in events)
+    assert "Hash Algorithm:" in msgs, f"Expected Hash Algorithm in output. Events: {events}"
+    assert "Time stamp:" in msgs, f"Expected Time stamp in output. Events: {events}"
+    assert "Serial number:" in msgs, f"Expected Serial number in output. Events: {events}"
+
+
+@pytest.mark.network
+def test_live_info_full_chain_embedded(tmp_path):
+    """info detects full chain embedded in TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"info chain test")
+
+    _, rc = _run_standalone(
+        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(["info", str(tsr_path)], tmp_path)
+
+    assert rc == 0
+    names = [e.get("name") for e in events]
+    assert any("full_chain.embedded" in n for n in names if n), \
+        f"Expected full_chain.embedded event. Names: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Unit: parse_tsr_algo
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_parse_tsr_algo(tmp_path):
+    """parse_tsr_algo extracts the correct algorithm from a real TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"algo parse test")
+
+    _, rc = _run_standalone(
+        ["certify", str(dummy), "--algo", "sha384", "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    tsr_path = tmp_path / "test.bin.tsr"
+    algo = verify_tsr.parse_tsr_algo(tsr_path)
+    assert algo == "sha384", f"Expected sha384, got {algo}"
+
+
+def test_parse_tsr_algo_invalid_file(tmp_path):
+    """parse_tsr_algo returns None for a non-TSR file."""
+    fake = tmp_path / "fake.tsr"
+    fake.write_bytes(b"not a tsr")
+    algo = verify_tsr.parse_tsr_algo(fake)
+    assert algo is None
+
+
+# ---------------------------------------------------------------------------
+# Live: multiple files (existing test, moved after standalone tests)
+# ---------------------------------------------------------------------------
+
 @pytest.mark.network
 def test_live_multiple_files(tmp_path):
     """Module correctly timestamps multiple files in one call."""
