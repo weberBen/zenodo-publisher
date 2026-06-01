@@ -575,7 +575,7 @@ Runs configured modules for files that declare them under `modules:`. Each modul
 5. Reads NDJSON events + result files from stdout
 6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
 
-**Environment variables**: ZP sets `ZP_DEBUG=1` (when `--debug`), `ZP_TEST_MODE=1` (when `--test-mode`), and `ZP_TEST_CONFIG=<path>` (when `--test-config`) in `os.environ` at CLI startup (`run_cmd`). `ZP_WORK_DIR` is set by `zp.bash` wrapper. Modules inherit these via `_subprocess_env()`. Only present when active.
+**Environment variables**: ZP sets `ZP_DEBUG=true` (when `--debug`), `ZP_TEST_MODE=true` (when `--test-mode`), and `ZP_TEST_CONFIG=<path>` (when `--test-config`) in `os.environ` at CLI startup (`run_cmd`). `ZP_WORK_DIR` is set by `zp.bash` wrapper. Modules inherit these via `_subprocess_env()`. Only present when active. `ZP_DEBUG` is also read by `CommonConfig` via `env_key="ZP_DEBUG"` so that `config.debug` is True when `--debug` is passed (unified flow: CLI flag → env var → config).
 
 Input JSON: `{"config": {"identity_hash_algo": ...}, "output_dir": ..., "files": [{file_path, config_key, type, hashes, module_config}]}`. Key points:
 - `module_config` = `{**global_cfg, **per_file_cfg}` pre-merged by ZP; module sees only its own config

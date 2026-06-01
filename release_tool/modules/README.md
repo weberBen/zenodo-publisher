@@ -3,6 +3,7 @@
 | Module | Description |
 |--------|-------------|
 | [digicert_timestamp](digicert_timestamp/README.md) | RFC 3161 trusted timestamp via DigiCert TSA — certifies a file's hash at a point in time |
+| [ots_timestamp](ots_timestamp/README.md) | Bitcoin-anchored timestamp via OpenTimestamps — decentralized, trustless proof of existence |
 
 ## Standalone mode
 
@@ -42,8 +43,8 @@ ZP sets the following environment variables in the module subprocess:
 
 | Variable | Description |
 |----------|-------------|
-| `ZP_DEBUG` | Set to `"1"` when `--debug` is passed to ZP. Modules can use this to enable verbose output. |
-| `ZP_TEST_MODE` | Set to `"1"` when `--test-mode` is active. Modules can use this to adapt their behavior for testing. |
+| `ZP_DEBUG` | Set to `"true"` when `--debug` is passed to ZP. Modules can use this to enable verbose output. |
+| `ZP_TEST_MODE` | Set to `"true"` when `--test-mode` is active. Modules can use this to adapt their behavior for testing. |
 | `ZP_TEST_CONFIG` | Path to the test config JSON file when `--test-config` is provided. |
 
-These variables are only present when the corresponding flag/option is active — modules should check with `os.environ.get("ZP_DEBUG") == "1"`.
+These variables are only present when the corresponding flag/option is active — modules should check with `os.environ.get("ZP_DEBUG") == "true"`.

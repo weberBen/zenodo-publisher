@@ -224,8 +224,8 @@ def test_modules_run_debug_env(tmp_path, fix_log_path):
     assert result.returncode == 0, f"Failed: {result.stderr}"
     done = find_by_name(result.events, "dummy_module.greet.done")
     assert done is not None, f"Expected greet.done event. Events: {result.events}"
-    assert done.get("data", {}).get("zp_debug") == "1", \
-        f"Expected ZP_DEBUG=1 in module env. Got data: {done.get('data')}"
+    assert done.get("data", {}).get("zp_debug") == "true", \
+        f"Expected ZP_DEBUG=true in module env. Got data: {done.get('data')}"
 
 
 def test_modules_run_test_mode_env(tmp_path, fix_log_path):
@@ -240,8 +240,8 @@ def test_modules_run_test_mode_env(tmp_path, fix_log_path):
     assert result.returncode == 0, f"Failed: {result.stderr}"
     done = find_by_name(result.events, "dummy_module.greet.done")
     assert done is not None, f"Expected greet.done event. Events: {result.events}"
-    assert done.get("data", {}).get("zp_test_mode") == "1", \
-        f"Expected ZP_TEST_MODE=1 in module env. Got data: {done.get('data')}"
+    assert done.get("data", {}).get("zp_test_mode") == "true", \
+        f"Expected ZP_TEST_MODE=true in module env. Got data: {done.get('data')}"
 
 
 def test_modules_run_test_config_env(tmp_path, fix_log_path):

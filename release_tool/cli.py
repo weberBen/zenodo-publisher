@@ -201,9 +201,9 @@ def run_cmd(args, fn):
     test_mode = getattr(args, "test_mode", False)
     debug = getattr(args, "debug", False)
     if debug:
-        os.environ["ZP_DEBUG"] = "1"
+        os.environ["ZP_DEBUG"] = "true"
     if test_mode:
-        os.environ["ZP_TEST_MODE"] = "1"
+        os.environ["ZP_TEST_MODE"] = "true"
     test_config = getattr(args, "test_config", None)
     if test_config:
         os.environ["ZP_TEST_CONFIG"] = test_config
