@@ -367,10 +367,7 @@ def _step_archive(ctx: PipelineContext) -> None:
 def _step_compute_hashes(ctx: PipelineContext) -> None:
     """Compute hashes for all entries (skips already-hashed files)."""
     output.step("Computing hashes...")
-    algos = list(ctx.config.hash_algorithms or [])
-    if ctx.config.identity_hash_algo not in algos:
-        algos.append(ctx.config.identity_hash_algo)
-    compute_hashes(ctx.archived_files, algos)
+    compute_hashes(ctx.archived_files, ctx.config.effective_hash_algorithms)
 
     for af in ctx.archived_files:
         output.detail("{filename}", filename=af.file_path.name, name="hash.file")
@@ -481,10 +478,7 @@ def _step_manifest(ctx: PipelineContext) -> None:
         external_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
     )
     # Compute hashes immediately so the manifest entry is ready for signing/identifiers
-    algos = list(ctx.config.hash_algorithms or [])
-    if ctx.config.identity_hash_algo not in algos:
-        algos.append(ctx.config.identity_hash_algo)
-    compute_hashes([manifest_entry], algos)
+    compute_hashes([manifest_entry], ctx.config.effective_hash_algorithms)
 
     ctx.archived_files.append(manifest_entry)
     output.step_ok("Manifest generated")
@@ -539,7 +533,7 @@ def _step_sign(ctx: PipelineContext) -> None:
             publishers=af.publishers,
             external_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
         )
-        compute_hashes([sig_af], ctx.config.hash_algorithms)
+        compute_hashes([sig_af], ctx.config.effective_hash_algorithms)
         ctx.archived_files.append(sig_af)
 
     output.step_ok("Files signed")
@@ -662,7 +656,10 @@ def _step_modules(ctx: PipelineContext) -> None:
                 module_entry_type=rf.get("module_entry_type"),
                 external_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
             )
+            compute_hashes([fe], ctx.config.effective_hash_algorithms)
+            
             ctx.archived_files.append(fe)
+            
             output.detail(
                 "Module entry: {filename} (key={config_key}, entry_type={module_entry_type},"
                 " archive={archive})",

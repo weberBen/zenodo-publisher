@@ -46,8 +46,16 @@ def _build_uv_cmd(module_path: Path, *args) -> list[str]:
 
 
 def _subprocess_env() -> dict:
-    """Return os.environ without VIRTUAL_ENV so uv doesn't warn about env mismatch."""
-    return {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    """Return os.environ without VIRTUAL_ENV so uv doesn't warn about env mismatch.
+
+    Adds the modules/ directory to PYTHONPATH so built-in modules can
+    import _shared utilities.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    modules_dir = str(Path(__file__).parent)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{modules_dir}:{existing}" if existing else modules_dir
+    return env
 
 
 def find_module_path(provider_name: str, project_root: Path | None = None) -> Path:

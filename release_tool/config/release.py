@@ -220,6 +220,13 @@ class ReleaseConfig(CommonConfig):
         validate_no_pattern_overlap(self.generated_files)
 
         validate(self)
+        
+        # Merge hash_algorithms + dedublicate
+        base_hash_algos = {"md5", "sha256"}
+        if self.identity_hash_algo:
+            base_hash_algos = base_hash_algos | {self.identity_hash_algo}
+        extra_hash_algos = set(self.hash_algorithms or [])
+        self.effective_hash_algorithms = base_hash_algos | extra_hash_algos
 
     def _resolve_pattern_templates(self):
         """Resolve {var} in pattern entries using config values.

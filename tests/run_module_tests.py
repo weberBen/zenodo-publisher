@@ -209,6 +209,8 @@ def _run_module(
     cmd.extend(extra)
 
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    # Allow built-in modules to import _shared
+    env["PYTHONPATH"] = str(BUILTIN_MODULES_DIR)
 
     print(f"\n{'─' * 60}", flush=True)
     print(f"  module : {module_name}", flush=True)
