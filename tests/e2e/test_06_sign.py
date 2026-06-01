@@ -1033,11 +1033,14 @@ def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_path)
 
     # Download both and verify hashes
     persist_dir = archive_dir / TAG
+    persisted = {f.name: f for f in fs.list_files(persist_dir)}
     with tempfile.TemporaryDirectory() as tmp:
         for name in ("output.txt", "output.txt.asc"):
+            assert name in persisted, \
+                f"{name} not found in persist dir. Got: {list(persisted.keys())}"
             downloaded = gh.download_asset(TAG, name, Path(tmp))
             dl_hash = fs.compute_hash(downloaded, "sha256")
-            local_hash = fs.compute_hash(persist_dir / name, "sha256")
+            local_hash = fs.compute_hash(persisted[name], "sha256")
             assert dl_hash == local_hash, \
                 f"{name} hash mismatch: downloaded={dl_hash}, local={local_hash}"
 
