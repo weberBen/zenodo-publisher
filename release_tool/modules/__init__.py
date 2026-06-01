@@ -230,8 +230,7 @@ def run_module_standalone(provider_name: str, args: list[str],
         try:
             event = json.loads(line)
         except (json.JSONDecodeError, ValueError):
-            print(line)
-            continue
+            event = {"type": "info", "msg": line, "name": ""}
         output_module.module_emit(event, module_name=provider_name)
 
     proc.wait()

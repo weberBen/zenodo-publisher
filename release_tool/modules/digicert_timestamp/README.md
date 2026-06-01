@@ -39,15 +39,21 @@ zp modules run digicert_timestamp --help
 zp modules run digicert_timestamp certify paper.pdf
 zp modules run digicert_timestamp certify paper.pdf --algo sha512 --output-dir ./timestamps
 
-# Verify a file against a .tsr timestamp
+# Verify a file against a .tsr timestamp (algo auto-detected from TSR)
 zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
 zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr --check-chain
+zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr --algo sha512
+
+# Inspect TSR metadata (timestamp, algo, chain, serial)
+zp modules run digicert_timestamp info paper.pdf.tsr
+zp modules run digicert_timestamp info paper.pdf.tsr --check-chain
 ```
 
 | Subcommand | Description |
 |------------|-------------|
 | `certify` | Request a RFC 3161 timestamp for a file. Options: `--algo` (hash algorithm), `--full-chain`/`--no-full-chain`, `--output-dir` |
-| `verify` | Verify a file against a `.tsr` timestamp. Options: `--algo`, `--check-chain`, `--root-cert` |
+| `verify` | Verify a file against a `.tsr` timestamp. Auto-detects hash algo from TSR. Options: `--algo` (override), `--check-chain`, `--root-cert` |
+| `info` | Display TSR metadata (timestamp, hash algorithm, serial, chain status). Options: `--check-chain` |
 
 ## Verification
 

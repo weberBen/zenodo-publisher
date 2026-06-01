@@ -6,14 +6,25 @@
 
 ## Standalone mode
 
-Modules can be run outside of the pipeline via `zp modules run <name> [args...]`. This passes all arguments directly to the module's entry point, allowing access to module-specific standalone subcommands (e.g. `certify`, `verify` for digicert_timestamp).
+Modules can be run outside of the pipeline via `zp modules run <name> [args...]`. Arguments after the module name are passed directly to the module subprocess.
 
 ```bash
 zp modules list                                          # list available modules
 zp modules run digicert_timestamp --help                 # show module help
 zp modules run digicert_timestamp certify paper.pdf      # certify a file
 zp modules run digicert_timestamp verify paper.pdf f.tsr # verify a timestamp
+zp modules --debug run digicert_timestamp verify f f.tsr # with debug output
 ```
+
+### NDJSON event relay
+
+In standalone mode, ZP captures the module's stdout and relays NDJSON events through its output system. This means:
+
+- Events of type `detail`, `detail_ok`, `warn`, `error`, `step`, `step_ok` are formatted as human-readable output
+- Events of type `cmd` and `debug` are only shown when `--debug` is passed to ZP
+- Non-NDJSON lines (plain text) are passed through as-is
+
+This allows modules to use the same `emit()` function for both pipeline and standalone modes, and `--debug` controls verbosity uniformly.
 
 ## Module protocol
 

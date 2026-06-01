@@ -175,11 +175,17 @@ zp modules run digicert_timestamp --help
 # Certify a file with a RFC 3161 timestamp
 zp modules run digicert_timestamp certify paper.pdf --algo sha256
 
-# Verify a file against a .tsr timestamp
+# Verify a file against a .tsr timestamp (algo auto-detected from TSR)
 zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
+
+# Inspect TSR metadata
+zp modules run digicert_timestamp info paper.pdf.tsr
+
+# With debug output (shows subprocess commands)
+zp modules --debug run digicert_timestamp verify paper.pdf paper.pdf.tsr
 ```
 
-Arguments after the module name are passed directly to the module.
+Arguments after the module name are passed directly to the module. ZP captures the module's stdout and relays NDJSON events through its output system — events of type `cmd` and `debug` are only shown with `--debug`. Non-NDJSON lines are passed through as-is.
 
 ## Project Setup
 
