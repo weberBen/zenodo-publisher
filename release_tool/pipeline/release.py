@@ -45,7 +45,7 @@ from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
 from .checkpoint import (
-    delete_cache_dir, does_cache_exists, get_cache_dir,
+    cleanup_stale_caches, delete_cache_dir, does_cache_exists, get_cache_dir,
     read_checkpoint, restore_from_checkpoint, write_checkpoint,
 )
 
@@ -923,7 +923,7 @@ def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
 
     Side effects: sets ctx.output_dir = cache_dir and ctx.caching_active = True.
     """
-    
+    cleanup_stale_caches(ctx.config.project_root, cache_id)
 
     if does_cache_exists(ctx.config.project_root, cache_id):
         checkpoint = read_checkpoint(cache_id, ctx.config.project_root)
@@ -952,7 +952,8 @@ def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
                     ctx.caching_active = True
                     output.step_ok(
                         "Resuming after step '{step}'",
-                        step=resume_after.value, name="cache.resume",
+                        step=resume_after.value, tag=cache_id,
+                        name="cache.resume",
                     )
                     return resume_after
                 else:

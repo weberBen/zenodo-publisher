@@ -45,12 +45,12 @@ def _base_config(archive_dir: Path, generated_files: dict | None = None) -> dict
 # compile disabled → no confirm_build.
 # confirm_publish → "no" to skip real publish.
 _TEST_CONFIG = {
-    "prompts": {"confirm_publish": "no"},
+    "prompts": {"confirm_resume": "no", "confirm_publish": "no"},
     "verify_prompts": False,
 }
 
 _TEST_CONFIG_WITH_BUILD = {
-    "prompts": {"confirm_build": "yes", "confirm_publish": "no"},
+    "prompts": {"confirm_resume": "no", "confirm_build": "yes", "confirm_publish": "no"},
     "verify_prompts": False,
 }
 

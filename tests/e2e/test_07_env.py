@@ -39,6 +39,7 @@ deploy:
 """
 
 _PROMPTS = {
+    "confirm_resume": "no",
     "enter_tag": TAG,
     "release_title": "",
     "release_notes": "",

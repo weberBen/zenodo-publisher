@@ -221,6 +221,7 @@ def _base_config(archive_dir: Path, module_cfg: dict | None = None) -> dict:
 def _test_config(run_module: str = "yes") -> dict:
     return {
         "prompts": {
+            "confirm_resume": "no",
             "confirm_run_module": run_module,
             "confirm_publish": "no",
         },

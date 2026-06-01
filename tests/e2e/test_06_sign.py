@@ -53,6 +53,7 @@ _PROMPTS = {
     "enter_tag": TAG,
     "release_title": "",
     "release_notes": "",
+    "confirm_resume": "no",
     "confirm_build": "yes",
     "confirm_publish": "yes",
     "confirm_gpg_key": "yes",
@@ -835,6 +836,7 @@ def test_manifest_annotated_tag(repo_env, fix_log_path):
     archive_dir = Path(tempfile.mkdtemp())
     prompts_annotated = {
         # Release already exists → no enter_tag/title/notes prompts
+        "confirm_resume": "no",
         "confirm_build": "yes",
         "confirm_publish": "no",
     }

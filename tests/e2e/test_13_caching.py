@@ -11,6 +11,8 @@ Scenarios covered:
   - Archived files not regenerated on resume (archive events absent in run 2)
   - Cache discarded (user answers no → fresh run)
   - Cache dir is tag-specific (.zp/cache/{tag_name}/)
+  - Stale caches from other tags are cleaned at startup (with warn events)
+  - Stale cleanup preserves the current tag's cache (resume still works)
 """
 
 import tempfile
@@ -22,7 +24,7 @@ import pytest
 from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.github import GithubClient
-from tests.utils.ndjson import find_by_name, find_errors, get_prompt_names
+from tests.utils.ndjson import find_by_name, find_all_by_name, find_errors, get_prompt_names
 
 TAG = "v-test-caching"
 
@@ -257,7 +259,10 @@ def test_resume_from_builtin_step(release_env, fix_log_path):
 
     errors = find_errors(run2.events)
     assert not errors, f"Resume produced errors: {errors}"
-    assert find_by_name(run2.events, "cache.resume"), "Expected cache.resume event"
+    resume = find_by_name(run2.events, "cache.resume")
+    assert resume is not None, "Expected cache.resume event"
+    assert resume.get("data", {}).get("tag") == TAG, \
+        f"Expected resume for tag '{TAG}'. Got: {resume.get('data')}"
     assert not _cache_dir(repo_dir).exists(), "Cache dir should be deleted after successful resume"
 
 
@@ -587,3 +592,90 @@ def test_cache_dir_is_tag_specific(release_env, fix_log_path):
     tag_dirs = [d for d in cache_base.iterdir() if d.is_dir()]
     assert tag_dirs == [expected_cache], \
         f"Only {TAG} cache dir should exist, found: {[d.name for d in tag_dirs]}"
+
+
+def test_stale_caches_cleaned_on_startup(release_env, fix_log_path):
+    """Stale cache dirs from other tags are cleaned at pipeline startup."""
+    repo_dir, git, gh, archive_dir = release_env
+
+    # Create fake stale cache dirs
+    cache_base = repo_dir / ".zp" / "cache"
+    cache_base.mkdir(parents=True, exist_ok=True)
+    stale_tags = ["v-old-1", "v-old-2", "v-leftover"]
+    for tag in stale_tags:
+        (cache_base / tag).mkdir(parents=True, exist_ok=True)
+        (cache_base / tag / "dummy.txt").write_text("stale")
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test(
+        "release",
+        config=_base_config(archive_dir),
+        test_config=_crash_config("hash"),
+        log_path=fix_log_path,
+        fail_on="ignore",
+    )
+
+    assert not result.ok
+
+    # Stale caches should be deleted
+    for tag in stale_tags:
+        assert not (cache_base / tag).exists(), \
+            f"Stale cache {tag} should have been cleaned"
+
+    # Current tag cache should exist
+    assert (cache_base / TAG).exists(), \
+        f"Current tag cache {TAG} should still exist"
+
+    # Warn events should be emitted for each stale cache
+    cleanup_events = find_all_by_name(result.events, "cache.stale_cleanup")
+    cleaned_tags = {e.get("data", {}).get("tag") for e in cleanup_events}
+    assert set(stale_tags) == cleaned_tags, \
+        f"Expected stale_cleanup events for {stale_tags}. Got: {cleaned_tags}"
+
+
+def test_stale_cleanup_preserves_current_tag_cache(release_env, fix_log_path):
+    """Stale cleanup does NOT delete the current tag's cache (resume scenario)."""
+    repo_dir, git, gh, archive_dir = release_env
+
+    runner = ZpRunner(repo_dir)
+
+    # Run 1: crash to create a checkpoint for the current tag
+    run1 = runner.run_test(
+        "release",
+        config=_base_config(archive_dir),
+        test_config=_crash_config("hash"),
+        log_path=fix_log_path,
+        fail_on="ignore",
+    )
+    assert not run1.ok
+    assert _checkpoint_file(repo_dir).exists(), "Checkpoint should exist after crash"
+
+    # Add a stale cache for another tag
+    cache_base = repo_dir / ".zp" / "cache"
+    (cache_base / "v-stale").mkdir(parents=True, exist_ok=True)
+
+    # Run 2: resume — current tag cache should be preserved, stale removed
+    run2 = runner.run_test(
+        "release",
+        config=_base_config(archive_dir),
+        test_config=_resume_config("yes"),
+        log_path=fix_log_path,
+    )
+
+    # Stale cache should be gone
+    assert not (cache_base / "v-stale").exists(), \
+        "Stale cache should have been cleaned during resume"
+
+    # Cleanup event should appear with the stale tag name
+    cleanup = find_by_name(run2.events, "cache.stale_cleanup")
+    assert cleanup is not None, \
+        f"Expected cache.stale_cleanup event. Events: {run2.events}"
+    assert cleanup.get("data", {}).get("tag") == "v-stale", \
+        f"Expected stale cleanup for 'v-stale'. Got: {cleanup.get('data')}"
+
+    # Resume should have worked (current cache was preserved)
+    resume = find_by_name(run2.events, "cache.resume")
+    assert resume is not None, \
+        f"Expected cache.resume — current tag cache should have been preserved for resume"
+    assert resume.get("data", {}).get("tag") == TAG, \
+        f"Expected resume for tag '{TAG}'. Got: {resume.get('data')}"

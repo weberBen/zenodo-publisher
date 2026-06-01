@@ -25,6 +25,7 @@ from tests.utils import fs
 TAG = "v-test-pattern"
 
 RELEASE_PROMPTS = {
+    "confirm_resume": "no",
     "enter_tag": TAG,
     "release_title": "",
     "release_notes": "",

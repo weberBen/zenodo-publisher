@@ -156,6 +156,7 @@ Tests control interactive prompt responses via a test config dict passed to `ZpR
 ```python
 _TEST_CONFIG = {
     "prompts": {
+        "confirm_resume": "no",
         "enter_tag": "v1.0.0",
         "release_title": "",
         "confirm_build": "yes",
@@ -174,6 +175,27 @@ _TEST_CONFIG = {
 - `cli.args`: extra CLI arguments appended to the `zp` command (e.g. `--sign`, `--no-compile`)
 
 `ZpRunner.run_test()` writes temporary config files and passes them to ZP via `--config` and `--test-config`.
+
+### Cache resume prompt
+
+The pipeline caching system creates a `.zp/cache/{tag}/` directory that persists across runs. If a previous run crashed or was interrupted, the cache directory may survive the test teardown (`.zp/` is gitignored, so `git clean -fd` does not remove it). When the next test runs with the same tag, ZP prompts `confirm_resume`.
+
+**Always include `"confirm_resume": "no"` in your test prompts** to ensure a clean run:
+
+```python
+_TEST_CONFIG = {
+    "prompts": {
+        "confirm_resume": "no",       # ensure clean run even with leftover cache
+        "confirm_build": "yes",
+        "confirm_publish": "no",
+    },
+    "verify_prompts": False,
+}
+```
+
+Without this, leftover caches from manual runs or crashed tests will cause `No test response for prompt 'confirm_resume'` errors. The only exception is tests that explicitly test the resume feature (test_13), which use `"confirm_resume": "yes"`.
+
+Note: ZP automatically cleans stale caches from other tags at pipeline startup (emitting `cache.stale_cleanup` warnings). Only the cache for the current tag is preserved for potential resume.
 
 ### Error validation
 

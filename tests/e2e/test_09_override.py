@@ -44,6 +44,7 @@ def _base_config(archive_dir: Path, **overrides) -> dict:
 
 
 _PROMPTS = {
+    "confirm_resume": "no",
     "enter_tag": TAG,
     "release_title": "",
     "release_notes": "",
