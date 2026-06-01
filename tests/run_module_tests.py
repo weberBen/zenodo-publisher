@@ -87,6 +87,7 @@ def _collect_pytest_ids(module_dir: Path, test_file: str | None = None) -> list[
     _completion_vars = {"VIRTUAL_ENV", "_ARGCOMPLETE", "_ARGCOMPLETE_IFS", "_ARGCOMPLETE_SHELL",
                         "COMP_LINE", "COMP_POINT", "COMP_TYPE", "COMP_KEY", "COMP_WORDBREAKS"}
     env = {k: v for k, v in os.environ.items() if k not in _completion_vars}
+    env["PYTHONPATH"] = str(BUILTIN_MODULES_DIR)
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True,
