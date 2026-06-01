@@ -178,35 +178,67 @@ def test_main_check_invalid_config(tmp_path, capsys):
     assert event["name"] == "digicert_timestamp.check.invalid_config"
 
 
-def test_main_unsupported_algo(tmp_path, capsys):
-    """main --input avec identity_hash_algo=md5 (non supporté RFC 3161) émet unsupported_algo et exit 1."""
-    data = _make_input(tmp_path, algo="md5", hex_hash="a" * 32)
+def test_main_unsupported_algo_fallback(tmp_path, capsys):
+    """main --input avec identity_hash_algo=md5 (non supporté RFC 3161): warn + fallback sha256."""
+    # Create a real file so compute_file_hash can read it
+    dummy = tmp_path / "paper.pdf"
+    dummy.write_bytes(b"test content")
+
+    data = _make_input(tmp_path, algo="md5", hex_hash="a" * 32, file_path=str(dummy))
     data["files"][0]["hashes"] = {"md5": {"type": "md5", "value": "a" * 32,
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
+
+    mock_resp = MagicMock()
+    mock_resp.content = b"fake-tsr"
+    mock_resp.raise_for_status = MagicMock()
+
     sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
-    with pytest.raises(SystemExit) as exc:
+    with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
+         patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
+         patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
         mod.main()
-    assert exc.value.code == 1
-    event = json.loads(capsys.readouterr().out.strip())
-    assert event["name"] == "digicert_timestamp.unsupported_algo"
+
+    lines = [l for l in capsys.readouterr().out.strip().splitlines() if l.strip()]
+    events = [json.loads(l) for l in lines]
+    warn = next((e for e in events if e.get("name") == "digicert_timestamp.unsupported_algo"), None)
+    assert warn is not None, f"Expected unsupported_algo warn. Events: {events}"
+    assert warn["type"] == "warn"
+    assert warn["data"]["algo"] == "md5"
 
 
-def test_main_missing_hash(tmp_path, capsys):
-    """main --input où identity_hash_algo=sha256 mais seul md5 est dans hashes émet missing_hash et exit 1."""
-    data = _make_input(tmp_path)
+def test_main_missing_hash_fallback(tmp_path, capsys):
+    """main --input avec sha256 absent des hashes: fallback compute_file_hash."""
+    # Create a real file so compute_file_hash can read it
+    dummy = tmp_path / "paper.pdf"
+    dummy.write_bytes(b"test content")
+
+    data = _make_input(tmp_path, file_path=str(dummy))
     data["files"][0]["hashes"] = {"md5": {"type": "md5", "value": "a" * 32,
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
+
+    mock_resp = MagicMock()
+    mock_resp.content = b"fake-tsr"
+    mock_resp.raise_for_status = MagicMock()
+
     sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
-    with pytest.raises(SystemExit) as exc:
+    with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
+         patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
+         patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
         mod.main()
-    assert exc.value.code == 1
-    event = json.loads(capsys.readouterr().out.strip())
-    assert event["name"] == "digicert_timestamp.missing_hash"
-    assert event["data"]["algo"] == "sha256"
+
+    lines = [l for l in capsys.readouterr().out.strip().splitlines() if l.strip()]
+    events = [json.loads(l) for l in lines]
+    # Should have computed hash from file (cmd event)
+    hash_event = next((e for e in events if "start.hash" in (e.get("name") or "")), None)
+    assert hash_event is not None, f"Expected start.hash event (file hash fallback). Events: {events}"
+    assert "Computing" in hash_event["msg"]
+    # Should produce a result
+    result = next((e for e in events if e.get("type") == "result"), None)
+    assert result is not None, f"Expected result. Events: {events}"
 
 
 def test_main_success_result(tmp_path, capsys):

@@ -32,16 +32,12 @@ from pathlib import Path
 import requests
 import rfc3161ng
 
+from _shared import create_emitter, compute_file_hash, run_module_files
+
 TSA_URL = "http://timestamp.digicert.com"
 SUPPORTED_ALGOS = {"sha1", "sha256", "sha384", "sha512"}
 
-
-def emit(type_: str, msg: str, name: str = "", **kwargs) -> None:
-    """Emit a NDJSON event line to stdout (relayed by ZP to the user)."""
-    event = {"type": type_, "msg": msg, "name": f"digicert_timestamp.{name}" if name else ""}
-    if kwargs:
-        event["data"] = kwargs
-    print(json.dumps(event), flush=True)
+emit = create_emitter("digicert_timestamp")
 
 
 def request_timestamp(hex_hash: str, algo: str, full_chain: bool,
@@ -79,74 +75,58 @@ def check(module_config: dict) -> None:
          name="check.ok")
 
 
-def compute_file_hash(file_path: Path, algo: str) -> str:
-    """Compute hash of a file and return hex digest."""
-    import hashlib
-    h = hashlib.new(algo)
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 # ---------------------------------------------------------------------------
 # Pipeline handlers (called by ZP via 'run --input' / 'check --config')
 # ---------------------------------------------------------------------------
 
-def _cmd_run(args):
-    with open(args.input, encoding="utf-8") as f:
-        data = json.load(f)
+def _process_file(f):
+    """Pipeline handler for a single file."""
+    full_chain = f["module_config"].get("full_chain", True)
+    algo = f["identity_hash_algo"]
 
-    output_dir = Path(data["output_dir"])
-    algo = data["config"].get("identity_hash_algo", "sha256")
     if algo not in SUPPORTED_ALGOS:
-        emit("error",
-             f"identity_hash_algo '{algo}' is not supported by RFC 3161 / DigiCert TSA. "
-             f"Use one of: {sorted(SUPPORTED_ALGOS)}",
+        emit("warn",
+             "identity_hash_algo '{algo}' is not supported by DigiCert TSA. "
+             "Use one of: {supported}. Switching to default sha256",
+             algo=algo,
+             supported=sorted(SUPPORTED_ALGOS),
              name="unsupported_algo")
+        algo = "sha256"
+
+    # Use pre-computed hash if available, otherwise hash the file directly
+    if algo in f["hashes"]:
+        hex_hash = f["hashes"][algo]["value"]
+        emit("cmd", f"Using pre-computed {algo} hash", name="start.hash")
+    else:
+        emit("cmd", f"Computing {algo} hash of {f['filename']}", name="start.hash")
+        hex_hash = compute_file_hash(f["file_path"], algo)
+
+    emit("detail", f"Timestamping '{f['filename']}' ({algo})...",
+         filename=f["filename"], algo=algo, name="start")
+
+    try:
+        tsr_path = request_timestamp(hex_hash, algo, full_chain, f["output_dir"], f["filename"])
+    except requests.RequestException as e:
+        emit("error", f"DigiCert TSA request failed for '{f['filename']}': {e}",
+             name="tsa_error")
         sys.exit(1)
-    result_files = []
+    except Exception as e:
+        emit("error", f"Timestamping failed for '{f['filename']}': {e}",
+             name="error")
+        sys.exit(1)
 
-    for file_info in data["files"]:
-        filename = Path(file_info["file_path"]).name
-        module_cfg = file_info.get("module_config", {})
-        full_chain = module_cfg.get("full_chain", True)
+    emit("detail_ok", f"Timestamp saved: {tsr_path.name}",
+         tsr=tsr_path.name, name="done")
 
-        hashes = file_info.get("hashes", {})
-        if algo not in hashes:
-            emit("error", "Hash '{algo}' not found for '{filename}' "
-                 "(available: {available_hash_algo})",
-                 algo=algo,
-                 filename=filename,
-                 available_hash_algo=list(hashes.keys()),
-                 name="missing_hash")
-            sys.exit(1)
-        hex_hash = hashes[algo]["value"]
+    return {
+        "file_path": str(tsr_path),
+        "config_key": f["config_key"],
+        "module_entry_type": "tsr",
+    }
 
-        emit("detail", f"Timestamping '{filename}' ({algo})...",
-             filename=filename, algo=algo, name="start")
 
-        try:
-            tsr_path = request_timestamp(hex_hash, algo, full_chain, output_dir, filename)
-        except requests.RequestException as e:
-            emit("error", f"DigiCert TSA request failed for '{filename}': {e}",
-                 name="tsa_error")
-            sys.exit(1)
-        except Exception as e:
-            emit("error", f"Timestamping failed for '{filename}': {e}",
-                 name="error")
-            sys.exit(1)
-
-        emit("detail_ok", f"Timestamp saved: {tsr_path.name}",
-             tsr=tsr_path.name, name="done")
-
-        result_files.append({
-            "file_path": str(tsr_path),
-            "config_key": file_info["config_key"],
-            "module_entry_type": "tsr",
-        })
-
-    print(json.dumps({"type": "result", "files": result_files}), flush=True)
+def _cmd_run(args):
+    run_module_files(args, handler=_process_file)
 
 
 def _cmd_check(args):

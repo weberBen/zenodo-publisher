@@ -2,18 +2,14 @@
 """Verify a RFC 3161 timestamp response (TSR) against a file."""
 
 import argparse
-import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from _shared import create_emitter
 
-def emit(type_: str, msg: str, name: str = "", **kwargs) -> None:
-    event = {"type": type_, "msg": msg, "name": f"digicert_timestamp.{name}" if name else ""}
-    if kwargs:
-        event["data"] = kwargs
-    print(json.dumps(event), flush=True)
+emit = create_emitter("digicert_timestamp")
 
 
 def run(cmd: list[str], capture=True) -> subprocess.CompletedProcess:
