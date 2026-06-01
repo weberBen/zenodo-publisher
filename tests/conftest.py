@@ -216,6 +216,15 @@ def fix_gpg_uid():
     return gpg_uid
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print a reminder to run module-specific tests after e2e tests."""
+    terminalreporter.write_line("")
+    terminalreporter.write_line(
+        "Module tests: uv run tests/run_module_tests.py --all",
+        bold=True,
+    )
+
+
 @pytest.fixture
 def repo_env(request, fix_repo_dir, fix_repo_git):
     """Yield (repo_dir, git_client), then auto-reset the repo.
