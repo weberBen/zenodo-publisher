@@ -173,7 +173,7 @@ Runs a module in standalone mode, without the full pipeline config. Each module 
 zp modules run digicert_timestamp --help
 
 # Certify a file with a RFC 3161 timestamp
-zp modules run digicert_timestamp certify paper.pdf --algo sha256
+zp modules run digicert_timestamp stamp paper.pdf --algo sha256
 
 # Verify a file against a .tsr timestamp (algo auto-detected from TSR)
 zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
@@ -603,7 +603,7 @@ uv run --project <module_dir> <name>.py run --input <json_file>
 uv run --project <module_dir> <name>.py check --config <json_file>
 ```
 
-Without arguments, the module should display help and exit with code 1. Modules may also define additional standalone subcommands (e.g. `certify`, `verify` for `digicert_timestamp`) accessible via `zp modules run <name> <subcommand>`.
+Without arguments, the module should display help and exit with code 1. Modules may also define additional standalone subcommands (e.g. `stamp`, `verify` for `digicert_timestamp`) accessible via `zp modules run <name> <subcommand>`.
 
 #### Environment variables
 

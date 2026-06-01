@@ -537,32 +537,32 @@ def _run_standalone(args: list[str], tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Standalone: certify
+# Standalone: stamp
 # ---------------------------------------------------------------------------
 
 @pytest.mark.network
-def test_live_certify_produces_tsr(tmp_path):
-    """certify subcommand produces a .tsr file."""
+def test_live_stamp_produces_tsr(tmp_path):
+    """stamp subcommand produces a .tsr file."""
     dummy = tmp_path / "test.bin"
-    dummy.write_bytes(b"certify test")
+    dummy.write_bytes(b"stamp test")
 
     events, rc = _run_standalone(
-        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
 
-    assert rc == 0, f"certify failed (rc={rc}). Events: {events}"
+    assert rc == 0, f"stamp failed (rc={rc}). Events: {events}"
     tsr_path = tmp_path / "test.bin.tsr"
     assert tsr_path.exists(), "TSR file not produced"
     assert tsr_path.stat().st_size > 0
 
 
 @pytest.mark.network
-def test_live_certify_algo_sha512(tmp_path):
-    """certify with --algo sha512 produces a TSR with sha512."""
+def test_live_stamp_algo_sha512(tmp_path):
+    """stamp with --algo sha512 produces a TSR with sha512."""
     dummy = tmp_path / "test.bin"
-    dummy.write_bytes(b"certify sha512 test")
+    dummy.write_bytes(b"stamp sha512 test")
 
     events, rc = _run_standalone(
-        ["certify", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
 
     assert rc == 0
     tsr_path = tmp_path / "test.bin.tsr"
@@ -572,18 +572,18 @@ def test_live_certify_algo_sha512(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Standalone: verify (round-trip with certify)
+# Standalone: verify (round-trip with stamp)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.network
 def test_live_verify_roundtrip(tmp_path):
-    """certify then verify: full round-trip succeeds."""
+    """stamp then verify: full round-trip succeeds."""
     dummy = tmp_path / "test.bin"
     dummy.write_bytes(b"roundtrip test")
 
     # Certify
     _, rc = _run_standalone(
-        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     # Verify
@@ -605,7 +605,7 @@ def test_live_verify_auto_detects_algo(tmp_path):
 
     # Certify with sha512
     _, rc = _run_standalone(
-        ["certify", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     # Verify without --algo
@@ -629,7 +629,7 @@ def test_live_verify_wrong_file_fails(tmp_path):
 
     # Certify original
     _, rc = _run_standalone(
-        ["certify", str(original), "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(original), "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     # Verify with tampered file
@@ -655,7 +655,7 @@ def test_live_info_shows_metadata(tmp_path):
 
     # Certify first
     _, rc = _run_standalone(
-        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     # Info
@@ -676,7 +676,7 @@ def test_live_info_full_chain_embedded(tmp_path):
     dummy.write_bytes(b"info chain test")
 
     _, rc = _run_standalone(
-        ["certify", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     tsr_path = tmp_path / "test.bin.tsr"
@@ -699,7 +699,7 @@ def test_live_parse_tsr_algo(tmp_path):
     dummy.write_bytes(b"algo parse test")
 
     _, rc = _run_standalone(
-        ["certify", str(dummy), "--algo", "sha384", "--output-dir", str(tmp_path)], tmp_path)
+        ["stamp", str(dummy), "--algo", "sha384", "--output-dir", str(tmp_path)], tmp_path)
     assert rc == 0
 
     tsr_path = tmp_path / "test.bin.tsr"

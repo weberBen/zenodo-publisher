@@ -141,7 +141,7 @@ def _cmd_check(args):
 # Standalone handlers (via 'zp modules run digicert_timestamp')
 # ---------------------------------------------------------------------------
 
-def _cmd_certify(args):
+def _cmd_stamp(args):
     file_path = args.file.resolve()
     if not file_path.exists():
         emit("error", f"File not found: {file_path}", name="file_not_found")
@@ -224,14 +224,14 @@ def build_parser() -> argparse.ArgumentParser:
     check_p.add_argument("--config")
 
     # Standalone
-    certify_p = sub.add_parser("certify", help="Certify a file with RFC 3161 timestamp")
-    certify_p.add_argument("file", type=Path, help="File to certify")
-    certify_p.add_argument("--algo", default="sha256", choices=SORTED_ALGOS,
+    stamp_p = sub.add_parser("stamp", help="Stamp a file with RFC 3161 timestamp")
+    stamp_p.add_argument("file", type=Path, help="File to stamp")
+    stamp_p.add_argument("--algo", default="sha256", choices=SORTED_ALGOS,
                            help="Hash algorithm (default: sha256)")
-    certify_p.add_argument("--full-chain", "--no-full-chain",
+    stamp_p.add_argument("--full-chain", "--no-full-chain",
                            action=argparse.BooleanOptionalAction, default=True,
                            help="Embed full cert chain in the TSR (default: true)")
-    certify_p.add_argument("--output-dir", type=Path, default=None,
+    stamp_p.add_argument("--output-dir", type=Path, default=None,
                            help="Output directory (default: same as input file)")
 
     info_p = sub.add_parser("info", help="Display TSR metadata (timestamp, algo, chain)")
@@ -250,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Root CA for chain validation (auto-discovered if omitted)")
 
     _HANDLERS.update({"run": _cmd_run, "check": _cmd_check,
-                      "certify": _cmd_certify, "info": _cmd_info,
+                      "stamp": _cmd_stamp, "info": _cmd_info,
                       "verify": _cmd_verify})
     return parser
 

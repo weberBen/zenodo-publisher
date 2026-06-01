@@ -12,7 +12,7 @@ Modules can be run outside of the pipeline via `zp modules run <name> [args...]`
 ```bash
 zp modules list                                          # list available modules
 zp modules run digicert_timestamp --help                 # show module help
-zp modules run digicert_timestamp certify paper.pdf      # certify a file
+zp modules run digicert_timestamp stamp paper.pdf        # stamp a file
 zp modules run digicert_timestamp verify paper.pdf f.tsr # verify a timestamp
 zp modules --debug run digicert_timestamp verify f f.tsr # with debug output
 ```
@@ -35,7 +35,7 @@ Every module must implement at least two **subcommands** (positional, not flags)
 
 Without arguments, the module should display help and exit with code 1.
 
-Modules may also define additional standalone subcommands alongside the pipeline ones (e.g. `certify`, `verify`).
+Modules may also define additional standalone subcommands alongside the pipeline ones (e.g. `stamp`, `verify`).
 
 ### Environment variables
 
