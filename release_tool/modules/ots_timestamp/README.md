@@ -17,10 +17,17 @@ Unlike DigiCert (centralized, instant, trust-based), OpenTimestamps is **decentr
 ```yaml
 modules:
   ots_timestamp:
-    calendar_urls:                          # optional, defaults to OTS pool
+    calendars:                              # optional, defaults to OTS pool
       - https://a.pool.opentimestamps.org
       - https://b.pool.opentimestamps.org
+      - https://a.pool.eternitywall.com
+    nonce: true                             # privacy nonce (default: true)
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `calendars` | OTS pool (4 servers) | Calendar server URLs for stamping |
+| `nonce` | `true` | Add privacy nonce so calendars never see the real file hash |
 
 ## Pipeline behavior
 

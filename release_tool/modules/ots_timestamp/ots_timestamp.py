@@ -349,8 +349,10 @@ def get_ots_info(ots_path: Path) -> dict:
 
 def _process_file(f):
     """Pipeline handler for a single file."""
-    calendar_urls = f["module_config"].get("calendar_urls", None)
-    nonce = f["module_config"].get("nonce", True)
+    cfg = f["module_config"]
+    calendar_urls = cfg.get("calendars", cfg.get("calendar_urls", None))
+    nonce = cfg.get("nonce", True)
+    upgrade_cfg = cfg.get("upgrade", {})
     algo = f["identity_hash_algo"]
 
     if algo not in SUPPORTED_ALGOS:
@@ -386,6 +388,11 @@ def _process_file(f):
         "file_path": str(ots_path),
         "config_key": f["config_key"],
         "module_entry_type": "ots",
+        "module_config": {
+            "calendars": calendar_urls or DEFAULT_CALENDAR_URLS,
+            "nonce": nonce,
+            "upgrade": upgrade_cfg,
+        },
     }
 
 
@@ -400,7 +407,7 @@ def _cmd_check(args):
         with open(args.config, encoding="utf-8") as f:
             module_config = json.load(f).get("module_config", {})
 
-    calendar_urls = module_config.get("calendar_urls", DEFAULT_CALENDAR_URLS)
+    calendar_urls = module_config.get("calendars", module_config.get("calendar_urls", DEFAULT_CALENDAR_URLS))
 
     reachable = 0
     for url in calendar_urls:
@@ -496,23 +503,26 @@ def _cmd_upgrade(args):
                      name="upgrade.pending")
                 continue
 
-        # Collect all attestations
+        # Collect attestations
         detached = _deserialize_ots(ots_path)
-        bitcoin_atts = []
-        pending_count = 0
-        for msg, att in detached.timestamp.all_attestations():
-            if isinstance(att, BitcoinBlockHeaderAttestation):
-                bitcoin_atts.append((msg, att))
-            elif isinstance(att, PendingAttestation):
-                pending_count += 1
-        total = len(bitcoin_atts) + pending_count
-
-        # Verify each Bitcoin attestation + collect headers
         now = _time.time()
         verified_headers = []
+        bitcoin_atts = []
+        pending_uris = []
+        seen_blocks = set()
+
+        for msg, att in detached.timestamp.all_attestations():
+            if isinstance(att, BitcoinBlockHeaderAttestation):
+                if att.height not in seen_blocks:
+                    seen_blocks.add(att.height)
+                    bitcoin_atts.append((msg, att))
+            elif isinstance(att, PendingAttestation):
+                uri = att.uri if isinstance(att.uri, str) else att.uri.decode()
+                if uri not in pending_uris:
+                    pending_uris.append(uri)
+
+        # Verify confirmed attestations
         for msg, att in bitcoin_atts:
-            emit("detail", "Verifying block {height} via Blockstream API...",
-                 height=att.height, name="upgrade.verify.start")
             try:
                 header = verify_block_attestation(msg, att)
             except ValueError as e:
@@ -526,15 +536,29 @@ def _cmd_upgrade(args):
                 ago = _human_timedelta(now - header["timestamp"])
                 emit("detail_ok", "Block {height}: {time} ({ago})",
                      height=att.height, time=block_time, ago=ago,
-                     block_hash=header["hash"], name="upgrade.verify.ok")
+                     block_hash=header["hash"], name="upgrade.block.ok")
             else:
-                emit("warn", "Could not verify block {height} (API unreachable)",
-                     height=att.height, name="upgrade.verify.unreachable")
+                emit("warn", "Block {height}: API unreachable",
+                     height=att.height, name="upgrade.block.unreachable")
 
-        # Summary
-        emit("step_ok", "Attestations: {confirmed}/{total} calendars confirmed, {pending} pending",
-             confirmed=len(bitcoin_atts), total=total, pending=pending_count,
-             name="upgrade.summary")
+        # Show pending
+        for uri in pending_uris:
+            emit("detail", "Pending: {calendar}", calendar=uri, name="upgrade.pending")
+
+        # Recap
+        confirmed = len(bitcoin_atts)
+        total = confirmed + len(pending_uris)
+        if confirmed >= 2:
+            emit("step_ok", "{confirmed}/{total} attestations confirmed, {pending} pending",
+                 confirmed=confirmed, total=total, pending=len(pending_uris),
+                 name="upgrade.recap")
+        elif confirmed == 1:
+            emit("warn", "{confirmed}/{total} attestations confirmed, {pending} pending",
+                 confirmed=confirmed, total=total, pending=len(pending_uris),
+                 name="upgrade.recap")
+        else:
+            emit("error", "0/{total} attestations confirmed",
+                 total=total, name="upgrade.recap")
 
         # Save headers
         if args.save_header and verified_headers:
