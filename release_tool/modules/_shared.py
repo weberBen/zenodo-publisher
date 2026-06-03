@@ -62,7 +62,10 @@ def filter_input_files(files_data: list[dict], input_types: list[str] | None) ->
         source_module_type = f.get("source_module_type")
 
         for t in input_types:
-            if t in ("file", "project", "manifest", "sig") and file_type == t:
+            if t == "file" and file_type not in ("sig", "module_entry"):
+                result.append(f)
+                break
+            if t in ("project", "manifest", "sig") and file_type == t:
                 result.append(f)
                 break
             if source_module and source_module == t:
