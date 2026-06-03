@@ -64,10 +64,13 @@ generated_files:
 
 | `input_types` value | Matches |
 |---------------------|---------|
-| `file` / `project` / `manifest` | Original file by type |
+| `file` | All primary files: file, project, manifest (group key, same semantics as `archive_types`) |
+| `project` / `manifest` | Exact type match (narrows down within the "file" group) |
 | `sig` | GPG signatures |
 | `<module_name>` | All outputs from that module |
 | `<module_name>.<type>` | Specific output sub-type (e.g. `digicert_timestamp.tsr`) |
 | *(not set)* | All files except signatures (default) |
+
+> **Note**: `"file"` is a group key — it matches file, project, and manifest types (everything except sig and module_entry). This is consistent with `archive_types` where `"file"` archives FILE/PROJECT/MANIFEST entries. Use `"project"` or `"manifest"` only if you need to narrow to a specific kind.
 
 This filtering is handled by `_shared.filter_input_files` and works for all built-in modules.

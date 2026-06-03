@@ -44,11 +44,17 @@ def compute_file_hash(file_path: Path, algo: str) -> str:
 def filter_input_files(files_data: list[dict], input_types: list[str] | None) -> list[dict]:
     """Filter file_data dicts by input_types.
 
-    input_types entries:
-      "file" / "project" / "manifest" → matches by type
-      "sig"                           → matches SIG type
-      "<module_name>"                 → matches MODULE_ENTRY from that module
-      "<module_name>.<entry_type>"    → matches specific module sub-type
+    Type key semantics (consistent with archive_types in _resolve_archive):
+      "file"                        → matches all primary files: file, project, manifest
+                                      (everything except sig and module_entry)
+      "project" / "manifest"        → exact type match (narrows "file" to a specific kind)
+      "sig"                         → matches SIG type
+      "<module_name>"               → matches MODULE_ENTRY from that module
+      "<module_name>.<entry_type>"  → matches specific module sub-type
+
+    The "file" key is intentionally a group key, not an exact match.
+    In archive_types the same convention applies: "file" archives FILE/PROJECT/MANIFEST,
+    "sig" archives signatures, and module names archive module outputs.
 
     If input_types is None, returns all files (no filtering).
     """
@@ -62,9 +68,14 @@ def filter_input_files(files_data: list[dict], input_types: list[str] | None) ->
         source_module_type = f.get("source_module_type")
 
         for t in input_types:
+            # "file" = group key covering file/project/manifest (not sig, not module_entry)
+            # The "file" key is intentionally a group key, not an exact match.
+            # In archive_types the same convention applies: "file" archives FILE/PROJECT/MANIFEST,
+            # "sig" archives signatures, and module names archive module outputs.
             if t == "file" and file_type not in ("sig", "module_entry"):
                 result.append(f)
                 break
+            # Exact type match for narrowing down to a specific kind
             if t in ("project", "manifest", "sig") and file_type == t:
                 result.append(f)
                 break
