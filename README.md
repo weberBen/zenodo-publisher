@@ -181,6 +181,15 @@ zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
 # Inspect TSR metadata
 zp modules run digicert_timestamp info paper.pdf.tsr
 
+# OpenTimestamps: stamp a file (Bitcoin-anchored, pending proof)
+zp modules run ots_timestamp stamp paper.pdf
+
+# Upgrade pending OTS proof (after Bitcoin confirmation, ~hours)
+zp modules run ots_timestamp upgrade paper.pdf.ots --save-header
+
+# Verify OTS proof against file + blockchain
+zp modules run ots_timestamp verify paper.pdf paper.pdf.ots
+
 # With debug output (shows subprocess commands)
 zp modules --debug run digicert_timestamp verify paper.pdf paper.pdf.tsr
 ```

@@ -279,14 +279,24 @@ release_tool/
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
 ├── modules/
 │   ├── __init__.py                 # Module loader: find_module_path, run_module, check_module, run_module_standalone, list_modules, is_builtin
+│   ├── _shared.py                  # Shared utilities for built-in modules: create_emitter, compute_file_hash, run_module_files, filter_input_files
 │   ├── README.md                   # Index of built-in modules (see for full list)
-│   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
-│       ├── digicert_timestamp.py   #   Module entry point (subcommands: run, check, stamp, verify, info)
-│       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
+│   ├── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
+│   │   ├── digicert_timestamp.py   #   Module entry point (subcommands: run, check, stamp, verify, info)
+│   │   ├── verify_tsr.py           #   TSR verification logic (openssl-based)
+│   │   ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
+│   │   ├── uv.lock                 #   Locked dependency graph
+│   │   ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
+│   │   └── tests/
+│   │       └── test_module_digicert_timestamp.py
+│   └── ots_timestamp/              # Built-in uv project: Bitcoin-anchored timestamp via OpenTimestamps
+│       ├── ots_timestamp.py        #   Module entry point (subcommands: run, check, stamp, upgrade, verify, info)
+│       ├── ots_verify.py           #   OTS verification logic (Blockstream API)
+│       ├── pyproject.toml          #   uv project manifest (dependencies: opentimestamps-client, requests)
 │       ├── uv.lock                 #   Locked dependency graph
-│       ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
+│       ├── README.md               #   Module doc: purpose, config, proof lifecycle
 │       └── tests/
-│           └── README.md           #   Test doc: what is tested, fixtures, how to run
+│           └── test_module_ots_timestamp.py
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
 │   ├── context.py                  # PipelineContext, HookPoint, HookRegistry
@@ -574,6 +584,11 @@ Runs configured modules for files that declare them under `modules:`. Each modul
 4. Runs `run` subcommand: `uv run --project <module_dir> <name>.py run --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
 5. Reads NDJSON events + result files from stdout
 6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
+7. Computes hashes (`effective_hash_algorithms`) on new MODULE_ENTRY files so subsequent modules have pre-computed hashes available
+
+Modules run sequentially in the order declared in the root `modules:` config. Each file passed to a module includes `source_module` and `source_module_type` fields so the module can identify MODULE_ENTRY files from previous modules.
+
+**Input filtering** (`input_types`): modules can declare `input_types` in their per-file `module_config` to filter which files they process. Type keys: `file`/`project`/`manifest`/`sig` (by type), `<module_name>` (all outputs), `<module_name>.<type>` (specific sub-type). Handled by `_shared.filter_input_files`. Without `input_types`, all files except signatures are processed (default).
 
 **Environment variables**: ZP sets `ZP_DEBUG=true` (when `--debug`), `ZP_TEST_MODE=true` (when `--test-mode`), and `ZP_TEST_CONFIG=<path>` (when `--test-config`) in `os.environ` at CLI startup (`run_cmd`). `ZP_WORK_DIR` is set by `zp.bash` wrapper. Modules inherit these via `_subprocess_env()`. Only present when active. `ZP_DEBUG` is also read by `CommonConfig` via `env_key="ZP_DEBUG"` so that `config.debug` is True when `--debug` is passed (unified flow: CLI flag → env var → config).
 

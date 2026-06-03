@@ -48,3 +48,26 @@ ZP sets the following environment variables in the module subprocess:
 | `ZP_TEST_CONFIG` | Path to the test config JSON file when `--test-config` is provided. |
 
 These variables are only present when the corresponding flag/option is active — modules should check with `os.environ.get("ZP_DEBUG") == "true"`.
+
+### Input filtering (`input_types`)
+
+When a module runs on a `generated_files` entry, it receives all files with that config_key (original file + outputs from previous modules, except signatures). Use `input_types` in the per-file module config to control which files the module processes:
+
+```yaml
+generated_files:
+  manifest:
+    modules:
+      digicert_timestamp: {}
+      ots_timestamp:
+        input_types: [file, digicert_timestamp]   # process manifest + .tsr from digicert
+```
+
+| `input_types` value | Matches |
+|---------------------|---------|
+| `file` / `project` / `manifest` | Original file by type |
+| `sig` | GPG signatures |
+| `<module_name>` | All outputs from that module |
+| `<module_name>.<type>` | Specific output sub-type (e.g. `digicert_timestamp.tsr`) |
+| *(not set)* | All files except signatures (default) |
+
+This filtering is handled by `_shared.filter_input_files` and works for all built-in modules.
