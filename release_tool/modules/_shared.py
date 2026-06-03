@@ -41,6 +41,39 @@ def compute_file_hash(file_path: Path, algo: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+def filter_input_files(files_data: list[dict], input_types: list[str] | None) -> list[dict]:
+    """Filter file_data dicts by input_types.
+
+    input_types entries:
+      "file" / "project" / "manifest" → matches by type
+      "sig"                           → matches SIG type
+      "<module_name>"                 → matches MODULE_ENTRY from that module
+      "<module_name>.<entry_type>"    → matches specific module sub-type
+
+    If input_types is None, returns all files (no filtering).
+    """
+    if input_types is None:
+        return files_data
+
+    result = []
+    for f in files_data:
+        file_type = f.get("type")
+        source_module = f.get("source_module")
+        source_module_type = f.get("source_module_type")
+
+        for t in input_types:
+            if t in ("file", "project", "manifest", "sig") and file_type == t:
+                result.append(f)
+                break
+            if source_module and source_module == t:
+                result.append(f)
+                break
+            if source_module and source_module_type and f"{source_module}.{source_module_type}" == t:
+                result.append(f)
+                break
+    return result
+
+
 def run_module_files(args, handler, post_parse=None):
     """Parse module input JSON, iterate over files, collect results.
 
@@ -65,10 +98,11 @@ def run_module_files(args, handler, post_parse=None):
     if post_parse:
         data = post_parse(data) or data
 
-    result_files = []
+    # Build file_data list
+    all_files = []
     for file_info in data["files"]:
         file_path = Path(file_info["file_path"])
-        file_data = {
+        all_files.append({
             "file_path": file_path,
             "filename": file_path.name,
             "config_key": file_info["config_key"],
@@ -78,9 +112,18 @@ def run_module_files(args, handler, post_parse=None):
             "output_dir": output_dir,
             "identity_hash_algo": identity_hash_algo,
             "config": config,
-            "data": data
-        }
+            "data": data,
+            "source_module": file_info.get("source_module"),
+            "source_module_type": file_info.get("source_module_type"),
+        })
 
+    # Filter by input_types if present in any file's module_config
+    sample_cfg = all_files[0]["module_config"] if all_files else {}
+    input_types = sample_cfg.get("input_types", None)
+    files_to_process = filter_input_files(all_files, input_types)
+
+    result_files = []
+    for file_data in files_to_process:
         result = handler(file_data)
         if result:
             result_files.append(result)

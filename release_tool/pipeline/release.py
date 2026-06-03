@@ -568,6 +568,8 @@ def _step_modules(ctx: PipelineContext) -> None:
                         "type": af.type,
                         "hashes": af.hashes,
                         "module_config": merged,
+                        "source_module": af.module_name,
+                        "source_module_type": af.module_entry_type,
                     })
 
         if not files_input:
