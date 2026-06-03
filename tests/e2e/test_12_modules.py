@@ -853,7 +853,13 @@ def _filter_config(archive_dir: Path, on_entry: str, input_types: list[str] | No
         }
     elif on_entry == "paper":
         generated_files["paper"] = {
-            "pattern": "{compile_dir}/paper.txt",
+            "pattern": "papers/latex/Makefile",
+            "archive_types": ["file", "filter_module"],
+            "publishers": {"destination": {"file": []}},
+            "modules": gf_modules,
+        }
+    elif on_entry == "project":
+        generated_files["project"] = {
             "archive_types": ["file", "filter_module"],
             "publishers": {"destination": {"file": []}},
             "modules": gf_modules,
@@ -890,9 +896,6 @@ def test_input_types_file_matches_normal_file(release_env, fix_log_path):
     repo_dir, git, gh, archive_dir = release_env
     _install_filter_module(repo_dir)
 
-    # Create a paper.txt file in the repo root (compile disabled, so compile_dir = project root)
-    (repo_dir / "paper.txt").write_text("test paper content")
-
     config = _filter_config(archive_dir, "paper", input_types=["file"])
     runner = ZpRunner(repo_dir)
     result = runner.run_test("release",
@@ -904,6 +907,24 @@ def test_input_types_file_matches_normal_file(release_env, fix_log_path):
     filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
     assert len(filter_entries) == 1, \
         f"Expected 1 filter_module entry (paper type=file matched by 'file'). Got {len(filter_entries)}: {filter_entries}"
+
+
+def test_input_types_file_matches_project(release_env, fix_log_path):
+    """input_types: [file] on project entry (type=project) processes the archive."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_filter_module(repo_dir)
+
+    config = _filter_config(archive_dir, "project", input_types=["file"])
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    assert len(filter_entries) == 1, \
+        f"Expected 1 filter_module entry (project type=project matched by 'file'). Got {len(filter_entries)}: {filter_entries}"
 
 
 def test_input_types_file_matches_manifest(release_env, fix_log_path):
