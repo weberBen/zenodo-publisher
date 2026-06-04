@@ -24,7 +24,7 @@ from binascii import hexlify
 from pathlib import Path
 
 import requests
-from _shared import create_emitter, compute_file_hash, run_module_files
+from _shared import create_emitter, compute_file_hash, run_module_files, run_module_job_files
 
 from opentimestamps.core.notary import (
     BitcoinBlockHeaderAttestation, PendingAttestation,
@@ -39,9 +39,9 @@ from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
 from otsclient.cmds import create_timestamp, upgrade_timestamp
 
 DEFAULT_CALENDAR_URLS = [
-    "https://a.pool.opentimestamps.org",  # Alice
-    "https://b.pool.opentimestamps.org",  # Bob
-    "https://a.pool.eternitywall.com",    # Finney (EU)
+    "https://alice.btc.calendar.opentimestamps.org",  # Alice
+    "https://bob.btc.calendar.opentimestamps.org",  # Bob
+    "https://finney.calendar.eternitywall.com",    # Finney (EU)
     "https://ots.btc.catallaxy.com",      # Catallaxy (Canada)
 ]
 
@@ -397,7 +397,22 @@ def _process_file(f):
 
 
 def _cmd_run(args):
-    run_module_files(args, handler=_process_file)
+    # Read config to determine retry interval from upgrade config
+    with open(args.input, encoding="utf-8") as f:
+        data = json.load(f)
+    sample_cfg = {}
+    if data.get("files"):
+        sample_cfg = data["files"][0].get("module_config", {})
+    upgrade_cfg = sample_cfg.get("upgrade", {})
+    retry_interval = upgrade_cfg.get("retry_interval", "1h")
+
+    job_descriptor = {
+        "command": "upgrade",
+        "description": "Upgrade pending OTS proofs to Bitcoin attestation",
+        "retry_interval": retry_interval,
+        "retry_max": None,
+    }
+    run_module_files(args, handler=_process_file, result_extra={"job": job_descriptor})
 
 
 def _cmd_check(args):
@@ -427,6 +442,88 @@ def _cmd_check(args):
 
     emit("detail_ok", f"Config valid ({reachable}/{len(calendar_urls)} calendars reachable)",
          name="check.ok")
+
+
+# ---------------------------------------------------------------------------
+# Job handler (called by ZP via 'job --input')
+# ---------------------------------------------------------------------------
+
+def _process_job_file(f):
+    """Job handler: upgrade a pending .ots proof."""
+    cfg = f["module_config"]
+    calendar_urls = cfg.get("calendars", None)
+
+    ots_path = f["file_path"]
+    if not ots_path.exists():
+        emit("warn", "OTS file not found: {path}", path=str(ots_path), name="job.missing")
+        return {"status": "error"}
+
+    if is_ots_complete(ots_path):
+        emit("detail_ok", "Already complete: {filename}", filename=ots_path.name, name="job.already_complete")
+        return {"status": "complete"}
+
+    emit("detail", "Upgrading '{filename}'...", filename=ots_path.name, name="job.upgrade.start")
+
+    try:
+        changed = upgrade_ots(ots_path, calendar_urls=calendar_urls)
+    except Exception as e:
+        emit("error", "Upgrade failed: {error}", error=str(e), name="job.upgrade.error")
+        return {"status": "error"}
+
+    if changed and is_ots_complete(ots_path):
+        emit("detail_ok", "Upgraded to Bitcoin attestation: {filename}",
+             filename=ots_path.name, name="job.upgrade.complete")
+
+        # Save block header if configured
+        save_header = cfg.get("upgrade", {}).get("save_header", False)
+        if save_header:
+            _save_block_headers(ots_path)
+
+        return {"status": "complete"}
+
+    if changed:
+        emit("detail", "Partially upgraded (still pending): {filename}",
+             filename=ots_path.name, name="job.upgrade.partial")
+    else:
+        emit("detail", "No new attestations yet: {filename}",
+             filename=ots_path.name, name="job.upgrade.pending")
+
+    return {"status": "pending"}
+
+
+def _save_block_headers(ots_path: Path):
+    """Save verified block headers for a complete .ots file."""
+    detached = _deserialize_ots(ots_path)
+    verified_headers = []
+    seen_blocks = set()
+
+    for msg, att in detached.timestamp.all_attestations():
+        if isinstance(att, BitcoinBlockHeaderAttestation) and att.height not in seen_blocks:
+            seen_blocks.add(att.height)
+            try:
+                header = verify_block_attestation(msg, att)
+                if header:
+                    verified_headers.append(header)
+            except ValueError:
+                pass
+
+    if verified_headers:
+        header_path = Path(str(ots_path).removesuffix(".ots") + ".blockheader.json")
+        existing = {"file_digest": hexlify(detached.file_digest).decode(), "blocks": []}
+        if header_path.exists():
+            with open(header_path) as fp:
+                existing = json.load(fp)
+        known_heights = {b["height"] for b in existing["blocks"]}
+        for h in verified_headers:
+            if h["height"] not in known_heights:
+                existing["blocks"].append(h)
+        with open(header_path, "w") as fp:
+            json.dump(existing, fp, indent=2)
+        emit("detail_ok", "Block headers saved: {path}", path=str(header_path), name="job.header.saved")
+
+
+def _cmd_job(args):
+    run_module_job_files(args, handler=_process_job_file)
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +746,10 @@ def build_parser() -> argparse.ArgumentParser:
     check_p = sub.add_parser("check", help=argparse.SUPPRESS)
     check_p.add_argument("--config")
 
+    # Pipeline: job (hidden from --help)
+    job_p = sub.add_parser("job", help=argparse.SUPPRESS)
+    job_p.add_argument("--input", required=True)
+
     # Standalone: stamp
     stamp_p = sub.add_parser("stamp", help="Stamp file(s) via OpenTimestamps")
     stamp_p.add_argument("files", nargs="+", type=Path, help="File(s) to stamp")
@@ -679,7 +780,7 @@ def build_parser() -> argparse.ArgumentParser:
     info_p.add_argument("file", type=Path, help=".ots file")
 
     _HANDLERS.update({
-        "run": _cmd_run, "check": _cmd_check,
+        "run": _cmd_run, "check": _cmd_check, "job": _cmd_job,
         "stamp": _cmd_stamp, "upgrade": _cmd_upgrade,
         "verify": _cmd_verify, "info": _cmd_info,
     })

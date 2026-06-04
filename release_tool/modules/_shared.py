@@ -88,7 +88,61 @@ def filter_input_files(files_data: list[dict], input_types: list[str] | None) ->
     return result
 
 
-def run_module_files(args, handler, post_parse=None):
+def run_module_job_files(args, handler):
+    """Parse job input JSON, iterate over files, collect results.
+
+    Similar to run_module_files but for the 'job' subcommand.
+    The input includes a 'command' field passed to each handler call.
+
+    Args:
+        args: CLI args with args.input pointing to the JSON input file.
+        handler: callback(file_data) -> dict|None. Called for each file.
+            Returns a result entry dict or None to skip.
+
+    file_data keys (same as run_module_files + command):
+        file_path, filename, config_key, hashes, module_config,
+        output_dir, config, command
+    """
+    with open(args.input, encoding="utf-8") as f:
+        data = json.load(f)
+
+    config = data.get("config", {})
+    output_dir = Path(data["output_dir"])
+    command = data.get("command", "")
+
+    files_data = []
+    for file_info in data.get("files", []):
+        file_path = Path(file_info["file_path"])
+        files_data.append({
+            "file_path": file_path,
+            "filename": file_path.name,
+            "config_key": file_info["config_key"],
+            "hashes": file_info.get("hashes", {}),
+            "module_config": file_info.get("module_config", {}),
+            "output_dir": output_dir,
+            "config": config,
+            "command": command,
+            "identity_hash_algo": config.get("identity_hash_algo"),
+        })
+
+    all_complete = True
+    result_files = []
+    for fd in files_data:
+        result = handler(fd)
+        if result:
+            result_files.append(result)
+            if result.get("status") == "pending":
+                all_complete = False
+
+    overall_status = "complete" if all_complete else "pending"
+    print(json.dumps({
+        "type": "result",
+        "status": overall_status,
+        "files": result_files,
+    }), flush=True)
+
+
+def run_module_files(args, handler, post_parse=None, result_extra=None):
     """Parse module input JSON, iterate over files, collect results.
 
     Args:
@@ -97,6 +151,8 @@ def run_module_files(args, handler, post_parse=None):
             Returns a result entry dict or None to skip.
         post_parse: optional callback(data) called after JSON parsing,
             before file iteration. Use for validation (e.g. check algo support).
+        result_extra: optional dict of extra keys to merge into the result JSON
+            (e.g. {"job": {...}} for async job descriptors).
 
     file_data keys:
         file_path, filename, config_key, type, hashes, module_config,
@@ -142,5 +198,8 @@ def run_module_files(args, handler, post_parse=None):
         if result:
             result_files.append(result)
 
-    print(json.dumps({"type": "result", "files": result_files}), flush=True)
+    result = {"type": "result", "files": result_files}
+    if result_extra:
+        result.update(result_extra)
+    print(json.dumps(result), flush=True)
 

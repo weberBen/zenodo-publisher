@@ -196,6 +196,55 @@ zp modules --debug run digicert_timestamp verify paper.pdf paper.pdf.tsr
 
 Arguments after the module name are passed directly to the module. ZP captures the module's stdout and relays NDJSON events through its output system — events of type `cmd` and `debug` are only shown with `--debug`. Non-NDJSON lines are passed through as-is.
 
+### `zp jobs` -- Manage async module jobs
+
+Some modules produce deferred tasks that can't complete during the pipeline run. For example, the `ots_timestamp` module stamps files immediately but the Bitcoin proof takes hours to confirm. The `zp jobs` command manages these async tasks.
+
+```bash
+zp jobs              # List pending jobs + run eligible ones
+zp jobs list         # Show summary table only
+zp jobs run          # Run jobs whose retry interval has elapsed
+zp jobs run --all    # Run all pending jobs (ignore retry timing)
+zp jobs run <id>     # Run a specific job by ID (or prefix)
+zp jobs info <id>    # Show detailed info for a job
+zp jobs rm <id>      # Remove a job
+zp jobs clean        # Remove completed jobs
+```
+
+Jobs are stored globally in `~/.zp/jobs/` so they can be processed from any directory. Each job file is self-contained with the project path and archive location.
+
+When you run any `zp` command, a notice is displayed if pending jobs exist:
+```
+3 async job(s) pending. Run 'zp jobs' to process them.
+```
+
+#### How it works
+
+1. During `zp release`, if a module returns a `job` descriptor in its result, ZP creates a job file in `~/.zp/jobs/`
+2. `zp jobs run` copies the relevant files from the archive to a temp directory, runs the module's `job` subcommand, then syncs changed files back to the archive
+3. If a file in the archive would be overwritten, you are prompted to overwrite, skip, or create a backup (`.backup`)
+
+#### Retry behavior
+
+Each module specifies a retry interval (e.g. `"1h"` for OTS) and an optional maximum retry count. ZP defaults to 100 retries maximum; modules can override this (OTS sets it to unlimited since the proof will always eventually arrive). When the maximum is reached, the job is marked as `error`.
+
+The summary table shows the status of each job:
+
+```
+MODULE               TAG          CMD        STATUS     RETRIES  NEXT IN    DESCRIPTION
+ots_timestamp        v1.0.0       upgrade    pending    3        12m        Upgrade pending OTS proofs
+ots_timestamp        v2.0.0       upgrade    pending    0        ready      Upgrade pending OTS proofs
+```
+
+#### Automation
+
+For fully automated processing, add `zp jobs run` to your crontab:
+
+```bash
+# Run eligible jobs every 30 minutes
+*/30 * * * * cd /path/to/project && zp jobs run
+```
+
 ## Project Setup
 
 ### 1. Create `.zp.yaml` in your project root

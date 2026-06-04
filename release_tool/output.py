@@ -362,6 +362,7 @@ YES     = PromptOption("yes",  "yes",     "y",    True)
 NO      = PromptOption("no",   "no",      "n",    False)
 YES_ALL = PromptOption("yall", "yes all", "yall", True)
 NO_ALL  = PromptOption("nall", "no all",  "nall", False)
+BACKUP  = PromptOption("backup", "backup", "b",   True)
 ENTER   = PromptOption("enter", "",  "", True)
 
 # Text options: special markers detected by Prompt to switch to text mode

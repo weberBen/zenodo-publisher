@@ -260,9 +260,10 @@ The pipeline will:
 
 ```
 release_tool/
-├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign + 'modules' subcommand
+├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign + 'modules'/'jobs' subcommands
 ├── __main__.py                     # python -m release_tool
 ├── errors.py                       # ZPError base + normalize_name (prefix.name.suffix with dedup)
+├── jobs.py                         # Async job manager: create/list/run/clean jobs in ~/.zp/jobs/
 ├── prompts.py                      # Interactive prompts (init_prompts, confirm levels)
 ├── config/
 │   ├── schema.py                   # ConfigOption dataclass + dedup_args (merge default/user args)
@@ -320,6 +321,13 @@ uv run zp release --sign       # Release with GPG signing
 uv run zp archive --tag v1.0.0 # Standalone archive
 uv run zp modules list         # List available modules (built-in + user)
 uv run zp modules run <name> <subcommand> [args...]  # Run a module in standalone mode
+uv run zp jobs                 # List + run eligible async jobs
+uv run zp jobs list            # List async jobs (with IDs)
+uv run zp jobs run --all       # Run all pending jobs (ignore timing)
+uv run zp jobs run <id>        # Run a specific job
+uv run zp jobs info <id>       # Show detailed job info
+uv run zp jobs rm <id>         # Remove a job
+uv run zp jobs clean           # Remove completed jobs
 uv run zp --help               # CLI help
 ```
 
@@ -790,6 +798,53 @@ On each publish run, all `zp:///` entries on the Zenodo record are removed and r
 **Cleanup**: cache dir is deleted after successful pipeline completion (files have been persisted to `archive_dir`). If the pipeline fails mid-run, the cache dir is preserved for resume.
 
 **Key files**: `pipeline/release.py` (`_run_release`, `_setup_cache`), `pipeline/checkpoint.py`.
+
+---
+
+### Async jobs (`jobs.py`)
+
+Modules can schedule deferred tasks that run outside the pipeline. Typical use case: OTS proof upgrade (takes hours for Bitcoin confirmation).
+
+**Storage**: `~/.zp/jobs/` — global, cross-project. Each job is a self-contained JSON file with `project_root` and `archive_dir` stored as absolute paths.
+
+**Job lifecycle**:
+1. Module returns a `job` key in its `run` result: `{"type": "result", "files": [...], "job": {"command": "upgrade", "description": "...", "retry_interval": "1h", "retry_max": null}}`
+2. `_step_modules` in `pipeline/release.py` detects the `job` key, calls `jobs.create_job()` to write `~/.zp/jobs/{module}_{tag}_{timestamp}.json`
+3. `zp jobs run` scans the directory, runs eligible jobs (retry interval elapsed, retry_max not reached)
+4. Changed files are synced back to `archive_dir/{tag}/`
+
+**Job file schema** (key fields):
+- `module_name`, `command`, `tag_name`, `project_root`, `archive_dir`
+- `retry_interval_seconds` (parsed from human format: `"30m"`, `"1h"`)
+- `retry_max` (`null` = infinite, default `DEFAULT_RETRY_MAX = 100`)
+- `retry_count`, `last_attempt_at`, `errors[]`, `status` (`pending`/`complete`/`error`)
+- `files[]` with `relative_path`, `config_key`, `identifier` (SHA256), `module_config`, `hashes`
+
+**Module protocol**:
+- Module's `run` result can include `"job": {...}` to schedule a deferred task
+- Module must implement a `job` subcommand: `<name>.py job --input <json>`. Input format same as `run` plus a `command` field. Output: NDJSON events + `{"type": "result", "status": "complete|pending|error"}`
+- Built-in helper: `run_module_job_files(args, handler)` in `_shared.py`
+
+**Job runner flow** (`run_single_job`):
+1. Check `retry_max` — if exhausted, mark `error` and skip
+2. Copy files from `archive_dir/{tag}/` to temp dir
+3. Verify file integrity (SHA256 identifier match)
+4. Call module `job` subcommand via `modules.run_module_job()`
+5. Diff files: compare SHA256 before/after, sync changed files back to archive (with backup/overwrite prompt)
+6. Update job file (retry_count, last_attempt_at, status, identifiers)
+
+**CLI**:
+- `zp jobs` — list + run eligible (default)
+- `zp jobs list` — show summary table (with job IDs)
+- `zp jobs run [--all]` — run eligible jobs (`--all` ignores retry timing)
+- `zp jobs run <id>` — run a specific job by ID (or prefix match)
+- `zp jobs info <id>` — detailed job info (config, files, errors, retries)
+- `zp jobs rm <id>` — remove a job file
+- `zp jobs clean` — remove all completed jobs
+
+**Auto-check**: `run_cmd()` in `cli.py` prints a notice when pending jobs exist (skipped for `zp jobs` command itself).
+
+**Key files**: `jobs.py`, `cli.py` (`cmd_jobs`), `pipeline/release.py` (`_step_modules` job creation), `modules/__init__.py` (`run_module_job`), `modules/_shared.py` (`run_module_job_files`).
 
 ---
 

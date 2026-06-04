@@ -152,12 +152,12 @@ def check_module(provider_name: str, module_config: dict, output_module,
 
 
 def run_module(provider_name: str, input_data: dict, output_module,
-               project_root: Path | None = None) -> list[dict]:
+               project_root: Path | None = None) -> tuple[list[dict], dict | None]:
     """Run a module as a subprocess via uv.
 
     Passes input_data as JSON file, reads NDJSON output.
     Events are relayed to output_module.module_emit().
-    Returns the list of file dicts from the 'result' event.
+    Returns (files_list, job_descriptor_or_None).
     """
     module_path = find_module_path(provider_name, project_root=project_root)
 
@@ -179,6 +179,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
         Path(input_path).unlink(missing_ok=True)
 
     result_files = []
+    job_descriptor = None
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -189,6 +190,7 @@ def run_module(provider_name: str, input_data: dict, output_module,
             continue
         if event.get("type") == "result":
             result_files = event.get("files", [])
+            job_descriptor = event.get("job")
         else:
             output_module.module_emit(event, module_name=provider_name)
 
@@ -206,7 +208,64 @@ def run_module(provider_name: str, input_data: dict, output_module,
             "name": "module.stderr",
         }, module_name=provider_name)
 
-    return result_files
+    return result_files, job_descriptor
+
+
+def run_module_job(provider_name: str, input_data: dict, output_module,
+                   project_root: Path | None = None) -> dict:
+    """Run a module's job subcommand as a subprocess.
+
+    Same protocol as run_module() but uses the 'job' subcommand.
+    Returns the parsed result dict (with 'status' and optional 'files').
+    """
+    module_path = find_module_path(provider_name, project_root=project_root)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as f:
+        json.dump(input_data, f)
+        input_path = f.name
+
+    try:
+        proc = subprocess.run(
+            _build_uv_cmd(module_path, "job", "--input", input_path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=_subprocess_env(),
+        )
+    finally:
+        Path(input_path).unlink(missing_ok=True)
+
+    result = {"status": "error"}
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "result":
+            result = event
+        else:
+            output_module.module_emit(event, module_name=provider_name)
+
+    stderr = proc.stderr.strip()
+    if proc.returncode != 0:
+        detail = f"\n{stderr}" if stderr else ""
+        raise ModuleError(
+            f"Module '{provider_name}' job exited with code {proc.returncode}{detail}",
+            name="job_error",
+        )
+    if stderr:
+        output_module.module_emit({
+            "type": "warn",
+            "msg": stderr,
+            "name": "module.stderr",
+        }, module_name=provider_name)
+
+    return result
 
 
 def run_module_standalone(provider_name: str, args: list[str],

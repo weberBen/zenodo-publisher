@@ -129,6 +129,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _setup_subparser(archive_p, ArchiveConfig)
 
+    # --- zp jobs -----------------------------------------------------------
+    jobs_p = subparsers.add_parser(
+        "jobs", help="Manage async module jobs")
+    _add_infra_flags(jobs_p)
+    jobs_sub = jobs_p.add_subparsers(dest="jobs_command")
+    jobs_sub.add_parser("list", help="List all jobs")
+    jobs_run_p = jobs_sub.add_parser("run", help="Run eligible pending jobs")
+    jobs_run_p.add_argument("job_id", nargs="?", default=None,
+                            help="Run a specific job by ID (or prefix)")
+    jobs_run_p.add_argument("--all", action="store_true", default=False,
+                            dest="run_all",
+                            help="Run all pending jobs (ignore retry timing)")
+    jobs_info_p = jobs_sub.add_parser("info", help="Show detailed job info")
+    jobs_info_p.add_argument("job_id", help="Job ID (or prefix)")
+    jobs_rm_p = jobs_sub.add_parser("rm", help="Remove a job")
+    jobs_rm_p.add_argument("job_id", help="Job ID (or prefix)")
+    jobs_sub.add_parser("clean", help="Remove completed jobs")
+
     # --- zp modules --------------------------------------------------------
     modules_p = subparsers.add_parser(
         "modules", help="Run pipeline modules in standalone mode")
@@ -208,13 +226,88 @@ def run_cmd(args, fn):
     if test_config:
         os.environ["ZP_TEST_CONFIG"] = test_config
     output.before_init_setup(test_mode=test_mode, debug=debug)
-    
+
+    # Auto-check for pending jobs (skip if we're already running jobs)
+    pending_count = 0
+    if args.command != "jobs":
+        from .jobs import count_pending
+        pending_count = count_pending()
+        if pending_count:
+            _print_jobs_notice(pending_count, test_mode=test_mode)
+
     try:
         fn(args)
     except Exception as e:
         if debug:
             raise
         output.fatal(str(e), name="config_error.loading", exc=e)
+
+    if pending_count and args.command != "jobs":
+        _print_jobs_notice(pending_count, test_mode=test_mode)
+
+
+YELLOW = "\033[33m"
+BOLD = "\033[1m"
+RESET_STYLE = "\033[0m"
+
+
+def _print_jobs_notice(count: int, test_mode: bool = False):
+    if test_mode:
+        output.warn(
+            "{n} async job(s) pending. Run 'zp jobs run' to process them.",
+            n=count, name="jobs.pending_notice",
+        )
+    else:
+        print(
+            f"\n{YELLOW}{BOLD}"
+            f">>> {count} async job(s) pending. Run 'zp jobs run' to process them."
+            f"{RESET_STYLE}\n"
+        )
+
+def cmd_jobs(args):
+    """Manage async module jobs."""
+    from .jobs import (
+        list_jobs, print_jobs_table, print_job_info,
+        run_jobs, clean_jobs, get_job, remove_job,
+    )
+
+    subcmd = getattr(args, "jobs_command", None)
+
+    if subcmd == "list":
+        jobs = list_jobs()
+        print_jobs_table(jobs)
+        return
+
+    if subcmd == "run":
+        run_all = getattr(args, "run_all", False)
+        job_id = getattr(args, "job_id", None)
+        run_jobs(run_all=run_all, job_id=job_id)
+        return
+
+    if subcmd == "info":
+        job = get_job(args.job_id)
+        if job is None:
+            output.error("Job not found: {id}", id=args.job_id, name="jobs.not_found")
+            return
+        print_job_info(job)
+        return
+
+    if subcmd == "rm":
+        if remove_job(args.job_id):
+            output.info("Job removed: {id}", id=args.job_id, name="jobs.removed")
+        else:
+            output.error("Job not found: {id}", id=args.job_id, name="jobs.not_found")
+        return
+
+    if subcmd == "clean":
+        removed = clean_jobs()
+        output.info(f"{removed} completed job(s) removed.", name="jobs.cleaned")
+        return
+
+    # No subcmd — list (default behavior)
+    jobs = list_jobs()
+    print_jobs_table(jobs)
+
 
 def cmd_modules(args):
     """Run pipeline modules in standalone mode."""
@@ -257,6 +350,7 @@ def cmd_modules(args):
 CMD = {
     "release": cmd_release,
     "archive": cmd_archive,
+    "jobs": cmd_jobs,
     "modules": cmd_modules,
 }
 

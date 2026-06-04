@@ -612,8 +612,8 @@ def _step_modules(ctx: PipelineContext) -> None:
             module_name=module_name, n=len(files_input), name="module.running",
         )
 
-        raw_files = run_module(module_name, input_data, output,
-                               project_root=ctx.config.project_root)
+        raw_files, job_descriptor = run_module(module_name, input_data, output,
+                                               project_root=ctx.config.project_root)
 
         for rf in raw_files:
             config_key = rf["config_key"]
@@ -673,6 +673,45 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=dest_raw,
                 name="module.entry",
             )
+
+        # Create async job if module requested one
+        if job_descriptor:
+            from ..jobs import create_job as _create_job
+            job_files = []
+            for fe in ctx.archived_files:
+                if fe.module_name == module_name:
+                    try:
+                        rel = fe.file_path.relative_to(ctx.output_dir)
+                    except ValueError:
+                        rel = Path(fe.file_path.name)
+                    # Find per-file module_config from the input
+                    file_mc = {}
+                    for fi in files_input:
+                        if fi["config_key"] == fe.config_key:
+                            file_mc = fi.get("module_config", {})
+                            break
+                    job_files.append({
+                        "relative_path": str(rel),
+                        "config_key": fe.config_key,
+                        "identifier": fe.identifier,
+                        "module_entry_type": fe.module_entry_type,
+                        "hashes": fe.hashes,
+                        "module_config": file_mc,
+                    })
+            if job_files:
+                job_path = _create_job(
+                    module_name=module_name,
+                    job_descriptor=job_descriptor,
+                    tag_name=ctx.tag_name,
+                    project_root=ctx.config.project_root,
+                    archive_dir=ctx.config.archive_dir,
+                    config={"identity_hash_algo": ctx.config.identity_hash_algo},
+                    files=job_files,
+                )
+                output.detail_ok(
+                    "Async job created: {path}",
+                    path=str(job_path), name="module.job_created",
+                )
 
         output.detail_ok(
             "Module '{module_name}' returned {n} file(s)",
