@@ -407,7 +407,6 @@ def _cmd_run(args):
     retry_interval = upgrade_cfg.get("retry_interval", "1h")
 
     job_descriptor = {
-        "command": "upgrade",
         "description": "Upgrade pending OTS proofs to Bitcoin attestation",
         "retry_interval": retry_interval,
         "retry_max": None,

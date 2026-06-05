@@ -70,26 +70,48 @@ def create_job(
     config: dict,
     files: list[dict],
 ) -> Path:
-    """Write a job JSON file to ~/.zp/jobs/. Returns the path."""
-    interval = _parse_interval(job_descriptor.get("retry_interval", 1800))
+    """Write a job JSON file to ~/.zp/jobs/. Returns the path.
+
+    Root-level fields are ZP-controlled. Module-provided data (job_descriptor
+    and per-file module_config) is stored under "input".
+    """
+    # Safe-parse module-provided fields
+    retry_interval = _parse_interval(job_descriptor.get("retry_interval", 1800))
+    raw_max = job_descriptor.get("retry_max", DEFAULT_RETRY_MAX)
+    retry_max = None if raw_max is None else int(raw_max)
+    description = str(job_descriptor.get("description", ""))
+
+    # Extract module_config from files into input.files keyed by config_key
+    input_files = {}
+    clean_files = []
+    for f in files:
+        fc = dict(f)
+        mc = fc.pop("module_config", None)
+        if mc:
+            input_files[fc["config_key"]] = mc
+        clean_files.append(fc)
+
     job_id = _make_job_id()
     job = {
         "id": job_id,
         "module_name": module_name,
-        "command": job_descriptor["command"],
-        "description": job_descriptor.get("description", ""),
         "tag_name": tag_name,
         "project_root": str(project_root),
         "archive_dir": str(archive_dir) if archive_dir else None,
         "created_at": time.time(),
         "status": "pending",
-        "retry_interval_seconds": interval,
+        "retry_interval_seconds": retry_interval,
         "retry_count": 0,
-        "retry_max": job_descriptor.get("retry_max", DEFAULT_RETRY_MAX),
+        "retry_max": retry_max,
+        "description": description,
         "last_attempt_at": None,
         "errors": [],
         "config": config,
-        "files": files,
+        "files": clean_files,
+        "input": {
+            "job_descriptor": job_descriptor,
+            "files": input_files,
+        },
     }
     path = _job_path(job_id)
     path.write_text(json.dumps(job, indent=2), encoding="utf-8")
@@ -227,7 +249,7 @@ def print_jobs_table(jobs: list[dict]) -> None:
         return
 
     # Build row data first so we can compute column widths
-    columns = ["ID", "MODULE", "TAG", "CMD", "STATUS", "RETRIES", "NEXT IN", "DESCRIPTION"]
+    columns = ["ID", "MODULE", "TAG", "STATUS", "RETRIES", "NEXT IN", "DESCRIPTION"]
     rows = []
     for job in jobs:
         remaining = _time_until_eligible(job)
@@ -244,7 +266,6 @@ def print_jobs_table(jobs: list[dict]) -> None:
             job["id"],
             job["module_name"],
             job["tag_name"],
-            job["command"],
             job["status"],
             str(job["retry_count"]),
             next_in,
@@ -278,7 +299,6 @@ def print_job_info(job: dict) -> None:
     output.info("Job: {id}", id=job["id"], name="jobs.info.id")
     output.info("  Module:      {v}", v=job["module_name"], name="jobs.info.module")
     output.info("  Tag:         {v}", v=job["tag_name"], name="jobs.info.tag")
-    output.info("  Command:     {v}", v=job["command"], name="jobs.info.command")
     output.info("  Status:      {v}", v=job["status"], name="jobs.info.status")
     output.info("  Description: {v}", v=job.get("description", ""), name="jobs.info.description")
     output.info("  Project:     {v}", v=job.get("project_root", ""), name="jobs.info.project")
@@ -438,8 +458,8 @@ def run_single_job(job: dict) -> str:
         return "error"
 
     output.step(
-        "Running job: {id} ({cmd})",
-        id=job_id, cmd=job["command"],
+        "Running job: {id} ({module})",
+        id=job_id, module=module_name,
         name="jobs.run_start",
     )
 
@@ -471,7 +491,7 @@ def run_single_job(job: dict) -> str:
                 "file_path": str(file_path),
                 "config_key": f["config_key"],
                 "hashes": f.get("hashes", {}),
-                "module_config": f.get("module_config", {}),
+                "module_config": job.get("input", {}).get("files", {}).get(f["config_key"], {}),
             })
 
         if not files_input:
@@ -484,7 +504,6 @@ def run_single_job(job: dict) -> str:
         input_data = {
             "config": job.get("config", {}),
             "output_dir": str(workdir),
-            "command": job["command"],
             "files": files_input,
         }
 
