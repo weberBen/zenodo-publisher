@@ -43,6 +43,13 @@ class ZpResult:
         return self.returncode == 0
 
 
+def write_blank_test_config(directory: Path) -> Path:
+    """Write a minimal valid test config file. Returns the path."""
+    p = directory / "test.config.yaml"
+    p.write_text("mode: true\n")
+    return p
+
+
 class ZpRunner:
     """Subprocess wrapper for `uv run zp`."""
 

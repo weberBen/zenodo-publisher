@@ -174,14 +174,13 @@ def setup_work_dir(args):
 # Command handlers
 # ---------------------------------------------------------------------------
 
-def cmd_release(args):
+def cmd_release(args, test=None, debug=False):
     """Run the full release pipeline."""
 
     try:
         config = ReleaseConfig.from_args(args)
-        test = TestConfig.from_args(args)
     except ConfigError as e:
-        if args.debug:
+        if debug:
             raise
         output.fatal(str(e), name="config_error.loading", exc=e)
         return
@@ -198,14 +197,13 @@ def cmd_release(args):
     run_release(config, test=test)
 
 
-def cmd_archive(args):
+def cmd_archive(args, test=None, debug=False):
     """Create a git archive at a given tag and print checksums."""
 
     try:
         config = ArchiveConfig.from_args(args)
-        test = TestConfig.from_args(args)
     except ConfigError as e:
-        if args.debug:
+        if debug:
             raise
         output.fatal(str(e), name="config_error.loading", exc=e)
         return
@@ -228,11 +226,17 @@ def run_cmd(args, fn):
     output.before_init_setup(test_mode=test_mode, debug=debug)
 
     # Load test config so prompts work in test mode for all commands
+    test = None
     if test_mode:
-        from .config.test import TestConfig
-        test = TestConfig.from_args(args)
-        if test:
+        try:
+            from .config.test import TestConfig
+            test = TestConfig.from_args(args)
             output.setup(test_mode=True, test_config=test)
+        except ConfigError as e:
+            if debug:
+                raise
+            output.fatal(str(e), name="config_error.loading", exc=e)
+            return
 
     # Auto-check for pending jobs (skip if we're already running jobs)
     pending_count = 0
@@ -243,7 +247,7 @@ def run_cmd(args, fn):
             _print_jobs_notice(pending_count, test_mode=test_mode)
 
     try:
-        fn(args)
+        fn(args, test=test, debug=debug)
     except Exception as e:
         if debug:
             raise
@@ -271,7 +275,7 @@ def _print_jobs_notice(count: int, test_mode: bool = False):
             f"{RESET_STYLE}\n"
         )
 
-def cmd_jobs(args):
+def cmd_jobs(args, test=None, debug=False):
     """Manage async module jobs."""
     from .jobs import (
         list_jobs, print_jobs_table, print_job_info,
@@ -316,7 +320,7 @@ def cmd_jobs(args):
     print_jobs_table(jobs)
 
 
-def cmd_modules(args):
+def cmd_modules(args, test=None, debug=False):
     """Run pipeline modules in standalone mode."""
     from .config.env import find_project_root
     from .modules import run_module_standalone, list_modules, ModuleError

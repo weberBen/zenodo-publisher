@@ -249,8 +249,8 @@ def test_modules_run_test_config_env(tmp_path, fix_log_path):
     project = _init_project(tmp_path)
     _install_dummy_module(project)
 
-    config_file = tmp_path / "test.config.yaml"
-    config_file.write_text("{}")
+    from tests.utils.cli import write_blank_test_config
+    config_file = write_blank_test_config(tmp_path)
 
     runner = ZpRunner(project)
     result = runner.run("modules", "--test-mode", "--test-config", str(config_file),
