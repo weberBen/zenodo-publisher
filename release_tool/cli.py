@@ -227,6 +227,13 @@ def run_cmd(args, fn):
         os.environ["ZP_TEST_CONFIG"] = test_config
     output.before_init_setup(test_mode=test_mode, debug=debug)
 
+    # Load test config so prompts work in test mode for all commands
+    if test_mode:
+        from .config.test import TestConfig
+        test = TestConfig.from_args(args)
+        if test:
+            output.setup(test_mode=True, test_config=test)
+
     # Auto-check for pending jobs (skip if we're already running jobs)
     pending_count = 0
     if args.command != "jobs":

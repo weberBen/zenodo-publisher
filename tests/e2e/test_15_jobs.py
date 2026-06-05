@@ -222,7 +222,7 @@ def _make_job(jobs_dir: Path, *,
 def jobs_dir(tmp_path, monkeypatch):
     d = tmp_path / "zp_jobs"
     d.mkdir()
-    monkeypatch.setattr(jobs_mod, "JOBS_DIR", d)
+    monkeypatch.setenv("ZP_JOBS_DIR", str(d))
     return d
 
 

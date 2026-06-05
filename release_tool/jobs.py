@@ -12,6 +12,7 @@ Job lifecycle:
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -20,7 +21,6 @@ from pathlib import Path
 from . import output
 from .modules import find_module_path, run_module_job
 
-JOBS_DIR = Path.home() / ".zp" / "jobs"
 DEFAULT_RETRY_MAX = 100
 
 # ---------------------------------------------------------------------------
@@ -43,9 +43,18 @@ def _parse_interval(raw: str | int | float) -> int:
 # Job ID + paths
 # ---------------------------------------------------------------------------
 
+def _get_jobs_dir() -> Path:
+    """Return the jobs directory path (overridable via ZP_JOBS_DIR env var)."""
+    custom = os.environ.get("ZP_JOBS_DIR")
+    if custom:
+        return Path(custom)
+    return Path.home() / ".zp" / "jobs"
+
+
 def _jobs_dir() -> Path:
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    return JOBS_DIR
+    d = _get_jobs_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _make_job_id() -> str:
@@ -166,10 +175,11 @@ def remove_job(job_id: str) -> bool:
 
 def count_pending() -> int:
     """Count pending jobs (fast, no full parse)."""
-    if not JOBS_DIR.exists():
+    jobs_dir = _get_jobs_dir()
+    if not jobs_dir.exists():
         return 0
     count = 0
-    for p in JOBS_DIR.glob("*.json"):
+    for p in jobs_dir.glob("*.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             if data.get("status") == "pending":
