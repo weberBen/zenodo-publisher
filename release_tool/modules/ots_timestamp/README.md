@@ -33,12 +33,32 @@ modules:
 | `calendars` | OTS pool (4 servers) | Calendar server URLs for stamping and upgrading |
 | `nonce` | `true` | Add privacy nonce so calendars never see the real file hash |
 | `upgrade.save_header` | `true` | Save Bitcoin block header as `.blockheader.json` after successful upgrade |
+| `upgrade.retry_interval` | `"1h"` | Minimum time between job retry attempts (`"30m"`, `"1h"`, etc.) |
 
 ## Pipeline behavior
 
-In pipeline mode (`run`), the module stamps each file immediately and returns `.ots` files with **pending proofs**. The upgrade step (Bitcoin confirmation) must be done manually later via the `upgrade` standalone subcommand.
+In pipeline mode (`run`), the module stamps each file immediately and returns `.ots` files with **pending proofs**. It also returns a `job` descriptor so ZP automatically schedules an async job for upgrading the proofs later.
 
-The module config (`calendars`, `nonce`, `upgrade`) is passed through in the result so a future upgrade runner can use it.
+The module config (`calendars`, `nonce`, `upgrade`) is stored in the job file and passed back to the module during job execution.
+
+### Async job (automatic upgrade)
+
+After `zp release`, ZP creates a job in `~/.zp/jobs/` for the OTS module. Running `zp jobs run` later will attempt to upgrade pending proofs:
+
+```bash
+zp jobs              # see pending OTS jobs
+zp jobs run          # attempt upgrade (skips if retry interval not elapsed)
+zp jobs run --all    # force attempt regardless of timing
+```
+
+The job uses `retry_max: null` (unlimited retries) since the Bitcoin proof will always eventually arrive. The `retry_interval` defaults to `1h` and can be configured via `upgrade.retry_interval` in the module config.
+
+When upgrade succeeds:
+- The `.ots` file is updated in-place (pending → Bitcoin-attested)
+- If `upgrade.save_header: true`, a `.blockheader.json` is created alongside
+- Both files are synced back to the archive directory
+
+When upgrade is not yet ready (Bitcoin block not mined), the job stays `pending` and will be retried after the interval.
 
 ## Standalone usage
 
@@ -71,12 +91,14 @@ zp modules run ots_timestamp info paper.pdf.ots
 ## Proof lifecycle
 
 ```
-stamp → .ots (pending)
-         │
-         ├── upgrade (after ~hours) → .ots (Bitcoin-attested)
-         │     └── --save-header → .blockheader.json
-         │
-         └── verify → hash match + blockchain verification
+zp release
+  └── stamp → .ots (pending) + async job created in ~/.zp/jobs/
+                │
+zp jobs run     ├── upgrade (after ~hours) → .ots (Bitcoin-attested)
+                │     └── save_header → .blockheader.json
+                │     └── synced back to archive_dir/tag/ots_timestamp/
+                │
+zp modules run  └── verify → hash match + blockchain verification
 ```
 
 ## Upgrade output

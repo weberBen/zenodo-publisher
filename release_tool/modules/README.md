@@ -32,6 +32,7 @@ This allows modules to use the same `emit()` function for both pipeline and stan
 Every module must implement at least two **subcommands** (positional, not flags):
 - `<name>.py run --input <json>` — normal execution (process files, produce output)
 - `<name>.py check --config <json>` — validate config and connectivity (called at pipeline start)
+- `<name>.py job --input <json>` — *(optional)* execute a deferred job (see [Async jobs](#async-jobs) below)
 
 Without arguments, the module should display help and exit with code 1.
 
@@ -74,3 +75,99 @@ generated_files:
 > **Note**: `"file"` is a group key — it matches file, project, and manifest types (everything except sig and module_entry). This is consistent with `archive_types` where `"file"` archives FILE/PROJECT/MANIFEST entries. Use `"project"` or `"manifest"` only if you need to narrow to a specific kind.
 
 This filtering is handled by `_shared.filter_input_files` and works for all built-in modules.
+
+## Async jobs
+
+Modules can schedule deferred tasks that run after the pipeline completes. This is useful when a module's output requires time to finalize (e.g. OTS proof upgrade needs hours for Bitcoin confirmation).
+
+### Scheduling a job
+
+In the `run` result, include a `job` key:
+
+```json
+{"type": "result", "files": [...], "job": {
+  "description": "Upgrade pending OTS proofs to Bitcoin attestation",
+  "retry_interval": "1h",
+  "retry_max": null
+}}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | str | `""` | Shown in `zp jobs list` table |
+| `retry_interval` | str/int | `1800` | Minimum time between retries (`"30m"`, `"1h"`, `"5min"`, or seconds) |
+| `retry_max` | int/null | `100` | Max retry attempts. `null` = unlimited |
+
+ZP stores the job in `~/.zp/jobs/` with:
+- ZP-controlled fields at root level (`id`, `module_name`, `tag_name`, `status`, `retry_count`, `files[]`, etc.)
+- Module-provided data under `input` key (`input.job_descriptor` = raw descriptor, `input.files` = per-file `module_config` keyed by `config_key`)
+
+### Implementing the `job` subcommand
+
+```
+<name>.py job --input <json>
+```
+
+**Input JSON** (same structure as `run`, without `command`):
+```json
+{
+  "config": {"identity_hash_algo": "sha256"},
+  "output_dir": "/tmp/zp-job-XXXX/",
+  "files": [
+    {
+      "file_path": "/tmp/.../module_name/file.ext",
+      "config_key": "manifest",
+      "hashes": {},
+      "module_config": {"calendars": ["..."], "nonce": true}
+    }
+  ]
+}
+```
+
+The module works **in-place** on the files in `output_dir`. Files are copies from the archive — the originals are untouched until ZP syncs back.
+
+The `module_config` per file is the same merged config (global + per-file overrides) that was passed during the original `run`.
+
+**Output**: NDJSON events + final result:
+```json
+{"type": "result", "status": "complete|pending|error"}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `complete` | Job is done. Changed files are synced to archive. Job marked complete. |
+| `pending` | Not ready yet (e.g. OTS not confirmed). Will retry after `retry_interval`. |
+| `error` | Failed. Error recorded in job file. |
+
+**Built-in helper**: `run_module_job_files(args, handler)` in `_shared.py` handles JSON parsing, file iteration, and status aggregation (same pattern as `run_module_files`).
+
+### Archive sync
+
+After the module runs, ZP scans only `workdir/{module_name}/` and compares with `archive_dir/{tag}/{module_name}/`:
+- **New files** → copied to archive
+- **Unchanged** (same SHA256) → skipped
+- **Modified** → user prompted: overwrite / skip / backup (`.backup` with old content)
+
+### Example: OTS timestamp
+
+The `ots_timestamp` module schedules a job to upgrade pending proofs:
+
+```python
+# In _cmd_run: return job descriptor
+job_descriptor = {
+    "description": "Upgrade pending OTS proofs to Bitcoin attestation",
+    "retry_interval": retry_interval,  # from module config
+    "retry_max": None,                 # unlimited — proof will eventually arrive
+}
+run_module_files(args, handler=_process_file, result_extra={"job": job_descriptor})
+
+# In _cmd_job: upgrade each .ots file
+def _process_job_file(f):
+    ots_path = f["file_path"]
+    if is_ots_complete(ots_path):
+        return {"status": "complete"}
+    changed = upgrade_ots(ots_path, calendar_urls=cfg.get("calendars"))
+    if changed and is_ots_complete(ots_path):
+        return {"status": "complete"}
+    return {"status": "pending"}
+```

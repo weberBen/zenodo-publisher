@@ -201,7 +201,7 @@ Arguments after the module name are passed directly to the module. ZP captures t
 Some modules produce deferred tasks that can't complete during the pipeline run. For example, the `ots_timestamp` module stamps files immediately but the Bitcoin proof takes hours to confirm. The `zp jobs` command manages these async tasks.
 
 ```bash
-zp jobs              # List pending jobs + run eligible ones
+zp jobs              # List all jobs
 zp jobs list         # Show summary table only
 zp jobs run          # Run jobs whose retry interval has elapsed
 zp jobs run --all    # Run all pending jobs (ignore retry timing)
@@ -211,18 +211,29 @@ zp jobs rm <id>      # Remove a job
 zp jobs clean        # Remove completed jobs
 ```
 
-Jobs are stored globally in `~/.zp/jobs/` so they can be processed from any directory. Each job file is self-contained with the project path and archive location.
+Jobs are stored globally in `~/.zp/jobs/` so they can be processed from any directory (overridable via `ZP_JOBS_DIR` env var). Each job file is self-contained with the project path, archive location, and module configuration.
 
 When you run any `zp` command, a notice is displayed if pending jobs exist:
 ```
-3 async job(s) pending. Run 'zp jobs' to process them.
+>>> 2 async job(s) pending. Run 'zp jobs run' to process them.
 ```
 
 #### How it works
 
 1. During `zp release`, if a module returns a `job` descriptor in its result, ZP creates a job file in `~/.zp/jobs/`
 2. `zp jobs run` copies the relevant files from the archive to a temp directory, runs the module's `job` subcommand, then syncs changed files back to the archive
-3. If a file in the archive would be overwritten, you are prompted to overwrite, skip, or create a backup (`.backup`)
+3. For each file in the archive:
+   - **New files** (created by the module) are copied directly
+   - **Unchanged files** are skipped (no prompt)
+   - **Modified files** trigger a prompt: overwrite, skip, or create a backup (`.backup` suffix with old content preserved)
+
+#### Job file structure
+
+Each job is a JSON file separating ZP-controlled data from module-provided data:
+- **Root level**: `id`, `module_name`, `tag_name`, `project_root`, `archive_dir`, `status`, `retry_count`, `retry_max`, `description`, `files[]` — all managed by ZP
+- **`input` key**: module-provided data stored as-is
+  - `input.job_descriptor`: the raw descriptor from the module's `run` result
+  - `input.files`: per-file `module_config` keyed by `config_key` — passed back to the module during job execution
 
 #### Retry behavior
 
@@ -231,9 +242,9 @@ Each module specifies a retry interval (e.g. `"1h"` for OTS) and an optional max
 The summary table shows the status of each job:
 
 ```
-MODULE               TAG          CMD        STATUS     RETRIES  NEXT IN    DESCRIPTION
-ots_timestamp        v1.0.0       upgrade    pending    3        12m        Upgrade pending OTS proofs
-ots_timestamp        v2.0.0       upgrade    pending    0        ready      Upgrade pending OTS proofs
+ID          MODULE               TAG          STATUS     RETRIES  NEXT IN    DESCRIPTION
+a3f1b29c    ots_timestamp        v1.0.0       pending    3        12m        Upgrade pending OTS proofs
+e7d2f01a    ots_timestamp        v2.0.0       pending    0        ready      Upgrade pending OTS proofs
 ```
 
 #### Automation
@@ -242,7 +253,7 @@ For fully automated processing, add `zp jobs run` to your crontab:
 
 ```bash
 # Run eligible jobs every 30 minutes
-*/30 * * * * cd /path/to/project && zp jobs run
+*/30 * * * * zp jobs run
 ```
 
 ## Project Setup

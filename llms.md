@@ -805,36 +805,103 @@ On each publish run, all `zp:///` entries on the Zenodo record are removed and r
 
 Modules can schedule deferred tasks that run outside the pipeline. Typical use case: OTS proof upgrade (takes hours for Bitcoin confirmation).
 
-**Storage**: `~/.zp/jobs/` — global, cross-project. Each job is a self-contained JSON file with `project_root` and `archive_dir` stored as absolute paths.
+**Storage**: `~/.zp/jobs/` — global, cross-project (overridable via `ZP_JOBS_DIR` env var). Each job is a self-contained JSON file. Filename: `{uuid}.json` (8-10 hex chars).
 
 **Job lifecycle**:
-1. Module returns a `job` key in its `run` result: `{"type": "result", "files": [...], "job": {"command": "upgrade", "description": "...", "retry_interval": "1h", "retry_max": null}}`
-2. `_step_modules` in `pipeline/release.py` detects the `job` key, calls `jobs.create_job()` to write `~/.zp/jobs/{module}_{tag}_{timestamp}.json`
+1. Module returns a `job` key in its `run` result: `{"type": "result", "files": [...], "job": {"description": "...", "retry_interval": "1h", "retry_max": null}}`
+2. `_step_modules` in `pipeline/release.py` detects the `job` key, calls `jobs.create_job()` which writes to `~/.zp/jobs/`
 3. `zp jobs run` scans the directory, runs eligible jobs (retry interval elapsed, retry_max not reached)
-4. Changed files are synced back to `archive_dir/{tag}/`
+4. Changed files are synced back to `archive_dir/{tag}/{module_name}/`
 
-**Job file schema** (key fields):
-- `module_name`, `command`, `tag_name`, `project_root`, `archive_dir`
-- `retry_interval_seconds` (parsed from human format: `"30m"`, `"1h"`)
-- `retry_max` (`null` = infinite, default `DEFAULT_RETRY_MAX = 100`)
-- `retry_count`, `last_attempt_at`, `errors[]`, `status` (`pending`/`complete`/`error`)
-- `files[]` with `relative_path`, `config_key`, `identifier` (SHA256), `module_config`, `hashes`
+**Job file JSON structure** — root-level fields are ZP-controlled, module-provided data is under `input`:
+```json
+{
+  "id": "a3f1b29c12",
+  "module_name": "ots_timestamp",
+  "tag_name": "v1.0.0",
+  "project_root": "/abs/path",
+  "archive_dir": "/abs/path/releases",
+  "created_at": 1234567890.0,
+  "status": "pending",
+  "retry_interval_seconds": 3600,
+  "retry_count": 0,
+  "retry_max": null,
+  "description": "Upgrade pending OTS proofs",
+  "last_attempt_at": null,
+  "errors": [],
+  "config": {"identity_hash_algo": "sha256"},
+  "files": [
+    {"relative_path": "ots_timestamp/file.ots", "config_key": "manifest",
+     "identifier": "sha256hex...", "module_entry_type": "ots", "hashes": {}}
+  ],
+  "input": {
+    "job_descriptor": {"description": "...", "retry_interval": "1h", "retry_max": null},
+    "files": {"manifest": {"calendars": ["..."], "nonce": true}}
+  }
+}
+```
 
-**Module protocol**:
-- Module's `run` result can include `"job": {...}` to schedule a deferred task
-- Module must implement a `job` subcommand: `<name>.py job --input <json>`. Input format same as `run` plus a `command` field. Output: NDJSON events + `{"type": "result", "status": "complete|pending|error"}`
-- Built-in helper: `run_module_job_files(args, handler)` in `_shared.py`
+Key separation:
+- Root `files[]`: ZP-controlled (no `module_config`)
+- `input.job_descriptor`: raw descriptor from module's `run` result (safe-parsed by ZP: `retry_max` → int/None, `description` → str)
+- `input.files`: per-file `module_config` keyed by `config_key` — passed back to module during job execution
+
+**Module protocol — job descriptor** (returned from `run`):
+
+The module's `run` result can include `"job": {...}` to schedule a deferred task:
+```json
+{"type": "result", "files": [...], "job": {
+  "description": "Human-readable job description",
+  "retry_interval": "1h",
+  "retry_max": null
+}}
+```
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | str | `""` | Shown in `zp jobs list` table |
+| `retry_interval` | str/int | `1800` | Minimum time between retries. Human format: `"30m"`, `"1h"`, `"5min"`, or seconds |
+| `retry_max` | int/null | `100` | Max retry attempts. `null` = unlimited |
+
+**Module protocol — `job` subcommand**:
+
+Module must implement: `<name>.py job --input <json>`
+
+Input JSON (same format as `run`, without `command`):
+```json
+{
+  "config": {"identity_hash_algo": "sha256"},
+  "output_dir": "/tmp/zp-job-XXXX/",
+  "files": [
+    {"file_path": "/tmp/.../ots_timestamp/file.ots", "config_key": "manifest",
+     "hashes": {}, "module_config": {"calendars": [...]}}
+  ]
+}
+```
+The module works **in-place** on files in `output_dir`. New files can be created in the module's subdirectory.
+
+Output: NDJSON events + final result line:
+```json
+{"type": "result", "status": "complete|pending|error"}
+```
+- `complete`: job done — changed files synced to archive
+- `pending`: not ready yet — will retry later (e.g. OTS not yet confirmed)
+- `error`: failed — error recorded in job file
+
+Built-in helper: `run_module_job_files(args, handler)` in `_shared.py` (same pattern as `run_module_files`).
 
 **Job runner flow** (`run_single_job`):
 1. Check `retry_max` — if exhausted, mark `error` and skip
 2. Copy files from `archive_dir/{tag}/` to temp dir
 3. Verify file integrity (SHA256 identifier match)
 4. Call module `job` subcommand via `modules.run_module_job()`
-5. Diff files: compare SHA256 before/after, sync changed files back to archive (with backup/overwrite prompt)
-6. Update job file (retry_count, last_attempt_at, status, identifiers)
+5. Scan `workdir/{module_name}/` and sync back to `archive_dir/{tag}/{module_name}/`:
+   - New files → copied directly
+   - Unchanged files (same SHA256) → skipped
+   - Modified files → prompt overwrite/skip/backup
+6. Update job file (retry_count, last_attempt_at, status, file identifiers)
 
 **CLI**:
-- `zp jobs` — list + run eligible (default)
+- `zp jobs` — list all jobs (default)
 - `zp jobs list` — show summary table (with job IDs)
 - `zp jobs run [--all]` — run eligible jobs (`--all` ignores retry timing)
 - `zp jobs run <id>` — run a specific job by ID (or prefix match)
@@ -842,9 +909,9 @@ Modules can schedule deferred tasks that run outside the pipeline. Typical use c
 - `zp jobs rm <id>` — remove a job file
 - `zp jobs clean` — remove all completed jobs
 
-**Auto-check**: `run_cmd()` in `cli.py` prints a notice when pending jobs exist (skipped for `zp jobs` command itself).
+**Auto-check**: `run_cmd()` in `cli.py` prints a yellow notice when pending jobs exist (skipped for `zp jobs` command itself). Shown before and after the command.
 
-**Key files**: `jobs.py`, `cli.py` (`cmd_jobs`), `pipeline/release.py` (`_step_modules` job creation), `modules/__init__.py` (`run_module_job`), `modules/_shared.py` (`run_module_job_files`).
+**Key files**: `jobs.py`, `cli.py` (`cmd_jobs`, `run_cmd`), `pipeline/release.py` (`_step_modules` job creation), `modules/__init__.py` (`run_module_job`), `modules/_shared.py` (`run_module_job_files`).
 
 ---
 
