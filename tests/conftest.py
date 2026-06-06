@@ -8,6 +8,7 @@
 - Provides fixtures: log_dir, repo_dir, repo_git, branch_name
 """
 
+import os
 import re
 import sys
 import uuid
@@ -109,6 +110,8 @@ def pytest_sessionstart(session):
         sys.exit(1)
 
     gpg_uid = test_env.get("GPG_UID")
+    if gpg_uid:
+        os.environ["ZP_GPG_UID"] = gpg_uid
     branch_name = _load_branch_name(repo_dir)
 
     git = GitClient(repo_dir)
