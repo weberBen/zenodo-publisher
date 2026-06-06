@@ -122,16 +122,20 @@ def run_module_job_files(args, handler):
             "identity_hash_algo": config.get("identity_hash_algo"),
         })
 
-    all_complete = True
+    has_error = False
+    has_pending = False
     result_files = []
     for fd in files_data:
         result = handler(fd)
         if result:
             result_files.append(result)
-            if result.get("status") == "pending":
-                all_complete = False
+            st = result.get("status")
+            if st == "error":
+                has_error = True
+            elif st == "pending":
+                has_pending = True
 
-    overall_status = "complete" if all_complete else "pending"
+    overall_status = "error" if has_error else ("pending" if has_pending else "complete")
     print(json.dumps({
         "type": "result",
         "status": overall_status,
