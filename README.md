@@ -38,6 +38,7 @@ graph TD
     S11 --> S12{"Modules?"}
     S12 -->|Yes| S13["Run modules\ntimestamp, etc."]
     S12 -->|No| S14
+    S13 -.->|deferred| JOBS["Async jobs created\nzp jobs run (later)"]
     S13 --> S14{"Check Zenodo\nversion + md5"}
     S14 --> H{"Files equal?\nmd5 comparison"}
     H -->|Yes| I{"Versions equal?\ntag name"}
@@ -54,7 +55,7 @@ graph TD
     N --> P
     P --> GH{"GitHub assets\nper-file sha256"}
     GH -->|"Local = Remote"| GH_SKIP["Skip asset"]
-    GH -->|"Local ≠ Remote"| GH_OVER["Prompt overwrite\n--clobber"]
+    GH -->|"Local ≠ Remote"| GH_OVER["Prompt overwrite\ngh --clobber"]
     GH -->|"No remote"| GH_UP["Upload asset"]
     GH_SKIP --> T["Persist\narchive dir"]
     GH_OVER --> T
@@ -68,6 +69,7 @@ graph TD
     style S9 fill:#e1f5ff
     style S11 fill:#e1f5ff
     style S13 fill:#e1f5ff
+    style JOBS fill:#f0f0f0,stroke-dasharray:5
     style GH_UP fill:#e8f5e9
     style GH_SKIP fill:#f3e5f5
     style GH_OVER fill:#fff3cd
