@@ -298,6 +298,7 @@ Each module ships two READMEs:
 | Module | README |
 |--------|--------|
 | `digicert_timestamp` | [`release_tool/modules/digicert_timestamp/README.md`](../release_tool/modules/digicert_timestamp/README.md) |
+| `ots_timestamp` | [`release_tool/modules/ots_timestamp/README.md`](../release_tool/modules/ots_timestamp/README.md) |
 
 ```bash
 # List available modules

@@ -26,7 +26,7 @@ class PipelineContext:
     commit_env: dict = field(default_factory=dict)
     archived_files: list["FileEntry"] = field(default_factory=list)
     record_info: dict | None = None
-    caching_active: bool = False   # True when using .zp/archives/{tag_name}/ as output_dir
+    caching_active: bool = False   # True when using .zp/cache/{tag_name}/ as output_dir
 
 
 # ---------------------------------------------------------------------------

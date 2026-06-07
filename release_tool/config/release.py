@@ -89,7 +89,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("pipeline_caching", env_key=None,
                  yaml_path="pipeline.caching",
                  type="bool", default=True, cli=True,
-                 help="Cache pipeline working files in .zp/archives/{tag_name}/ for resume support"),
+                 help="Cache pipeline working files in .zp/cache/{tag_name}/ for resume support"),
 
     # Runtime options
     ConfigOption("prompt_validation_level", env_key=None,

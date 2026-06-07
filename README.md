@@ -432,8 +432,9 @@ This is highly recommended, not mandatory, but without these the only reference 
 9. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
 10. **Manifest**: generates JSON manifest (JCS/RFC 8785) with file hashes included, then the manifest itself is hashed
 11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files in a `gpg_sign/` subdirectory (mirroring module output dirs). After persist: `archive.dir/{tag_name}/gpg_sign/`
-12. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
-13. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
+12. **Modules**: runs configured modules (e.g. `digicert_timestamp`, `ots_timestamp`) on files that declare them. Each module produces new files (e.g. `.tsr`, `.ots`) appended to the pipeline
+13. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
+14. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
 
 
 This tool uses `git fetch` (not in dry run mode). If fetching regularly is a problem for your project, do not use this tool.
@@ -449,11 +450,13 @@ The pipeline is designed to be **re-run safely** after a failure. Each step hand
 - **Step 13 (Publish to GitHub)**: compares the SHA256 digest of local files against existing release assets. If identical, the asset is **skipped**. If different, the user is prompted before overwriting (via `gh release upload --clobber`).
 - **Step 14 (Persist)**: if the archive directory already contains files from a previous run, the user is prompted before overwriting.
 
+> Steps not listed here (e.g. git check, hashes, sign, modules) are inherently safe to re-run — they either produce the same output or operate on fresh temporary state.
+
 In short: re-running `zp release` after a failure will pick up where it left off. The release and tag are reused, unchanged files are skipped, and you are prompted before any overwrite.
 
 ### Pipeline caching and resume
 
-When `pipeline.caching: true` (the default), ZP uses `.zp/archives/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
+When `pipeline.caching: true` (the default), ZP uses `.zp/cache/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
 
 If you interrupt the pipeline (Ctrl-C, crash, GPG failure…) and re-run `zp release` for the same tag, ZP detects the existing cache and asks:
 
@@ -472,7 +475,7 @@ pipeline:
   caching: false
 ```
 
-> **Note**: add `.zp/archives/` to your `.gitignore` to avoid accidentally committing working files.
+> **Note**: add `.zp/cache/` to your `.gitignore` to avoid accidentally committing working files.
 
 ### Prompt validation level
 
@@ -527,9 +530,9 @@ Each entry can specify:
 - `sign`: per-file signing override (overrides global `signing.sign`)
 - `sign_mode`: per-file signing mode override
 - `rename`: rename using project name template (default: false)
-- `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
-- `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
-- `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
+- `archive_types`: list of file types to persist to `archive.dir/{tag}/` after the run (default: `[file, sig]`). Set to `[]` to publish without local copy. Signatures inherit this setting from their parent file.
+- `publishers.destination.file`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
+- `publishers.destination.sig`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
 - `publish_identity_hash`: where to publish each file's identity hash (same structure as `publishers`). Options per type key (`file`, `sig`, `<module_name>`, `<module_name>.<type>`):
   - `github`: creates a `<filename>.identity_hash.txt` file (content: `{algo}:{hex}`) and uploads it to the GitHub release
   - `zenodo`: adds the hash as a `zp:///` alternate identifier in Zenodo `metadata.identifiers`
@@ -636,18 +639,21 @@ When a `manifest` entry exists in `generated_files`, the pipeline generates a JS
 - **File entries**: each listed file with its filename as `key`
 - **Optional metadata**: fields from `.zenodo.json` via `zenodo_metadata`
 
-The `files` list references entry keys. To include signatures, append the `_sig` suffix to the entry key:
+The `content` mapping declares which entries and types to include. Each key is a `generated_files` entry name, each value is a list of type keys (`file`, `sig`, or a module name):
 
 ```yaml
 manifest:
-  files: [paper, paper_sig, project, project_sig]
+  content:
+    paper: [file, sig]        # include paper file + its signature hash
+    project: [file]           # include project file hash
   commit_info: [sha, date_epoch]
   sign: true
   publishers:
-    file_destination: [github, zenodo]
+    destination:
+      file: [github, zenodo]
 ```
 
-This includes the hashes of the PDF, its signature, the ZIP archive, and its signature in the manifest. The `_sig` suffix is reserved for this purpose and cannot be used as a user-defined key.
+This includes the hashes of the PDF, its signature, and the ZIP archive in the manifest.
 
 The canonical JSON format (JCS) ensures deterministic serialization: the same content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
 
@@ -897,7 +903,7 @@ Or
 
 ```bash
 zp archive ... --format tar.gz
-`̀``
+```
 
 **How it works:** The pipeline first creates a ZIP via `git archive` (the only format git natively supports for prefix-based archives), then extracts it and repacks as TAR using deterministic parameters.
 

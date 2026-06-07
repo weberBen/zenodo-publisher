@@ -470,6 +470,15 @@ Sequential hook points in `pipeline/release.py`, driven by `HookRegistry.run_pip
 Each hook point maps to a `_step_*` handler registered in `_build_registry()`.
 State is shared via `PipelineContext` (config, output_dir, tag_name, commit_env, archived_files, record_info).
 
+### Step 0: Module check (`_step_module_check`)
+
+Runs before any git operations. For each module declared in `modules:` config:
+1. Resolves module path (built-in, project, or user)
+2. Calls `check_module()` which runs the module's `check --config <json>` subcommand
+3. Aborts pipeline on failure (non-zero exit or `error` event)
+
+Skipped entirely if no modules are configured.
+
 ### Step 1: Git check (`_step_git_check`)
 
 Calls `check_up_to_date()` which runs checks **in this specific order** (first match raises):
@@ -998,8 +1007,8 @@ gpg.verify_file(sig_handle, data_filename=original_file)
 
 ### Two hash concepts
 
-- **`sign_hash_algo`** (ZP config, default `sha256`): which hash computes the digest written to the temp file in FILE_HASH mode. Changes the signed content.
-- **GPG digest algo** (`gpg.extra_args: ["--digest-algo", "SHA512"]`): GPG's internal signature hash. Independent from sign_hash_algo.
+- **`identity_hash_algo`** (ZP config, default `sha256`): which hash computes the digest written to the temp file in FILE_HASH mode. Changes the signed content.
+- **GPG digest algo** (`gpg.extra_args: ["--digest-algo", "SHA512"]`): GPG's internal signature hash. Independent from identity_hash_algo.
 
 ### Manifest signature
 
@@ -1206,7 +1215,7 @@ In test mode, `Prompt.ask()` looks up response from `test_config.prompts[name]`.
 ## File persistence (`file_utils.py`)
 
 `persist_files(entries, archive_dir, tag_name)`:
-1. Filter entries by `entry.persist`
+1. Filter entries by `entry.archive`
 2. Create `archive_dir/{tag_name}/`
 3. For each file: check if dest exists, prompt for overwrite
 4. `shutil.move()` to destination
