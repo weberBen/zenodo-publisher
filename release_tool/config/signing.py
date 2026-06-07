@@ -1,5 +1,6 @@
 """Signing configuration dataclass and YAML parser."""
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -28,7 +29,7 @@ SIGNING_OPTIONS: list[ConfigOption] = [
                  default=SignMode.FILE_HASH.value,
                  choices=[m.value for m in SignMode],
                  help="Signing mode: file or file_hash"),
-    ConfigOption("gpg_uid", env_key=None,
+    ConfigOption("gpg_uid", env_key="ZP_GPG_UID",
                  yaml_path="signing.gpg.uid",
                  nullable=True,
                  help="GPG user ID"),
@@ -85,7 +86,7 @@ def parse_signing_config(raw: Any, cli_overrides: dict | None = None) -> Signing
     elif "sign_mode" in raw:
         cfg.sign_mode = _parse_sign_mode(raw["sign_mode"])
 
-    # gpg_uid
+    # gpg_uid — priority: CLI > YAML > env var ZP_GPG_UID
     if "gpg_uid" in cli and cli["gpg_uid"] is not None:
         cfg.gpg_uid = str(cli["gpg_uid"]).strip()
     else:
@@ -93,6 +94,8 @@ def parse_signing_config(raw: Any, cli_overrides: dict | None = None) -> Signing
         if isinstance(gpg, dict) and "uid" in gpg:
             uid = gpg["uid"]
             cfg.gpg_uid = str(uid).strip() if uid else None
+        elif os.environ.get("ZP_GPG_UID"):
+            cfg.gpg_uid = os.environ["ZP_GPG_UID"].strip()
 
     # gpg_extra_args (YAML only)
     gpg = raw.get("gpg", {})

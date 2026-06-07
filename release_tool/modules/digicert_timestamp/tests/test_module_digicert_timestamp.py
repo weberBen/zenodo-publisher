@@ -160,17 +160,17 @@ def test_request_timestamp_http_error(tmp_path):
 
 def test_main_check_valid(capsys):
     """main --check sans --config émet check.ok et retourne 0."""
-    sys.argv = ["digicert_timestamp.py", "--check"]
+    sys.argv = ["digicert_timestamp.py", "check"]
     mod.main()
     event = json.loads(capsys.readouterr().out.strip())
     assert event["name"] == "digicert_timestamp.check.ok"
 
 
 def test_main_check_invalid_config(tmp_path, capsys):
-    """main --check --config <file> avec full_chain invalide émet check.invalid_config et exit 1."""
+    """main check --config <file> avec full_chain invalide émet check.invalid_config et exit 1."""
     cfg = tmp_path / "cfg.json"
     cfg.write_text(json.dumps({"module_config": {"full_chain": "bad"}}))
-    sys.argv = ["digicert_timestamp.py", "--check", "--config", str(cfg)]
+    sys.argv = ["digicert_timestamp.py", "check", "--config", str(cfg)]
     with pytest.raises(SystemExit) as exc:
         mod.main()
     assert exc.value.code == 1
@@ -178,35 +178,67 @@ def test_main_check_invalid_config(tmp_path, capsys):
     assert event["name"] == "digicert_timestamp.check.invalid_config"
 
 
-def test_main_unsupported_algo(tmp_path, capsys):
-    """main --input avec identity_hash_algo=md5 (non supporté RFC 3161) émet unsupported_algo et exit 1."""
-    data = _make_input(tmp_path, algo="md5", hex_hash="a" * 32)
+def test_main_unsupported_algo_fallback(tmp_path, capsys):
+    """main --input avec identity_hash_algo=md5 (non supporté RFC 3161): warn + fallback sha256."""
+    # Create a real file so compute_file_hash can read it
+    dummy = tmp_path / "paper.pdf"
+    dummy.write_bytes(b"test content")
+
+    data = _make_input(tmp_path, algo="md5", hex_hash="a" * 32, file_path=str(dummy))
     data["files"][0]["hashes"] = {"md5": {"type": "md5", "value": "a" * 32,
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
-    with pytest.raises(SystemExit) as exc:
+
+    mock_resp = MagicMock()
+    mock_resp.content = b"fake-tsr"
+    mock_resp.raise_for_status = MagicMock()
+
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
+    with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
+         patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
+         patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
         mod.main()
-    assert exc.value.code == 1
-    event = json.loads(capsys.readouterr().out.strip())
-    assert event["name"] == "digicert_timestamp.unsupported_algo"
+
+    lines = [l for l in capsys.readouterr().out.strip().splitlines() if l.strip()]
+    events = [json.loads(l) for l in lines]
+    warn = next((e for e in events if e.get("name") == "digicert_timestamp.unsupported_algo"), None)
+    assert warn is not None, f"Expected unsupported_algo warn. Events: {events}"
+    assert warn["type"] == "warn"
+    assert warn["data"]["algo"] == "md5"
 
 
-def test_main_missing_hash(tmp_path, capsys):
-    """main --input où identity_hash_algo=sha256 mais seul md5 est dans hashes émet missing_hash et exit 1."""
-    data = _make_input(tmp_path)
+def test_main_missing_hash_fallback(tmp_path, capsys):
+    """main --input avec sha256 absent des hashes: fallback compute_file_hash."""
+    # Create a real file so compute_file_hash can read it
+    dummy = tmp_path / "paper.pdf"
+    dummy.write_bytes(b"test content")
+
+    data = _make_input(tmp_path, file_path=str(dummy))
     data["files"][0]["hashes"] = {"md5": {"type": "md5", "value": "a" * 32,
                                            "formatted_value": "md5:" + "a" * 32}}
     f = tmp_path / "input.json"
     f.write_text(json.dumps(data))
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
-    with pytest.raises(SystemExit) as exc:
+
+    mock_resp = MagicMock()
+    mock_resp.content = b"fake-tsr"
+    mock_resp.raise_for_status = MagicMock()
+
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
+    with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
+         patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
+         patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
         mod.main()
-    assert exc.value.code == 1
-    event = json.loads(capsys.readouterr().out.strip())
-    assert event["name"] == "digicert_timestamp.missing_hash"
-    assert event["data"]["algo"] == "sha256"
+
+    lines = [l for l in capsys.readouterr().out.strip().splitlines() if l.strip()]
+    events = [json.loads(l) for l in lines]
+    # Should have computed hash from file (cmd event)
+    hash_event = next((e for e in events if "start.hash" in (e.get("name") or "")), None)
+    assert hash_event is not None, f"Expected start.hash event (file hash fallback). Events: {events}"
+    assert "Computing" in hash_event["msg"]
+    # Should produce a result
+    result = next((e for e in events if e.get("type") == "result"), None)
+    assert result is not None, f"Expected result. Events: {events}"
 
 
 def test_main_success_result(tmp_path, capsys):
@@ -219,7 +251,7 @@ def test_main_success_result(tmp_path, capsys):
     mock_resp.content = b"fake-tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -244,7 +276,7 @@ def test_main_success_events(tmp_path, capsys):
     mock_resp.content = b"fake-tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -266,7 +298,7 @@ def test_main_tsa_error(tmp_path, capsys):
     mock_resp = MagicMock()
     mock_resp.raise_for_status.side_effect = req_lib.HTTPError("503")
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()), \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -288,7 +320,7 @@ def test_main_full_chain_false_forwarded(tmp_path, capsys):
     mock_resp.content = b"tsr"
     mock_resp.raise_for_status = MagicMock()
 
-    sys.argv = ["digicert_timestamp.py", "--input", str(f)]
+    sys.argv = ["digicert_timestamp.py", "run", "--input", str(f)]
     with patch("digicert_timestamp.requests.post", return_value=mock_resp), \
          patch("digicert_timestamp.rfc3161ng.make_timestamp_request", return_value=MagicMock()) as mock_make, \
          patch("digicert_timestamp.rfc3161ng.encode_timestamp_request", return_value=b"req"):
@@ -308,7 +340,7 @@ def _run_module(input_data: dict, tmp_path: Path):
     input_file.write_text(json.dumps(input_data))
     proc = subprocess.run(
         ["uv", "run", "--project", str(MODULE_DIR),
-         str(MODULE_DIR / "digicert_timestamp.py"), "--input", str(input_file)],
+         str(MODULE_DIR / "digicert_timestamp.py"), "run", "--input", str(input_file)],
         capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
     )
@@ -471,7 +503,7 @@ def test_live_check_mode(tmp_path):
     """--check mode exits 0 and emits check.ok."""
     proc = subprocess.run(
         ["uv", "run", "--project", str(MODULE_DIR),
-         str(MODULE_DIR / "digicert_timestamp.py"), "--check"],
+         str(MODULE_DIR / "digicert_timestamp.py"), "check"],
         capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
     )
@@ -479,6 +511,213 @@ def test_live_check_mode(tmp_path):
     event = json.loads(proc.stdout.strip())
     assert event["name"] == "digicert_timestamp.check.ok"
 
+
+# ---------------------------------------------------------------------------
+# Standalone subcommands helpers
+# ---------------------------------------------------------------------------
+
+def _run_standalone(args: list[str], tmp_path: Path):
+    """Run module standalone subcommand and return (events, returncode)."""
+    proc = subprocess.run(
+        ["uv", "run", "--project", str(MODULE_DIR),
+         str(MODULE_DIR / "digicert_timestamp.py"), *args],
+        capture_output=True, text=True,
+        env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
+    )
+    events = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events, proc.returncode
+
+
+# ---------------------------------------------------------------------------
+# Standalone: stamp
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_stamp_produces_tsr(tmp_path):
+    """stamp subcommand produces a .tsr file."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"stamp test")
+
+    events, rc = _run_standalone(
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+
+    assert rc == 0, f"stamp failed (rc={rc}). Events: {events}"
+    tsr_path = tmp_path / "test.bin.tsr"
+    assert tsr_path.exists(), "TSR file not produced"
+    assert tsr_path.stat().st_size > 0
+
+
+@pytest.mark.network
+def test_live_stamp_algo_sha512(tmp_path):
+    """stamp with --algo sha512 produces a TSR with sha512."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"stamp sha512 test")
+
+    events, rc = _run_standalone(
+        ["stamp", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+
+    assert rc == 0
+    tsr_path = tmp_path / "test.bin.tsr"
+    assert tsr_path.exists()
+    algo = verify_tsr.parse_tsr_algo(tsr_path)
+    assert algo == "sha512", f"Expected sha512, got {algo}"
+
+
+# ---------------------------------------------------------------------------
+# Standalone: verify (round-trip with stamp)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_verify_roundtrip(tmp_path):
+    """stamp then verify: full round-trip succeeds."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"roundtrip test")
+
+    # Certify
+    _, rc = _run_standalone(
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(dummy), str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"verify failed (rc={rc}). Events: {events}"
+    names = [e.get("name") for e in events]
+    assert any("verify.ok" in n for n in names if n), \
+        f"Expected verify.ok event. Names: {names}"
+
+
+@pytest.mark.network
+def test_live_verify_auto_detects_algo(tmp_path):
+    """verify without --algo auto-detects from TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"auto algo test")
+
+    # Certify with sha512
+    _, rc = _run_standalone(
+        ["stamp", str(dummy), "--algo", "sha512", "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify without --algo
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(dummy), str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"verify failed (rc={rc}). Events: {events}"
+    algo_event = next((e for e in events if "verify.algo.auto" in (e.get("name") or "")), None)
+    assert algo_event is not None, f"Expected verify.algo.auto event. Events: {events}"
+    assert "sha512" in algo_event["msg"]
+
+
+@pytest.mark.network
+def test_live_verify_wrong_file_fails(tmp_path):
+    """verify with a different file than the one certified fails."""
+    original = tmp_path / "original.bin"
+    original.write_bytes(b"original content")
+    tampered = tmp_path / "tampered.bin"
+    tampered.write_bytes(b"tampered content")
+
+    # Certify original
+    _, rc = _run_standalone(
+        ["stamp", str(original), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Verify with tampered file
+    tsr_path = tmp_path / "original.bin.tsr"
+    events, rc = _run_standalone(
+        ["verify", str(tampered), str(tsr_path)], tmp_path)
+
+    assert rc == 1, "verify should fail for tampered file"
+    names = [e.get("name") for e in events]
+    assert any("verify.hash.mismatch" in n for n in names if n), \
+        f"Expected hash mismatch event. Names: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Standalone: info
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_info_shows_metadata(tmp_path):
+    """info subcommand emits TSR metadata fields."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"info test")
+
+    # Certify first
+    _, rc = _run_standalone(
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    # Info
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(["info", str(tsr_path)], tmp_path)
+
+    assert rc == 0, f"info failed (rc={rc}). Events: {events}"
+    msgs = " ".join(e.get("msg", "") for e in events)
+    assert "Hash Algorithm:" in msgs, f"Expected Hash Algorithm in output. Events: {events}"
+    assert "Time stamp:" in msgs, f"Expected Time stamp in output. Events: {events}"
+    assert "Serial number:" in msgs, f"Expected Serial number in output. Events: {events}"
+
+
+@pytest.mark.network
+def test_live_info_full_chain_embedded(tmp_path):
+    """info detects full chain embedded in TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"info chain test")
+
+    _, rc = _run_standalone(
+        ["stamp", str(dummy), "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    tsr_path = tmp_path / "test.bin.tsr"
+    events, rc = _run_standalone(["info", str(tsr_path)], tmp_path)
+
+    assert rc == 0
+    names = [e.get("name") for e in events]
+    assert any("full_chain.embedded" in n for n in names if n), \
+        f"Expected full_chain.embedded event. Names: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Unit: parse_tsr_algo
+# ---------------------------------------------------------------------------
+
+@pytest.mark.network
+def test_live_parse_tsr_algo(tmp_path):
+    """parse_tsr_algo extracts the correct algorithm from a real TSR."""
+    dummy = tmp_path / "test.bin"
+    dummy.write_bytes(b"algo parse test")
+
+    _, rc = _run_standalone(
+        ["stamp", str(dummy), "--algo", "sha384", "--output-dir", str(tmp_path)], tmp_path)
+    assert rc == 0
+
+    tsr_path = tmp_path / "test.bin.tsr"
+    algo = verify_tsr.parse_tsr_algo(tsr_path)
+    assert algo == "sha384", f"Expected sha384, got {algo}"
+
+
+def test_parse_tsr_algo_invalid_file(tmp_path):
+    """parse_tsr_algo returns None for a non-TSR file."""
+    fake = tmp_path / "fake.tsr"
+    fake.write_bytes(b"not a tsr")
+    algo = verify_tsr.parse_tsr_algo(fake)
+    assert algo is None
+
+
+# ---------------------------------------------------------------------------
+# Live: multiple files (existing test, moved after standalone tests)
+# ---------------------------------------------------------------------------
 
 @pytest.mark.network
 def test_live_multiple_files(tmp_path):

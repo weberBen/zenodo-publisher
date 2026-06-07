@@ -45,6 +45,7 @@ def _base_config(archive_dir: Path, **overrides) -> dict:
 def _prompts(tag: str) -> dict:
     return {
         "prompts": {
+            "confirm_resume": "no",
             "enter_tag": tag,
             "release_title": "",
             "release_notes": "",
@@ -59,6 +60,7 @@ def _prompts(tag: str) -> dict:
 # Prompts when release already exists (no enter_tag/title/notes)
 _EXISTING_RELEASE_CONFIG = {
     "prompts": {
+        "confirm_resume": "no",
         "confirm_build": "yes",
         "confirm_publish": "no",
         "confirm_persist_overwrite": "yes",
@@ -527,6 +529,7 @@ def test_local_tag_same_sha_as_remote_tag_different_name(tag_env, fix_log_path):
     result3 = runner.run_test("release", config=config,
                               test_config={
                                   "prompts": {
+                                      "confirm_resume": "no",
                                       "confirm_build": "yes",
                                       "confirm_publish": "no",
                                       "confirm_persist_overwrite": "yes",
@@ -585,6 +588,7 @@ def test_local_tag_same_sha_as_old_release(tag_env, fix_log_path):
     result3 = runner.run_test("release", config=config,
                               test_config={
                                   "prompts": {
+                                      "confirm_resume": "no",
                                       "confirm_build": "yes",
                                       "confirm_publish": "no",
                                       "confirm_persist_overwrite": "yes",

@@ -23,6 +23,12 @@ confirm_gpg_key: output.Prompt
 confirm_run_module: output.Prompt
 confirm_resume: output.Prompt
 
+# Job prompts (no config dependency — always light level)
+confirm_job_overwrite = output.Prompt(
+    [output.YES, output.NO, output.BACKUP],
+    name="confirm_job_overwrite", level="light",
+)
+
 
 def init_prompts(config):
     """Instantiate all confirm prompts after config is available."""

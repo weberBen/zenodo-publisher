@@ -54,6 +54,11 @@ def _discover_modules() -> dict[str, Path]:
     return modules
 
 
+def _has_tests(module_dir: Path) -> bool:
+    """Return True if the module has any tests (via pytest collection)."""
+    return bool(_collect_pytest_ids(module_dir))
+
+
 def _discover_test_files(module_dir: Path) -> list[str]:
     """Return test file paths relative to module_dir (without ``.py``), via pytest collection."""
     ids = _collect_pytest_ids(module_dir)
@@ -82,6 +87,7 @@ def _collect_pytest_ids(module_dir: Path, test_file: str | None = None) -> list[
     _completion_vars = {"VIRTUAL_ENV", "_ARGCOMPLETE", "_ARGCOMPLETE_IFS", "_ARGCOMPLETE_SHELL",
                         "COMP_LINE", "COMP_POINT", "COMP_TYPE", "COMP_KEY", "COMP_WORDBREAKS"}
     env = {k: v for k, v in os.environ.items() if k not in _completion_vars}
+    env["PYTHONPATH"] = str(BUILTIN_MODULES_DIR)
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -204,6 +210,8 @@ def _run_module(
     cmd.extend(extra)
 
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    # Allow built-in modules to import _shared
+    env["PYTHONPATH"] = str(BUILTIN_MODULES_DIR)
 
     print(f"\n{'─' * 60}", flush=True)
     print(f"  module : {module_name}", flush=True)
@@ -269,8 +277,9 @@ def main() -> int:
     if args.target is None:
         if not args.all:
             print("Available modules:")
-            for name in modules:
-                print(f"  {name}")
+            for name, path in modules.items():
+                marker = " (\u26a0\ufe0f  no tests)" if not _has_tests(path) else ""
+                print(f"  {name}{marker}")
             print(f"\nRun all:  {parser.prog} --all")
             print(f"Run one:  {parser.prog} <module>[.testfile[::func]]")
             return 0
@@ -287,10 +296,38 @@ def main() -> int:
         targets = [(module_name, modules[module_name], file_stem, func_pattern)]
 
     overall = 0
+    passed = []
+    failed = []
     for name, path, file_stem, func_pattern in targets:
         rc = _run_module(name, path, file_stem, func_pattern, extra_args)
         if rc != 0:
             overall = rc
+            failed.append(name)
+        else:
+            passed.append(name)
+
+    # Warn about modules without tests (only when running all)
+    no_tests = [name for name, path in modules.items() if not _has_tests(path)]
+
+    # Summary
+    run_all = args.all
+    if run_all or len(targets) > 1:
+        parts = []
+        if passed:
+            parts.append(f"{len(passed)} passed")
+        if failed:
+            parts.append(f"{len(failed)} failed")
+        if no_tests:
+            parts.append(f"{len(no_tests)} warning(s)")
+        summary = ", ".join(parts)
+        sep = "=" * 60
+        print(f"\n{sep}", flush=True)
+        print(f"  modules: {summary}", flush=True)
+        if failed:
+            print(f"  failed:  {', '.join(failed)}", flush=True)
+        if no_tests:
+            print(f"  \u26a0\ufe0f  no tests: {', '.join(no_tests)}", flush=True)
+        print(sep, flush=True)
 
     return overall
 

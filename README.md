@@ -154,6 +154,108 @@ zp archive --tag v1.0.0 --project-name-prefix MyProject --remote git@github.com:
 
 > **Standalone script:** For a lightweight alternative that doesn't require the full tool, the [`remote_repo_to_archive.sh`](./examples/remote_repo_to_archive.sh) script fetches a git archive (ZIP) from any remote repository at a given tag or commit (without cloning the full history as for the ZP script).
 
+### `zp modules` -- Manage and run modules
+
+#### `zp modules list`
+
+Lists available modules (built-in and user-defined):
+
+```bash
+zp modules list
+```
+
+#### `zp modules run <module_name> [args...]`
+
+Runs a module in standalone mode, without the full pipeline config. Each module exposes its own subcommands when run standalone:
+
+```bash
+# Show module help and available subcommands
+zp modules run digicert_timestamp --help
+
+# Certify a file with a RFC 3161 timestamp
+zp modules run digicert_timestamp stamp paper.pdf --algo sha256
+
+# Verify a file against a .tsr timestamp (algo auto-detected from TSR)
+zp modules run digicert_timestamp verify paper.pdf paper.pdf.tsr
+
+# Inspect TSR metadata
+zp modules run digicert_timestamp info paper.pdf.tsr
+
+# OpenTimestamps: stamp a file (Bitcoin-anchored, pending proof)
+zp modules run ots_timestamp stamp paper.pdf
+
+# Upgrade pending OTS proof (after Bitcoin confirmation, ~hours)
+zp modules run ots_timestamp upgrade paper.pdf.ots --save-header
+
+# Verify OTS proof against file + blockchain
+zp modules run ots_timestamp verify paper.pdf paper.pdf.ots
+
+# With debug output (shows subprocess commands)
+zp modules --debug run digicert_timestamp verify paper.pdf paper.pdf.tsr
+```
+
+Arguments after the module name are passed directly to the module. ZP captures the module's stdout and relays NDJSON events through its output system — events of type `cmd` and `debug` are only shown with `--debug`. Non-NDJSON lines are passed through as-is.
+
+### `zp jobs` -- Manage async module jobs
+
+Some modules produce deferred tasks that can't complete during the pipeline run. For example, the `ots_timestamp` module stamps files immediately but the Bitcoin proof takes hours to confirm. The `zp jobs` command manages these async tasks.
+
+```bash
+zp jobs              # List all jobs
+zp jobs list         # Show summary table only
+zp jobs run          # Run jobs whose retry interval has elapsed
+zp jobs run --all    # Run all pending jobs (ignore retry timing)
+zp jobs run <id>     # Run a specific job by ID (or prefix)
+zp jobs info <id>    # Show detailed info for a job
+zp jobs rm <id>      # Remove a job
+zp jobs clean        # Remove completed jobs
+```
+
+Jobs are stored globally in `~/.zp/jobs/` so they can be processed from any directory (overridable via `ZP_JOBS_DIR` env var). Each job file is self-contained with the project path, archive location, and module configuration.
+
+When you run any `zp` command, a notice is displayed if pending jobs exist:
+```
+>>> 2 async job(s) pending. Run 'zp jobs run' to process them.
+```
+
+#### How it works
+
+1. During `zp release`, if a module returns a `job` descriptor in its result, ZP creates a job file in `~/.zp/jobs/`
+2. `zp jobs run` copies the relevant files from the archive to a temp directory, runs the module's `job` subcommand, then syncs changed files back to the archive
+3. For each file in the archive:
+   - **New files** (created by the module) are copied directly
+   - **Unchanged files** are skipped (no prompt)
+   - **Modified files** trigger a prompt: overwrite, skip, or create a backup (`.backup` suffix with old content preserved)
+
+#### Job file structure
+
+Each job is a JSON file separating ZP-controlled data from module-provided data:
+- **Root level**: `id`, `module_name`, `tag_name`, `project_root`, `archive_dir`, `status`, `retry_count`, `retry_max`, `description`, `files[]` — all managed by ZP
+- **`input` key**: module-provided data stored as-is
+  - `input.job_descriptor`: the raw descriptor from the module's `run` result
+  - `input.files`: per-file `module_config` keyed by `config_key` — passed back to the module during job execution
+
+#### Retry behavior
+
+Each module specifies a retry interval (e.g. `"1h"` for OTS) and an optional maximum retry count. ZP defaults to 100 retries maximum; modules can override this (OTS sets it to unlimited since the proof will always eventually arrive). When the maximum is reached, the job is marked as `error`.
+
+The summary table shows the status of each job:
+
+```
+ID          MODULE               TAG          STATUS     RETRIES  NEXT IN    DESCRIPTION
+a3f1b29c    ots_timestamp        v1.0.0       pending    3        12m        Upgrade pending OTS proofs
+e7d2f01a    ots_timestamp        v2.0.0       pending    0        ready      Upgrade pending OTS proofs
+```
+
+#### Automation
+
+For fully automated processing, add `zp jobs run` to your crontab:
+
+```bash
+# Run eligible jobs every 30 minutes
+*/30 * * * * zp jobs run
+```
+
 ## Project Setup
 
 ### 1. Create `.zp.yaml` in your project root
@@ -330,8 +432,9 @@ This is highly recommended, not mandatory, but without these the only reference 
 9. **Compute hashes**: computes md5, sha256, and any extra algorithms from `hash_algorithms`
 10. **Manifest**: generates JSON manifest (JCS/RFC 8785) with file hashes included, then the manifest itself is hashed
 11. **Sign**: GPG signing per-file (FILE or FILE_HASH mode), creates `.asc` or `.sig` files in a `gpg_sign/` subdirectory (mirroring module output dirs). After persist: `archive.dir/{tag_name}/gpg_sign/`
-12. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
-13. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
+12. **Modules**: runs configured modules (e.g. `digicert_timestamp`, `ots_timestamp`) on files that declare them. Each module produces new files (e.g. `.tsr`, `.ots`) appended to the pipeline
+13. **Publish**: routes each file to zenodo and/or github based on `publishers` config. For GitHub: cleans up leftover remote assets (prompts for each). Uploads `<filename>.identity_hash.txt` for entries with `publish_identity_hash: [github]`. For Zenodo: adds `zp:///` alternate identifiers for entries with `publish_identity_hash: [zenodo]`
+14. **Persist**: copies files to `archive.dir/{tag_name}/` (preserving subdirectory structure)
 
 
 This tool uses `git fetch` (not in dry run mode). If fetching regularly is a problem for your project, do not use this tool.
@@ -347,11 +450,13 @@ The pipeline is designed to be **re-run safely** after a failure. Each step hand
 - **Step 13 (Publish to GitHub)**: compares the SHA256 digest of local files against existing release assets. If identical, the asset is **skipped**. If different, the user is prompted before overwriting (via `gh release upload --clobber`).
 - **Step 14 (Persist)**: if the archive directory already contains files from a previous run, the user is prompted before overwriting.
 
+> Steps not listed here (e.g. git check, hashes, sign, modules) are inherently safe to re-run — they either produce the same output or operate on fresh temporary state.
+
 In short: re-running `zp release` after a failure will pick up where it left off. The release and tag are reused, unchanged files are skipped, and you are prompted before any overwrite.
 
 ### Pipeline caching and resume
 
-When `pipeline.caching: true` (the default), ZP uses `.zp/archives/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
+When `pipeline.caching: true` (the default), ZP uses `.zp/cache/{tag_name}/` as its working directory instead of a system temp dir. A checkpoint is written after each step.
 
 If you interrupt the pipeline (Ctrl-C, crash, GPG failure…) and re-run `zp release` for the same tag, ZP detects the existing cache and asks:
 
@@ -370,7 +475,7 @@ pipeline:
   caching: false
 ```
 
-> **Note**: add `.zp/archives/` to your `.gitignore` to avoid accidentally committing working files.
+> **Note**: add `.zp/cache/` to your `.gitignore` to avoid accidentally committing working files.
 
 ### Prompt validation level
 
@@ -425,9 +530,9 @@ Each entry can specify:
 - `sign`: per-file signing override (overrides global `signing.sign`)
 - `sign_mode`: per-file signing mode override
 - `rename`: rename using project name template (default: false)
-- `archive`: persist to `archive.dir/{tag}/` after the run (default: true). Set to `false` to publish without local copy. Signatures inherit this setting from their parent file.
-- `publishers.file_destination`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
-- `publishers.sig_destination`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
+- `archive_types`: list of file types to persist to `archive.dir/{tag}/` after the run (default: `[file, sig]`). Set to `[]` to publish without local copy. Signatures inherit this setting from their parent file.
+- `publishers.destination.file`: where to upload the file (`zenodo`, `github`, or both). Default: `[zenodo]`
+- `publishers.destination.sig`: where to upload the `.asc`/`.sig` signature (`zenodo`, `github`, or both). Default: `[]` (not uploaded). Requires `sign: true` on the entry
 - `publish_identity_hash`: where to publish each file's identity hash (same structure as `publishers`). Options per type key (`file`, `sig`, `<module_name>`, `<module_name>.<type>`):
   - `github`: creates a `<filename>.identity_hash.txt` file (content: `{algo}:{hex}`) and uploads it to the GitHub release
   - `zenodo`: adds the hash as a `zp:///` alternate identifier in Zenodo `metadata.identifiers`
@@ -534,18 +639,21 @@ When a `manifest` entry exists in `generated_files`, the pipeline generates a JS
 - **File entries**: each listed file with its filename as `key`
 - **Optional metadata**: fields from `.zenodo.json` via `zenodo_metadata`
 
-The `files` list references entry keys. To include signatures, append the `_sig` suffix to the entry key:
+The `content` mapping declares which entries and types to include. Each key is a `generated_files` entry name, each value is a list of type keys (`file`, `sig`, or a module name):
 
 ```yaml
 manifest:
-  files: [paper, paper_sig, project, project_sig]
+  content:
+    paper: [file, sig]        # include paper file + its signature hash
+    project: [file]           # include project file hash
   commit_info: [sha, date_epoch]
   sign: true
   publishers:
-    file_destination: [github, zenodo]
+    destination:
+      file: [github, zenodo]
 ```
 
-This includes the hashes of the PDF, its signature, the ZIP archive, and its signature in the manifest. The `_sig` suffix is reserved for this purpose and cannot be used as a user-defined key.
+This includes the hashes of the PDF, its signature, and the ZIP archive in the manifest.
 
 The canonical JSON format (JCS) ensures deterministic serialization: the same content always produces the same bytes and therefore the same hash, regardless of key ordering or whitespace.
 
@@ -563,11 +671,26 @@ Each module is a **uv project directory** containing at minimum `<name>.py` and 
 2. Project: `<project_root>/.zp/modules/<name>/`
 3. User home: `~/.zp/modules/<name>/`
 
-The module's `<name>.py` is invoked inside its own isolated uv environment:
+The module's `<name>.py` must implement at least two **subcommands** (positional arguments, not flags):
 
 ```
-uv run --project <module_dir> <name>.py --input <json_file>
+uv run --project <module_dir> <name>.py run --input <json_file>
+uv run --project <module_dir> <name>.py check --config <json_file>
 ```
+
+Without arguments, the module should display help and exit with code 1. Modules may also define additional standalone subcommands (e.g. `stamp`, `verify` for `digicert_timestamp`) accessible via `zp modules run <name> <subcommand>`.
+
+#### Environment variables
+
+ZP sets the following environment variables in the module subprocess:
+
+| Variable | Description |
+|----------|-------------|
+| `ZP_DEBUG` | Set to `"true"` when `--debug` is passed to ZP. Modules can use this to enable verbose output. |
+| `ZP_TEST_MODE` | Set to `"true"` when `--test-mode` is active. Modules can use this to adapt their behavior for testing. |
+| `ZP_TEST_CONFIG` | Path to the test config JSON file when `--test-config` is provided. |
+
+These variables are only present when the corresponding flag/option is active.
 
 #### Input
 
@@ -640,13 +763,13 @@ Run `uv lock` inside the module directory to generate `uv.lock`. ZP runs the mod
 
 #### Module self-check
 
-Every module must also support a `--check` mode that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
+Every module must also support a `check` subcommand that validates its configuration and verifies external connectivity (e.g. that a remote API is reachable):
 
 ```
-uv run --project <module_dir> <name>.py --check --config <json_file>
+uv run --project <module_dir> <name>.py check --config <json_file>
 ```
 
-The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `--check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
+The `--config` file contains `{"module_config": {...}}`. The module should emit `detail_ok` on success or `error` and exit with code 1 on failure. ZP calls `check` at pipeline startup (before any git operations) and aborts the pipeline if it fails.
 
 #### Configuring a module
 
@@ -780,7 +903,7 @@ Or
 
 ```bash
 zp archive ... --format tar.gz
-`̀``
+```
 
 **How it works:** The pipeline first creates a ZIP via `git archive` (the only format git natively supports for prefix-based archives), then extracts it and repacks as TAR using deterministic parameters.
 

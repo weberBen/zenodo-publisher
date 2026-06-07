@@ -29,14 +29,31 @@ try:
 except Exception:
     _APP_VERSION = "unknown"
 
+def get_base_cache_dir(project_root: Path):
+    return project_root / _ZP_CACHE_BASE
+
 def get_cache_dir(project_root: Path, cache_id: str) -> Path:
     """Return the canonical cache dir path for a given tag."""
-    return project_root / _ZP_CACHE_BASE / cache_id
+    return get_base_cache_dir(project_root) / cache_id
 
 
 def does_cache_exists(project_root: Path, cache_id: str) -> bool:
     cache_dir = get_cache_dir(project_root, cache_id)
     return cache_dir.exists()
+
+def cleanup_stale_caches(project_root: Path, current_cache_id: str) -> None:
+    """Remove all cache dirs except the current one, with a warning for each."""
+    cache_base = get_base_cache_dir(project_root)
+    if not cache_base.exists():
+        return
+    for entry in sorted(cache_base.iterdir()):
+        if entry.is_dir() and entry.name != current_cache_id:
+            output.warn(
+                "Cleaning stale cache for {tag}",
+                tag=entry.name, name="cache.stale_cleanup",
+            )
+            shutil.rmtree(entry, ignore_errors=True)
+
 
 def delete_cache_dir(cache_id: str, project_root: Path) -> None:
     """Delete cache_dir, after verifying it sits inside project_root/.zp/cache/.
@@ -44,7 +61,7 @@ def delete_cache_dir(cache_id: str, project_root: Path) -> None:
     Raises ValueError if cache_dir is not within the expected base to prevent
     accidentally deleting an unrelated directory.
     """
-    cache_dir = project_root / _ZP_CACHE_BASE / cache_id
+    cache_dir = get_cache_dir(project_root, cache_id)
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 

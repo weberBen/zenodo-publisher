@@ -43,8 +43,8 @@ COMMON_OPTIONS: list[ConfigOption] = [
                  help="Suffix template for file naming. "
                       "Available variables: {"
                       + "}, {".join(PROJECT_NAME_TEMPLATE_VARS) + "}"),
-    ConfigOption("debug", env_key=None,
-                 yaml_path="debug", type="bool", default=False,
+    ConfigOption("debug", env_key="ZP_DEBUG",
+                 yaml_path="debug", type="bool", default=False, cli=False,
                  help="Enable debug mode (full stack traces)"),
     ConfigOption("archive_format", env_key=None,
                  yaml_path="archive.format", default="zip",

@@ -13,6 +13,7 @@ from tests.utils.ndjson import find_errors, find_by_name, has_step_ok
 # ---------------------------------------------------------------------------
 
 RELEASE_PROMPTS = {
+    "confirm_resume": "no",
     "enter_tag": "v1.0.0",
     "release_title": "",
     "release_notes": "",

@@ -45,7 +45,7 @@ from ..modules import ModuleError as _ModuleError
 from ._common import setup_pipeline
 from .context import PipelineContext, HookPoint, HookRegistry
 from .checkpoint import (
-    delete_cache_dir, does_cache_exists, get_cache_dir,
+    cleanup_stale_caches, delete_cache_dir, does_cache_exists, get_cache_dir,
     read_checkpoint, restore_from_checkpoint, write_checkpoint,
 )
 
@@ -367,10 +367,7 @@ def _step_archive(ctx: PipelineContext) -> None:
 def _step_compute_hashes(ctx: PipelineContext) -> None:
     """Compute hashes for all entries (skips already-hashed files)."""
     output.step("Computing hashes...")
-    algos = list(ctx.config.hash_algorithms or [])
-    if ctx.config.identity_hash_algo not in algos:
-        algos.append(ctx.config.identity_hash_algo)
-    compute_hashes(ctx.archived_files, algos)
+    compute_hashes(ctx.archived_files, ctx.config.effective_hash_algorithms)
 
     for af in ctx.archived_files:
         output.detail("{filename}", filename=af.file_path.name, name="hash.file")
@@ -481,10 +478,7 @@ def _step_manifest(ctx: PipelineContext) -> None:
         external_identifier=compute_identity_hash(manifest_path, ctx.config.identity_hash_algo),
     )
     # Compute hashes immediately so the manifest entry is ready for signing/identifiers
-    algos = list(ctx.config.hash_algorithms or [])
-    if ctx.config.identity_hash_algo not in algos:
-        algos.append(ctx.config.identity_hash_algo)
-    compute_hashes([manifest_entry], algos)
+    compute_hashes([manifest_entry], ctx.config.effective_hash_algorithms)
 
     ctx.archived_files.append(manifest_entry)
     output.step_ok("Manifest generated")
@@ -539,7 +533,7 @@ def _step_sign(ctx: PipelineContext) -> None:
             publishers=af.publishers,
             external_identifier=compute_identity_hash(sig_path, ctx.config.identity_hash_algo),
         )
-        compute_hashes([sig_af], ctx.config.hash_algorithms)
+        compute_hashes([sig_af], ctx.config.effective_hash_algorithms)
         ctx.archived_files.append(sig_af)
 
     output.step_ok("Files signed")
@@ -574,6 +568,8 @@ def _step_modules(ctx: PipelineContext) -> None:
                         "type": af.type,
                         "hashes": af.hashes,
                         "module_config": merged,
+                        "source_module": af.module_name,
+                        "source_module_type": af.module_entry_type,
                     })
 
         if not files_input:
@@ -616,8 +612,8 @@ def _step_modules(ctx: PipelineContext) -> None:
             module_name=module_name, n=len(files_input), name="module.running",
         )
 
-        raw_files = run_module(module_name, input_data, output,
-                               project_root=ctx.config.project_root)
+        raw_files, job_descriptor = run_module(module_name, input_data, output,
+                                               project_root=ctx.config.project_root)
 
         for rf in raw_files:
             config_key = rf["config_key"]
@@ -662,7 +658,10 @@ def _step_modules(ctx: PipelineContext) -> None:
                 module_entry_type=rf.get("module_entry_type"),
                 external_identifier=compute_identity_hash(Path(rf["file_path"]), ctx.config.identity_hash_algo),
             )
+            compute_hashes([fe], ctx.config.effective_hash_algorithms)
+            
             ctx.archived_files.append(fe)
+            
             output.detail(
                 "Module entry: {filename} (key={config_key}, entry_type={module_entry_type},"
                 " archive={archive})",
@@ -674,6 +673,45 @@ def _step_modules(ctx: PipelineContext) -> None:
                 publishers=dest_raw,
                 name="module.entry",
             )
+
+        # Create async job if module requested one
+        if job_descriptor:
+            from ..jobs import create_job as _create_job
+            job_files = []
+            for fe in ctx.archived_files:
+                if fe.module_name == module_name:
+                    try:
+                        rel = fe.file_path.relative_to(ctx.output_dir)
+                    except ValueError:
+                        rel = Path(fe.file_path.name)
+                    # Find per-file module_config from the input
+                    file_mc = {}
+                    for fi in files_input:
+                        if fi["config_key"] == fe.config_key:
+                            file_mc = fi.get("module_config", {})
+                            break
+                    job_files.append({
+                        "relative_path": str(rel),
+                        "config_key": fe.config_key,
+                        "identifier": fe.identifier,
+                        "module_entry_type": fe.module_entry_type,
+                        "hashes": fe.hashes,
+                        "module_config": file_mc,
+                    })
+            if job_files:
+                job_path = _create_job(
+                    module_name=module_name,
+                    job_descriptor=job_descriptor,
+                    tag_name=ctx.tag_name,
+                    project_root=ctx.config.project_root,
+                    archive_dir=ctx.config.archive_dir,
+                    config={"identity_hash_algo": ctx.config.identity_hash_algo},
+                    files=job_files,
+                )
+                output.detail_ok(
+                    "Async job created: {path}",
+                    path=str(job_path), name="module.job_created",
+                )
 
         output.detail_ok(
             "Module '{module_name}' returned {n} file(s)",
@@ -923,7 +961,7 @@ def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
 
     Side effects: sets ctx.output_dir = cache_dir and ctx.caching_active = True.
     """
-    
+    cleanup_stale_caches(ctx.config.project_root, cache_id)
 
     if does_cache_exists(ctx.config.project_root, cache_id):
         checkpoint = read_checkpoint(cache_id, ctx.config.project_root)
@@ -952,7 +990,8 @@ def _setup_cache(ctx: PipelineContext, cache_id: str) -> "HookPoint | None":
                     ctx.caching_active = True
                     output.step_ok(
                         "Resuming after step '{step}'",
-                        step=resume_after.value, name="cache.resume",
+                        step=resume_after.value, tag=cache_id,
+                        name="cache.resume",
                     )
                     return resume_after
                 else:

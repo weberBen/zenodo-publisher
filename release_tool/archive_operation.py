@@ -141,13 +141,13 @@ def process_project_archive(zip_path, filename, tree_algos=None, archive_format=
 # Hashing for FileEntry entries
 # ---------------------------------------------------------------------------
 
-def compute_hashes(entries: list[FileEntry], algorithms: list[str] | None = None) -> None:
+def compute_hashes(entries: list[FileEntry], algorithms: list[str] | set[str]) -> None:
     """Compute all required hashes for each FileEntry.
 
-    Always computes md5 and sha256. Adds any extra algorithms from config.
+    Compute algorithms from config.
     Skips algorithms already present in entry.hashes (e.g. pre-computed tree hashes).
     """
-    all_algos = {"md5", "sha256"} | set(algorithms or [])
+    all_algos = set(algorithms)
     tree_algos = {a for a in all_algos if a in TREE_ALGORITHMS}
     file_algos = all_algos - tree_algos
 
@@ -155,9 +155,15 @@ def compute_hashes(entries: list[FileEntry], algorithms: list[str] | None = None
         hashes = dict(entry.hashes)  # keep pre-computed hashes
 
         for algo in file_algos:
-            if algo not in hashes:
-                hashes[algo] = compute_file_hash(entry.file_path, algo)
-
+            if algo in hashes:
+                continue
+            
+            if algo == "sha256":
+                hashes[algo] = format_hash_info("sha256", entry.identifier)
+                continue
+            
+            hashes[algo] = compute_file_hash(entry.file_path, algo)
+        
         for algo in tree_algos:
             if algo in hashes:
                 # already pre-computed (e.g. tree hashes for project)

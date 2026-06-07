@@ -8,6 +8,7 @@
 - Provides fixtures: log_dir, repo_dir, repo_git, branch_name
 """
 
+import os
 import re
 import sys
 import uuid
@@ -109,6 +110,8 @@ def pytest_sessionstart(session):
         sys.exit(1)
 
     gpg_uid = test_env.get("GPG_UID")
+    if gpg_uid:
+        os.environ["ZP_GPG_UID"] = gpg_uid
     branch_name = _load_branch_name(repo_dir)
 
     git = GitClient(repo_dir)
@@ -214,6 +217,15 @@ def fix_branch_name():
 @pytest.fixture(scope="session")
 def fix_gpg_uid():
     return gpg_uid
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print a reminder to run module-specific tests after e2e tests."""
+    terminalreporter.write_line("")
+    terminalreporter.write_line(
+        "Module tests: uv run tests/run_module_tests.py --all",
+        bold=True,
+    )
 
 
 @pytest.fixture

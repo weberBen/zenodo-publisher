@@ -19,7 +19,7 @@ from tests.utils.cli import ZpRunner
 from tests.utils.git import GitClient
 from tests.utils.github import GithubClient
 from tests.utils.ndjson import (
-    find_errors, find_by_name, get_prompt_names,
+    find_errors, find_by_name, find_all_by_name, get_prompt_names,
 )
 from tests.utils import fs
 
@@ -62,12 +62,14 @@ def emit(type_, msg, name="", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--config")
-    parser.add_argument("--input")
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
     args = parser.parse_args()
 
-    if args.check:
+    if args.command == "check":
         emit("detail_ok", "isolation_module: check ok",
              name="isolation_module.check.ok",
              python_prefix=sys.prefix)
@@ -103,12 +105,14 @@ def emit(type_: str, msg: str, name: str = "", **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--config")
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
     args = parser.parse_args()
 
-    if args.check:
+    if args.command == "check":
         module_cfg = {}
         if args.config:
             with open(args.config, encoding="utf-8") as f:
@@ -160,6 +164,57 @@ if __name__ == "__main__":
     main()
 '''
 
+FILTER_MODULE_PYPROJECT = '''\
+[project]
+name = "filter-module"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = []
+'''
+
+FILTER_MODULE_SOURCE = '''\
+"""Filter-aware ZP module for testing input_types filtering via _shared.run_module_files."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from _shared import run_module_files
+
+
+def _handler(f):
+    """Produce a .filtered file for each file passed through the filter."""
+    out_path = f["output_dir"] / f"{f['filename']}.filtered"
+    out_path.write_text(f"filtered:{f['filename']}:type={f['type']}")
+    return {
+        "file_path": str(out_path),
+        "config_key": f["config_key"],
+        "module_entry_type": "filtered",
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
+    args = parser.parse_args()
+
+    if args.command == "check":
+        print(json.dumps({"type": "detail_ok", "msg": "filter_module: check ok",
+                          "name": "filter_module.check.ok"}), flush=True)
+        return
+
+    run_module_files(args, handler=_handler)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
 TAG = "v-test-modules"
 
 
@@ -180,6 +235,16 @@ def _install_dummy_module(repo_dir: Path) -> Path:
     (module_dir / "pyproject.toml").write_text(DUMMY_MODULE_PYPROJECT)
     module_path = module_dir / "dummy_module.py"
     module_path.write_text(DUMMY_MODULE_SOURCE)
+    return module_path
+
+
+def _install_filter_module(repo_dir: Path) -> Path:
+    """Write filter module to <repo_dir>/.zp/modules/filter_module/ (uv project)."""
+    module_dir = repo_dir / ".zp" / "modules" / "filter_module"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    (module_dir / "pyproject.toml").write_text(FILTER_MODULE_PYPROJECT)
+    module_path = module_dir / "filter_module.py"
+    module_path.write_text(FILTER_MODULE_SOURCE)
     return module_path
 
 
@@ -217,6 +282,7 @@ def _base_config(archive_dir: Path, module_cfg: dict | None = None) -> dict:
 def _test_config(run_module: str = "yes") -> dict:
     return {
         "prompts": {
+            "confirm_resume": "no",
             "confirm_run_module": run_module,
             "confirm_publish": "no",
         },
@@ -747,4 +813,176 @@ def test_module_check_failure_relayed_by_zp(release_env, fix_log_path):
         f"Relayed error event should have source='dummy_module'. Got: {error_relayed.get('source')}"
     assert find_by_name(result.events, "module.check_failed"), \
         "ZP should emit module.check_failed after the module --check exits non-zero"
+
+
+# ---------------------------------------------------------------------------
+# input_types filtering tests (filter_module uses _shared.run_module_files)
+# ---------------------------------------------------------------------------
+
+def _filter_config(archive_dir: Path, on_entry: str, input_types: list[str] | None = None,
+                   with_dummy_chain: bool = False) -> dict:
+    """Config with a generated_files entry running filter_module (uses run_module_files filtering).
+
+    on_entry: which generated_files entry declares filter_module ("manifest" or "paper").
+    """
+    modules = {"filter_module": {}}
+    if with_dummy_chain:
+        modules = {"dummy_module": {}, "filter_module": {}}
+
+    filter_module_cfg = {}
+    if input_types is not None:
+        filter_module_cfg["input_types"] = input_types
+
+    gf_modules = {"filter_module": filter_module_cfg}
+    if with_dummy_chain:
+        gf_modules = {"dummy_module": {}, "filter_module": filter_module_cfg}
+
+    generated_files = {
+        "project": {
+            "archive_types": ["file"],
+            "publishers": {"destination": {"file": []}},
+        },
+    }
+
+    if on_entry == "manifest":
+        generated_files["manifest"] = {
+            "archive_types": ["file", "filter_module"],
+            "content": {"project": ["file"]},
+            "publishers": {"destination": {"file": []}},
+            "modules": gf_modules,
+        }
+    elif on_entry == "paper":
+        generated_files["paper"] = {
+            "pattern": "papers/latex/Makefile",
+            "archive_types": ["file", "filter_module"],
+            "publishers": {"destination": {"file": []}},
+            "modules": gf_modules,
+        }
+    elif on_entry == "project":
+        generated_files["project"] = {
+            "archive_types": ["file", "filter_module"],
+            "publishers": {"destination": {"file": []}},
+            "modules": gf_modules,
+        }
+    else:
+        raise ValueError(f"Unknown on_entry: {on_entry!r}")
+
+    return {
+        "project_name": {"prefix": "TestProject", "suffix": "-{tag_name}"},
+        "main_branch": "main",
+        "compile": {"enabled": False},
+        "signing": {"sign": False},
+        "hash_algorithms": ["sha256"],
+        "archive": {"format": "zip", "dir": str(archive_dir), "types": ["file", "filter_module"]},
+        "prompt_validation_level": "danger",
+        "modules": modules,
+        "generated_files": generated_files,
+    }
+
+
+def _filter_test_config() -> dict:
+    return {
+        "prompts": {
+            "confirm_resume": "no",
+            "confirm_run_module": "yes",
+            "confirm_publish": "no",
+        },
+        "verify_prompts": False,
+    }
+
+
+def test_input_types_file_matches_normal_file(release_env, fix_log_path):
+    """input_types: [file] on a PATTERN entry (type=file) processes the file normally."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_filter_module(repo_dir)
+
+    config = _filter_config(archive_dir, "paper", input_types=["file"])
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    assert len(filter_entries) == 1, \
+        f"Expected 1 filter_module entry (paper type=file matched by 'file'). Got {len(filter_entries)}: {filter_entries}"
+
+
+def test_input_types_file_matches_project(release_env, fix_log_path):
+    """input_types: [file] on project entry (type=project) processes the archive."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_filter_module(repo_dir)
+
+    config = _filter_config(archive_dir, "project", input_types=["file"])
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    assert len(filter_entries) == 1, \
+        f"Expected 1 filter_module entry (project type=project matched by 'file'). Got {len(filter_entries)}: {filter_entries}"
+
+
+def test_input_types_file_matches_manifest(release_env, fix_log_path):
+    """input_types: [file] on manifest entry processes the manifest (type=manifest matched by 'file')."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_filter_module(repo_dir)
+
+    config = _filter_config(archive_dir, "manifest", input_types=["file"])
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    # filter_module should have produced 1 file (the manifest)
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    assert len(filter_entries) == 1, \
+        f"Expected 1 filter_module entry (manifest matched by 'file'). Got {len(filter_entries)}: {filter_entries}"
+
+
+def test_input_types_file_excludes_module_entry(release_env, fix_log_path):
+    """input_types: [file] does NOT process module_entry files from a previous module."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_dummy_module(repo_dir)
+    _install_filter_module(repo_dir)
+
+    # dummy_module runs first (produces module_entry), then filter_module with input_types: [file]
+    config = _filter_config(archive_dir, "manifest", input_types=["file"], with_dummy_chain=True)
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    # Only the manifest should be processed, not the dummy_module output
+    assert len(filter_entries) == 1, \
+        f"Expected 1 filter_module entry (manifest only, not dummy output). Got {len(filter_entries)}: {filter_entries}"
+
+
+def test_input_types_file_and_module_name(release_env, fix_log_path):
+    """input_types: [file, dummy_module] processes both manifest and dummy_module output."""
+    repo_dir, git, gh, archive_dir = release_env
+    _install_dummy_module(repo_dir)
+    _install_filter_module(repo_dir)
+
+    config = _filter_config(archive_dir, "manifest", input_types=["file", "dummy_module"], with_dummy_chain=True)
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release",
+                             config=config,
+                             test_config=_filter_test_config(),
+                             log_path=fix_log_path)
+
+    entries = find_all_by_name(result.events, "module.entry")
+    filter_entries = [e for e in entries if e.get("data", {}).get("module_name") == "filter_module"]
+    # manifest (type=manifest, matched by "file") + dummy output (source_module=dummy_module)
+    assert len(filter_entries) == 2, \
+        f"Expected 2 filter_module entries (manifest + dummy output). Got {len(filter_entries)}: {filter_entries}"
 

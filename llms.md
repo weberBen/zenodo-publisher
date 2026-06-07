@@ -29,7 +29,7 @@ This section helps you find the right code quickly without reading everything.
 | How archive/hashing works | `release_tool/archive_operation.py` (ArchivedFile, hashing, manifest), `git_operations.py` (git archive, tree hash) |
 | What error name ZP emits | `release_tool/errors.py` (base + normalize_name), then grep for the `name=` parameter in the relevant module |
 | How tests work | `tests/conftest.py` (fixtures, reset), `tests/utils/cli.py` (ZpRunner), `tests/utils/ndjson.py` (event parsing) |
-| How a built-in module works | `release_tool/modules/<name>/README.md` (purpose, config, events) — each module has its own README; `release_tool/modules/<name>/tests/README.md` for its test suite |
+| How a built-in module works | `release_tool/modules/<name>/README.md` (purpose, config, events) — each module has its own README; `release_tool/modules/<name>/tests/README.md` for its test suite. Modules use subcommands: `run --input`, `check --config` for pipeline use, plus standalone subcommands (e.g. `stamp`, `verify` for digicert_timestamp) accessible via `zp modules run <name> <subcommand>` |
 | How the CLI is built | `release_tool/cli.py` — auto-generated from ConfigOption lists |
 
 ### Search patterns
@@ -49,7 +49,7 @@ This section helps you find the right code quickly without reading everything.
 - **Subprocess wrapping**: all git/gh commands go through `subprocess_utils.run()` which logs the command and result as NDJSON events (`output.cmd()` + `output.data("subprocess_result")`)
 - **Per-file overrides**: `sign`, `sign_mode`, `rename`, `archive.types`, `publishers`, `modules`, `publish_identity_hash` can be set per generated_files entry. Signatures inherit `archive_types` and `publishers` from their parent file
 - **Signature subdirectory**: GPG signatures (`.asc`/`.sig`) are placed in `output_dir/gpg_sign/` (mirrors module subdirectory pattern). After persist they land in `archive_dir/tag_name/gpg_sign/`
-- **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py`. Every module must implement `--check` mode (connectivity/config validation, called at pipeline start) and `--input` mode (normal run). Both modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
+- **Modules system**: external pipeline steps, each a uv project directory (requires `<name>.py` + `pyproject.toml`; entry point filename must match directory name). Lookup order: (1) built-in `release_tool/modules/<name>/`, (2) project `<project_root>/.zp/modules/<name>/`, (3) user `~/.zp/modules/<name>/`. Declared under `modules:` in YAML config and per-file under `modules:` in generated_files entries. Run as subprocess: `uv run --project <module_dir> <name>.py <subcommand> <args>`. Modules use **subcommands** instead of top-level flags: `check --config <json>` (config validation, called at pipeline start) and `run --input <json>` (normal run). Modules may also expose standalone subcommands (e.g. `stamp`, `verify`) accessible via `zp modules run <name> <subcommand>`. Both pipeline modes output NDJSON events to stdout: `{"type": "detail"|"detail_ok"|"warn"|"error", "msg": "...", "name": "..."}`. ZP relays these events with `source_type="module"` and `source=<name>`.
 
 ### Common pitfalls
 
@@ -260,9 +260,10 @@ The pipeline will:
 
 ```
 release_tool/
-├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign
+├── cli.py                          # Argparse auto-generated from ConfigOption + --sign/--no-sign + 'modules'/'jobs' subcommands
 ├── __main__.py                     # python -m release_tool
 ├── errors.py                       # ZPError base + normalize_name (prefix.name.suffix with dedup)
+├── jobs.py                         # Async job manager: create/list/run/clean jobs in ~/.zp/jobs/
 ├── prompts.py                      # Interactive prompts (init_prompts, confirm levels)
 ├── config/
 │   ├── schema.py                   # ConfigOption dataclass + dedup_args (merge default/user args)
@@ -278,15 +279,25 @@ release_tool/
 │   ├── transform_common.py         # Shared transforms (tar, gzip, hash, COMMIT_FIELD_MAP)
 │   └── transform_release.py        # Release transforms (compile_dir, make_args)
 ├── modules/
-│   ├── __init__.py                 # Module loader: find_module_path, load_module, run_module, check_module, is_builtin
+│   ├── __init__.py                 # Module loader: find_module_path, run_module, check_module, run_module_standalone, list_modules, is_builtin
+│   ├── _shared.py                  # Shared utilities for built-in modules: create_emitter, compute_file_hash, run_module_files, filter_input_files
 │   ├── README.md                   # Index of built-in modules (see for full list)
-│   └── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
-│       ├── digicert_timestamp.py   #   Module entry point (--input / --check modes)
-│       ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
+│   ├── digicert_timestamp/         # Built-in uv project: RFC 3161 timestamp via DigiCert TSA
+│   │   ├── digicert_timestamp.py   #   Module entry point (subcommands: run, check, stamp, verify, info)
+│   │   ├── verify_tsr.py           #   TSR verification logic (openssl-based)
+│   │   ├── pyproject.toml          #   uv project manifest (dependencies: rfc3161ng, requests)
+│   │   ├── uv.lock                 #   Locked dependency graph
+│   │   ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
+│   │   └── tests/
+│   │       └── test_module_digicert_timestamp.py
+│   └── ots_timestamp/              # Built-in uv project: Bitcoin-anchored timestamp via OpenTimestamps
+│       ├── ots_timestamp.py        #   Module entry point (subcommands: run, check, stamp, upgrade, verify, info)
+│       ├── ots_verify.py           #   OTS verification logic (Blockstream API)
+│       ├── pyproject.toml          #   uv project manifest (dependencies: opentimestamps-client, requests)
 │       ├── uv.lock                 #   Locked dependency graph
-│       ├── README.md               #   Module doc: purpose, config fields, NDJSON events emitted
+│       ├── README.md               #   Module doc: purpose, config, proof lifecycle
 │       └── tests/
-│           └── README.md           #   Test doc: what is tested, fixtures, how to run
+│           └── test_module_ots_timestamp.py
 ├── pipeline/
 │   ├── _common.py                  # setup_pipeline()
 │   ├── context.py                  # PipelineContext, HookPoint, HookRegistry
@@ -308,6 +319,15 @@ release_tool/
 uv run zp release              # Full release pipeline (default when no subcommand)
 uv run zp release --sign       # Release with GPG signing
 uv run zp archive --tag v1.0.0 # Standalone archive
+uv run zp modules list         # List available modules (built-in + user)
+uv run zp modules run <name> <subcommand> [args...]  # Run a module in standalone mode
+uv run zp jobs                 # List + run eligible async jobs
+uv run zp jobs list            # List async jobs (with IDs)
+uv run zp jobs run --all       # Run all pending jobs (ignore timing)
+uv run zp jobs run <id>        # Run a specific job
+uv run zp jobs info <id>       # Show detailed job info
+uv run zp jobs rm <id>         # Remove a job
+uv run zp jobs clean           # Remove completed jobs
 uv run zp --help               # CLI help
 ```
 
@@ -450,6 +470,15 @@ Sequential hook points in `pipeline/release.py`, driven by `HookRegistry.run_pip
 Each hook point maps to a `_step_*` handler registered in `_build_registry()`.
 State is shared via `PipelineContext` (config, output_dir, tag_name, commit_env, archived_files, record_info).
 
+### Step 0: Module check (`_step_module_check`)
+
+Runs before any git operations. For each module declared in `modules:` config:
+1. Resolves module path (built-in, project, or user)
+2. Calls `check_module()` which runs the module's `check --config <json>` subcommand
+3. Aborts pipeline on failure (non-zero exit or `error` event)
+
+Skipped entirely if no modules are configured.
+
 ### Step 1: Git check (`_step_git_check`)
 
 Calls `check_up_to_date()` which runs checks **in this specific order** (first match raises):
@@ -567,11 +596,18 @@ Signature files are appended to `archived_files` list as `FileEntry(type=SIG)`. 
 
 Runs configured modules for files that declare them under `modules:`. Each module:
 1. Collects matching FileEntry entries (by config_key, non-SIG)
-2. Runs `--check` mode: `uv run --project <module_dir> <name>.py --check --config <json_file>` — relays NDJSON events; aborts pipeline on non-zero exit
+2. Runs `check` subcommand: `uv run --project <module_dir> <name>.py check --config <json_file>` — relays NDJSON events; aborts pipeline on non-zero exit
 3. Prompts user to confirm running (indicates built-in vs custom)
-4. Runs `--input` mode: `uv run --project <module_dir> <name>.py --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
+4. Runs `run` subcommand: `uv run --project <module_dir> <name>.py run --input <json_file>` — each module runs in its own isolated uv env (VIRTUAL_ENV stripped from subprocess env)
 5. Reads NDJSON events + result files from stdout
 6. Appends new FileEntry(type=MODULE_ENTRY) for each produced file. `archive` resolved via `_resolve_archive(MODULE_ENTRY, module_name, parent_fce, config)` (or `module_archive_types` from module JSON if provided)
+7. Computes hashes (`effective_hash_algorithms`) on new MODULE_ENTRY files so subsequent modules have pre-computed hashes available
+
+Modules run sequentially in the order declared in the root `modules:` config. Each file passed to a module includes `source_module` and `source_module_type` fields so the module can identify MODULE_ENTRY files from previous modules.
+
+**Input filtering** (`input_types`): modules can declare `input_types` in their per-file `module_config` to filter which files they process. Type keys follow the same semantics as `archive_types`: `"file"` is a group key matching all primary files (file, project, manifest — everything except sig and module_entry), `"project"`/`"manifest"`/`"sig"` are exact type matches for narrowing down, `<module_name>` matches all MODULE_ENTRY outputs from that module, `<module_name>.<type>` matches a specific sub-type. Handled by `_shared.filter_input_files`. Without `input_types`, all files except signatures are processed (default).
+
+**Environment variables**: ZP sets `ZP_DEBUG=true` (when `--debug`), `ZP_TEST_MODE=true` (when `--test-mode`), and `ZP_TEST_CONFIG=<path>` (when `--test-config`) in `os.environ` at CLI startup (`run_cmd`). `ZP_WORK_DIR` is set by `zp.bash` wrapper. Modules inherit these via `_subprocess_env()`. Only present when active. `ZP_DEBUG` is also read by `CommonConfig` via `env_key="ZP_DEBUG"` so that `config.debug` is True when `--debug` is passed (unified flow: CLI flag → env var → config).
 
 Input JSON: `{"config": {"identity_hash_algo": ...}, "output_dir": ..., "files": [{file_path, config_key, type, hashes, module_config}]}`. Key points:
 - `module_config` = `{**global_cfg, **per_file_cfg}` pre-merged by ZP; module sees only its own config
@@ -774,6 +810,120 @@ On each publish run, all `zp:///` entries on the Zenodo record are removed and r
 
 ---
 
+### Async jobs (`jobs.py`)
+
+Modules can schedule deferred tasks that run outside the pipeline. Typical use case: OTS proof upgrade (takes hours for Bitcoin confirmation).
+
+**Storage**: `~/.zp/jobs/` — global, cross-project (overridable via `ZP_JOBS_DIR` env var). Each job is a self-contained JSON file. Filename: `{uuid}.json` (8-10 hex chars).
+
+**Job lifecycle**:
+1. Module returns a `job` key in its `run` result: `{"type": "result", "files": [...], "job": {"description": "...", "retry_interval": "1h", "retry_max": null}}`
+2. `_step_modules` in `pipeline/release.py` detects the `job` key, calls `jobs.create_job()` which writes to `~/.zp/jobs/`
+3. `zp jobs run` scans the directory, runs eligible jobs (retry interval elapsed, retry_max not reached)
+4. Changed files are synced back to `archive_dir/{tag}/{module_name}/`
+
+**Job file JSON structure** — root-level fields are ZP-controlled, module-provided data is under `input`:
+```json
+{
+  "id": "a3f1b29c12",
+  "module_name": "ots_timestamp",
+  "tag_name": "v1.0.0",
+  "project_root": "/abs/path",
+  "archive_dir": "/abs/path/releases",
+  "created_at": 1234567890.0,
+  "status": "pending",
+  "retry_interval_seconds": 3600,
+  "retry_count": 0,
+  "retry_max": null,
+  "description": "Upgrade pending OTS proofs",
+  "last_attempt_at": null,
+  "errors": [],
+  "config": {"identity_hash_algo": "sha256"},
+  "files": [
+    {"relative_path": "ots_timestamp/file.ots", "config_key": "manifest",
+     "identifier": "sha256hex...", "module_entry_type": "ots", "hashes": {}}
+  ],
+  "input": {
+    "job_descriptor": {"description": "...", "retry_interval": "1h", "retry_max": null},
+    "files": {"manifest": {"calendars": ["..."], "nonce": true}}
+  }
+}
+```
+
+Key separation:
+- Root `files[]`: ZP-controlled (no `module_config`)
+- `input.job_descriptor`: raw descriptor from module's `run` result (safe-parsed by ZP: `retry_max` → int/None, `description` → str)
+- `input.files`: per-file `module_config` keyed by `config_key` — passed back to module during job execution
+
+**Module protocol — job descriptor** (returned from `run`):
+
+The module's `run` result can include `"job": {...}` to schedule a deferred task:
+```json
+{"type": "result", "files": [...], "job": {
+  "description": "Human-readable job description",
+  "retry_interval": "1h",
+  "retry_max": null
+}}
+```
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | str | `""` | Shown in `zp jobs list` table |
+| `retry_interval` | str/int | `1800` | Minimum time between retries. Human format: `"30m"`, `"1h"`, `"5min"`, or seconds |
+| `retry_max` | int/null | `100` | Max retry attempts. `null` = unlimited |
+
+**Module protocol — `job` subcommand**:
+
+Module must implement: `<name>.py job --input <json>`
+
+Input JSON (same format as `run`, without `command`):
+```json
+{
+  "config": {"identity_hash_algo": "sha256"},
+  "output_dir": "/tmp/zp-job-XXXX/",
+  "files": [
+    {"file_path": "/tmp/.../ots_timestamp/file.ots", "config_key": "manifest",
+     "hashes": {}, "module_config": {"calendars": [...]}}
+  ]
+}
+```
+The module works **in-place** on files in `output_dir`. New files can be created in the module's subdirectory.
+
+Output: NDJSON events + final result line:
+```json
+{"type": "result", "status": "complete|pending|error"}
+```
+- `complete`: job done — changed files synced to archive
+- `pending`: not ready yet — will retry later (e.g. OTS not yet confirmed)
+- `error`: failed — error recorded in job file
+
+Built-in helper: `run_module_job_files(args, handler)` in `_shared.py` (same pattern as `run_module_files`).
+
+**Job runner flow** (`run_single_job`):
+1. Check `retry_max` — if exhausted, mark `error` and skip
+2. Copy files from `archive_dir/{tag}/` to temp dir
+3. Verify file integrity (SHA256 identifier match)
+4. Call module `job` subcommand via `modules.run_module_job()`
+5. Scan `workdir/{module_name}/` and sync back to `archive_dir/{tag}/{module_name}/`:
+   - New files → copied directly
+   - Unchanged files (same SHA256) → skipped
+   - Modified files → prompt overwrite/skip/backup
+6. Update job file (retry_count, last_attempt_at, status, file identifiers)
+
+**CLI**:
+- `zp jobs` — list all jobs (default)
+- `zp jobs list` — show summary table (with job IDs)
+- `zp jobs run [--all]` — run eligible jobs (`--all` ignores retry timing)
+- `zp jobs run <id>` — run a specific job by ID (or prefix match)
+- `zp jobs info <id>` — detailed job info (config, files, errors, retries)
+- `zp jobs rm <id>` — remove a job file
+- `zp jobs clean` — remove all completed jobs
+
+**Auto-check**: `run_cmd()` in `cli.py` prints a yellow notice when pending jobs exist (skipped for `zp jobs` command itself). Shown before and after the command.
+
+**Key files**: `jobs.py`, `cli.py` (`cmd_jobs`, `run_cmd`), `pipeline/release.py` (`_step_modules` job creation), `modules/__init__.py` (`run_module_job`), `modules/_shared.py` (`run_module_job_files`).
+
+---
+
 ## Git operations (`git_operations.py`)
 
 ### Exact subprocess commands
@@ -857,8 +1007,8 @@ gpg.verify_file(sig_handle, data_filename=original_file)
 
 ### Two hash concepts
 
-- **`sign_hash_algo`** (ZP config, default `sha256`): which hash computes the digest written to the temp file in FILE_HASH mode. Changes the signed content.
-- **GPG digest algo** (`gpg.extra_args: ["--digest-algo", "SHA512"]`): GPG's internal signature hash. Independent from sign_hash_algo.
+- **`identity_hash_algo`** (ZP config, default `sha256`): which hash computes the digest written to the temp file in FILE_HASH mode. Changes the signed content.
+- **GPG digest algo** (`gpg.extra_args: ["--digest-algo", "SHA512"]`): GPG's internal signature hash. Independent from identity_hash_algo.
 
 ### Manifest signature
 
@@ -1065,7 +1215,7 @@ In test mode, `Prompt.ask()` looks up response from `test_config.prompts[name]`.
 ## File persistence (`file_utils.py`)
 
 `persist_files(entries, archive_dir, tag_name)`:
-1. Filter entries by `entry.persist`
+1. Filter entries by `entry.archive`
 2. Create `archive_dir/{tag_name}/`
 3. For each file: check if dest exists, prompt for overwrite
 4. `shutil.move()` to destination

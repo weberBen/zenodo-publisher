@@ -89,7 +89,7 @@ RELEASE_OPTIONS: list[ConfigOption] = [
     ConfigOption("pipeline_caching", env_key=None,
                  yaml_path="pipeline.caching",
                  type="bool", default=True, cli=True,
-                 help="Cache pipeline working files in .zp/archives/{tag_name}/ for resume support"),
+                 help="Cache pipeline working files in .zp/cache/{tag_name}/ for resume support"),
 
     # Runtime options
     ConfigOption("prompt_validation_level", env_key=None,
@@ -220,6 +220,13 @@ class ReleaseConfig(CommonConfig):
         validate_no_pattern_overlap(self.generated_files)
 
         validate(self)
+        
+        # Merge hash_algorithms + dedublicate
+        base_hash_algos = {"md5", "sha256"}
+        if self.identity_hash_algo:
+            base_hash_algos = base_hash_algos | {self.identity_hash_algo}
+        extra_hash_algos = set(self.hash_algorithms or [])
+        self.effective_hash_algorithms = base_hash_algos | extra_hash_algos
 
     def _resolve_pattern_templates(self):
         """Resolve {var} in pattern entries using config values.
