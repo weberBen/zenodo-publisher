@@ -647,7 +647,7 @@ def test_env_var_override_fake_token(override_env, fix_log_path):
         signing={"sign": False},
         zenodo={
             "api_url": "https://sandbox.zenodo.org/api",
-            "concept_doi": "432538",
+            "concept_doi": "153267",
         },
         generated_files={
             "project": {
