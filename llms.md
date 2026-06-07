@@ -19,7 +19,7 @@ This section helps you find the right code quickly without reading everything.
 
 | Question | Where to look |
 |----------|---------------|
-| How a config option works | `release_tool/config/release.py` (RELEASE_OPTIONS), `config/common.py` (COMMON_OPTIONS), `config/archive.py` (ARCHIVE_OPTIONS) |
+| How a config option works | `release_tool/config/release.py` (RELEASE_OPTIONS), `config/common.py` (COMMON_OPTIONS), `config/archive.py` (ARCHIVE_OPTIONS). See also `CONFIG.md` for annotated example with full output trace |
 | How a YAML field is parsed | Find the `yaml_path` in the ConfigOption definition, or check `config/signing.py` / `config/generated_files.py` for complex structures |
 | What a pipeline step does | `release_tool/pipeline/release.py` — steps are functions `_step_*` called sequentially in `_run_release()` |
 | What git/gh commands are run | `release_tool/git_operations.py` — every subprocess call is there |
@@ -109,7 +109,7 @@ signing:
 
 zenodo:
   api_url: "https://sandbox.zenodo.org/api"
-  concept_doi: "432538"
+  concept_doi: "153267"
 
 generated_files:
   paper:
@@ -172,7 +172,7 @@ prompt_validation_level: danger
 
 **Zenodo:**
 - `api_url: "https://sandbox.zenodo.org/api"` → sandbox environment for testing (use `https://zenodo.org/api` for production)
-- `concept_doi: "432538"` → the concept DOI of the deposit (all versions share this). You get it after manually creating the first version on Zenodo
+- `concept_doi: "153267"` → the concept DOI of the deposit (all versions share this). You get it after manually creating the first version on Zenodo
 
 **Prompt:**
 - `prompt_validation_level: danger` → just press Enter to confirm everything. Fast for development. Use `light` (y/yes) or `normal` (type "yes") for production
@@ -257,6 +257,11 @@ The pipeline will:
 12. Persist PDF + signature to `papers/latex/releases/v1.0.0/`
 
 ## Structure
+
+Key documentation files:
+- `README.md` — user-facing documentation (overview, pipeline, setup)
+- `CONFIG.md` — detailed configuration reference with annotated example and full output trace
+- `llms.md` — this file (codebase internals for AI agents)
 
 ```
 release_tool/

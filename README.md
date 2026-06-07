@@ -19,34 +19,34 @@ This tool is **not recommended** for highly collaborative projects where multipl
 
 ```mermaid
 graph TD
-    Z[Manual git sync] -.->|start tool| A
-    A[Compile Doc] -->|PDF/other generated| B{Git sync check}
-    B -->|Local != Remote| C[Pull/Push required <br/> Manual]
-    B -->|Local = Remote| D{Release exists? <br/> GitHub CLI}
+    Z["Manual git sync"] -.->|start tool| A
+    A["Compile Doc"] -->|PDF/other generated| B{"Git sync check"}
+    B -->|Local != Remote| C["Pull/Push required\nManual"]
+    B -->|Local = Remote| D{"Release exists?\nGitHub CLI"}
     C --> D
-    D -->|No| E[Create release + tag]
-    D -->|Yes| F[Create archive]
+    D -->|No| E["Create release + tag"]
+    D -->|Yes| F["Create archive"]
     E --> F
-    F -->|File and/or optional ZIP| F2{GPG Sign?}
-    F2 -->|Yes| F3[Sign files]
-    F2 -->|No| G{Check Zenodo}
-    F3 --> G{Check Zenodo}
-    G --> H{Files equal? <br/> md5 sum}
-    H -->|Yes| I{Versions equal?}
-    H -->|No| J{Versions equal?}
-    I -->|Yes| K[Skip publication <br/> identical]
-    I -->|No| L[Skip publication <br/> Warning]
-    J -->|Yes| M[Publish <br/> Warning]
-    J -->|No| N[Publish <br/> All different]
-    K --> O{Force?}
+    F -->|File and/or optional ZIP| F2{"GPG Sign?"}
+    F2 -->|Yes| F3["Sign files"]
+    F2 -->|No| G{"Check Zenodo"}
+    F3 --> G
+    G --> H{"Files equal?\nmd5 sum"}
+    H -->|Yes| I{"Versions equal?"}
+    H -->|No| J{"Versions equal?"}
+    I -->|Yes| K["Skip publication\nidentical"]
+    I -->|No| L["Skip publication\nWarning"]
+    J -->|Yes| M["Publish\nWarning"]
+    J -->|No| N["Publish\nAll different"]
+    K --> O{"Force?"}
     L --> O
-    O -->|Yes| P[Upload to Zenodo]
-    O -->|No| Q[Skip publication]
+    O -->|Yes| P["Upload to Zenodo"]
+    O -->|No| Q["Skip publication"]
     M --> P
     N --> P
-    P --> R[Publish on Zenodo <br/> InvenioRDM API]
+    P --> R["Publish on Zenodo\nInvenioRDM API"]
 
-    style Z fill:#f0f0f0,stroke-dasharray: 5 5
+    style Z fill:#f0f0f0,stroke-dasharray:5
     style A fill:#e1f5ff
     style E fill:#fff4e1
     style R fill:#e8f5e9
@@ -262,6 +262,8 @@ For fully automated processing, add `zp jobs run` to your crontab:
 
 This is the main configuration file. All options except sensitive credentials go here.
 
+> **Detailed reference**: see [`CONFIG.md`](./CONFIG.md) for a comprehensive annotated example with detailed explanations of each option and the exact output produced.
+
 ```yaml
 project_name:
   prefix: "MyProject"
@@ -295,7 +297,7 @@ signing:
 
 zenodo:
   api_url: "https://sandbox.zenodo.org/api"  # use https://zenodo.org/api for production
-  concept_doi: "432538"
+  concept_doi: "153267"
   # publication_date: "2024-01-15"  # defaults to today UTC
   # force_update: false
 
