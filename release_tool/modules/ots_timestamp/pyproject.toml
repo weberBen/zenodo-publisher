@@ -1,0 +1,20 @@
+[project]
+name = "ots-timestamp"
+version = "0.1.0"
+description = "OpenTimestamps module for zenodo-publisher — Bitcoin-anchored timestamps"
+requires-python = ">=3.10"
+dependencies = [
+    "opentimestamps-client>=0.7",
+    "requests>=2.28",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "network: tests that require network access (calendar servers)",
+]

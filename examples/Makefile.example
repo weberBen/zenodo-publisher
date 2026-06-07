@@ -1,5 +1,9 @@
 # Makefile for LaTeX document compilation
 
+ifdef ZP_COMMIT_DATE_EPOCH
+export SOURCE_DATE_EPOCH ?= $(ZP_COMMIT_DATE_EPOCH)
+endif
+
 # Main document name (without .tex extension)
 MAIN = main
 
@@ -22,7 +26,7 @@ all: $(PDF)
 $(PDF): $(MAIN).tex $(MAIN).bib
 	latexmk -pdf -Werror $(MAIN).tex
 	@echo "✓ Compilation successful - no undefined references or citations."
-	@echo "✓ MD5 file checksum: $$(md5sum $(PDF))"
+	@echo "-> MD5 file checksum: $$(md5sum $(PDF))"
 
 
 # Compile without bibliography
@@ -42,6 +46,8 @@ cleanall: clean
 
 .PHONY: deploy
 deploy: cleanall all
+	@echo "-> SOURCE_DATE_EPOCH: $$SOURCE_DATE_EPOCH"
+	@echo "-> ZP_COMMIT_SHA: $$ZP_COMMIT_SHA"
 
 # View PDF (Linux)
 .PHONY: view

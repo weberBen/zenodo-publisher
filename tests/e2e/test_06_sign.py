@@ -1,0 +1,1459 @@
+"""Test: signing, manifest, and GitHub asset publishing.
+
+Uses the real test repo (repo_env). ZP creates the tag + release itself.
+Tests verify signing modes, manifest generation, and GitHub asset upload
+by inspecting persisted files and querying GitHub via GithubClient.
+"""
+
+import json
+import tempfile
+from pathlib import Path
+
+import gnupg
+import pytest
+
+from tests.utils.cli import ZpRunner
+from tests.utils.github import GithubClient
+from tests.utils.ndjson import (
+    find_by_name, find_data, find_errors,
+)
+from tests.utils import fs
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+TAG = "v-test-sign"
+TAG_ANNOTATED = "v-test-sign-annotated"
+
+
+def _signing_on(gpg_uid, **overrides):
+    """Build a signing config with the test GPG UID."""
+    cfg = {"sign": True, "gpg": {"uid": gpg_uid}}
+    cfg.update(overrides)
+    return cfg
+
+
+def _base_config(archive_dir: Path, **overrides) -> dict:
+    config = {
+        "project_name": {"prefix": "TestProject", "suffix": "-{tag_name}"},
+        "main_branch": "main",
+        "compile": {"enabled": False},
+        "hash_algorithms": ["sha256"],
+        "archive": {"format": "zip", "dir": str(archive_dir)},
+        "prompt_validation_level": "danger",
+    }
+    config.update(overrides)
+    return config
+
+
+# Prompts: ZP creates the release itself.
+_PROMPTS = {
+    "enter_tag": TAG,
+    "release_title": "",
+    "release_notes": "",
+    "confirm_resume": "no",
+    "confirm_build": "yes",
+    "confirm_publish": "yes",
+    "confirm_gpg_key": "yes",
+    "confirm_delete_asset": "no",
+}
+
+_TEST_CONFIG = {"prompts": _PROMPTS, "verify_prompts": False}
+
+# Same but skip publish confirmation
+_TEST_CONFIG_NO_PUBLISH = {
+    "prompts": {**_PROMPTS, "confirm_publish": "no"},
+    "verify_prompts": False,
+}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _gpg_warmup(gpg_uid: str | None) -> None:
+    """Sign a throwaway file to ensure the GPG agent has the passphrase cached."""
+    if not gpg_uid:
+        return
+    gpg = gnupg.GPG()
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+        f.write(b"warmup")
+        warmup_path = Path(f.name)
+    sig_path = warmup_path.with_suffix(".txt.asc")
+    try:
+        with open(warmup_path, "rb") as fh:
+            gpg.sign_file(fh, keyid=gpg_uid, detach=True,
+                          output=str(sig_path), extra_args=["--armor"])
+    finally:
+        warmup_path.unlink(missing_ok=True)
+        sig_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sign_env(repo_env, fix_gpg_uid):
+    """Yield (repo_dir, git, gh, archive_dir, gpg_uid). Cleanup release after test."""
+    repo_dir, git = repo_env
+    gh = GithubClient(repo_dir)
+
+    # Cleanup leftover from a previous failed run
+    if gh.has_release(TAG):
+        gh.delete_release(TAG, cleanup_tag=True)
+    git._run("tag", "-d", TAG, check=False)
+    git._run("push", "origin", f":refs/tags/{TAG}", check=False)
+
+    archive_dir = Path(tempfile.mkdtemp())
+
+    # Warmup: sign a dummy file to ensure the GPG agent has the passphrase cached.
+    # Without this, the first test(s) that sign the project archive fail silently
+    # because the agent isn't unlocked yet.
+    _gpg_warmup(fix_gpg_uid)
+
+    yield repo_dir, git, gh, archive_dir, fix_gpg_uid
+
+    # Cleanup
+    if gh.has_release(TAG):
+        gh.delete_release(TAG, cleanup_tag=True)
+
+
+def _create_pattern_file(repo_dir, git):
+    """Create a pattern file (output.txt) gitignored so repo stays clean."""
+    (repo_dir / "output.txt").write_text("compiled output for signing")
+    gitignore = repo_dir / ".gitignore"
+    existing = gitignore.read_text() if gitignore.exists() else ""
+    if "output.txt" not in existing:
+        gitignore.write_text(existing + "\noutput.txt\n")
+        git.add_and_commit("gitignore output.txt")
+        git.push()
+
+
+# ---------------------------------------------------------------------------
+# Tests: signing on/off
+# ---------------------------------------------------------------------------
+
+def test_sign_project_file_mode(sign_env, fix_log_path):
+    """Sign project archive in FILE mode: .asc signature should exist."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    zip_files = [f for f in files if f.suffix == ".zip"]
+    assert zip_files, f"Expected .zip. Got: {names}"
+
+    sig_files = [f for f in files if f.name.endswith(".asc")]
+    assert sig_files, f"Expected .asc signature. Got: {names}"
+
+    # Signature should reference the archive
+    assert any(zip_files[0].name in s.name for s in sig_files), \
+        f"Signature should reference archive. zip={zip_files[0].name}, sigs={[s.name for s in sig_files]}"
+
+
+def test_sign_project_file_hash_mode(sign_env, fix_log_path):
+    """Sign project archive in FILE_HASH mode: .asc signature of hash should exist."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        identity_hash_algo="sha256",
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    sig_files = [f for f in files if f.name.endswith(".asc")]
+    assert sig_files, f"Expected .asc signature. Got: {names}"
+
+
+def test_sign_pattern_only(sign_env, fix_log_path):
+    """Sign a pattern file only (no project): signature should exist."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    assert "output.txt" in names
+    assert "output.txt.asc" in names, f"Expected output.txt.asc. Got: {names}"
+
+
+def test_sign_both_project_and_pattern(sign_env, fix_log_path):
+    """Sign both project and pattern: two signatures should exist."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": []}},
+            },
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    sig_files = [f for f in files if f.name.endswith(".asc")]
+    assert len(sig_files) == 2, \
+        f"Expected exactly 2 signatures. Got: {[f.name for f in files]}"
+
+
+def test_no_sign(sign_env, fix_log_path):
+    """signing.sign: false — no .asc files should be created."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    sig_files = [f for f in files if f.name.endswith(".asc") or f.name.endswith(".sig")]
+    assert not sig_files, f"No signatures expected. Got: {[f.name for f in files]}"
+
+
+def test_sign_per_file_override(sign_env, fix_log_path):
+    """Per-file sign override: project signed, pattern not."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False, "gpg": {"uid": gpg_uid}},  # global off, but uid set for per-file
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "sign": False,
+                "publishers": {"destination": {"file": []}},
+            },
+            "project": {
+                "sign": True,  # per-file override
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    # Project should have a signature
+    zip_files = [f for f in files if f.suffix == ".zip"]
+    assert zip_files
+    assert any(zip_files[0].name in n for n in names if n.endswith(".asc")), \
+        f"Expected signature for project. Got: {names}"
+
+    # Pattern should NOT have a signature
+    assert "output.txt.asc" not in names, \
+        f"Pattern should not be signed. Got: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: signing with different hash algos
+# ---------------------------------------------------------------------------
+
+def test_sign_binary_sig_format(sign_env, fix_log_path):
+    """Without --armor: should produce binary .sig instead of .asc."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={
+            "sign": True,
+            "sign_mode": "file",
+            "gpg": {"uid": gpg_uid, "extra_args": ["--no-armor"]},  # removes default --armor
+        },
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    sig_files = [f for f in files if f.name.endswith(".sig")]
+    assert sig_files, f"Expected .sig (binary) signature. Got: {names}"
+    # No .asc should exist
+    asc_files = [f for f in files if f.name.endswith(".asc")]
+    assert not asc_files, f"Should not have .asc with binary mode. Got: {names}"
+
+
+def test_sign_invalid_gpg_uid(sign_env, fix_log_path):
+    """Invalid GPG UID: signing should fail with an error."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={
+            "sign": True,
+            "sign_mode": "file",
+            "gpg": {"uid": "nonexistent-key@fake-domain.invalid"},
+        },
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert errors, f"Expected GPG error with invalid UID. events={result.events}"
+    assert find_by_name(result.events, "gpg.no_secret_key"), \
+        f"Expected gpg.no_secret_key. Got: {errors}"
+
+
+
+def test_sign_without_uid_uses_default(sign_env, fix_log_path):
+    """Sign without gpg.uid in config: ZP should resolve the default GPG key.
+
+    We decline the confirm_gpg_key prompt so no actual signing occurs
+    (avoids pinentry TTY issues in non-interactive environments).
+    Instead we verify key resolution via the emitted key_id/main_uid events.
+    """
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": True, "sign_mode": "file"},  # no gpg.uid
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    # Decline signing to avoid actual GPG operation (pinentry TTY issue)
+    test_config = {
+        "prompts": {**_PROMPTS, "confirm_gpg_key": "no", "confirm_publish": "no"},
+        "verify_prompts": False,
+    }
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=test_config,
+                             log_path=fix_log_path,
+                             fail_on="ignore",
+                             env={"ZP_GPG_UID": ""})
+
+    # Key resolution should have emitted key_id and main_uid events
+    key_ev = find_by_name(result.events, "key_id")
+    uid_ev = find_by_name(result.events, "main_uid")
+    assert key_ev, f"Expected key_id event (default key resolved). events={result.events}"
+    assert uid_ev, f"Expected main_uid event (default key resolved). events={result.events}"
+
+
+@pytest.mark.parametrize("sign_hash_algo", ["md5", "sha1", "sha256", "sha512"])
+def test_sign_file_hash_algo(sign_env, fix_log_path, sign_hash_algo):
+    """FILE_HASH mode with various hash algos: signature should exist."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        identity_hash_algo=sign_hash_algo,
+        signing=_signing_on(gpg_uid, sign_mode="file_hash"),
+        hash_algorithms=["sha256", sign_hash_algo],
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors with {sign_hash_algo}: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    sig_files = [f for f in files if f.name.endswith(".asc")]
+    assert sig_files, \
+        f"Expected .asc signature with {sign_hash_algo}. Got: {[f.name for f in files]}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: manifest
+# ---------------------------------------------------------------------------
+
+def test_manifest_project_only_verify_hashes(sign_env, fix_log_path):
+    """Manifest with project only: verify file_hashes event matches locally computed values."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        hash_algorithms=["md5", "sha256"],
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha", "date_epoch"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+
+    # Manifest structure
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+    manifest = fs.parse_manifest(manifest_files[0])
+    assert "version" in manifest
+    assert "commit" in manifest
+    assert "files" in manifest
+    assert len(manifest["files"]) == 1
+
+    # File entry key should reference a real file on disk
+    entry_key = manifest["files"][0]["key"]
+    persisted_names = [f.name for f in fs.list_files(persist_dir)]
+    assert entry_key in persisted_names, \
+        f"Manifest entry key '{entry_key}' not found on disk. Got: {persisted_names}"
+
+    # Verify file_hashes data event against locally computed hashes
+    file_hashes = find_data(result.events, "file_hashes")
+    assert file_hashes, f"No file_hashes data event. events={result.events}"
+
+    for filename, reported_hashes in file_hashes.items():
+        persisted = persist_dir / filename
+        if not persisted.exists():
+            continue
+        for algo, reported_value in reported_hashes.items():
+            if algo in ("tree", "tree256"):
+                continue  # tree hashes need extraction, tested in test_04
+            local_hash = fs.compute_hash(persisted, algo)
+            assert reported_value == local_hash, \
+                f"{filename} {algo} mismatch: zp={reported_value}, local={local_hash}"
+
+
+def test_manifest_verify_commit_sha(sign_env, fix_log_path):
+    """Manifest commit.sha should match git rev-parse HEAD on the repo."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha", "date_epoch"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+
+    manifest = fs.parse_manifest(manifest_files[0])
+    local_sha = git.rev_parse("HEAD")
+    assert manifest["commit"]["sha"] == local_sha, \
+        f"SHA mismatch: manifest={manifest['commit']['sha']}, local={local_sha}"
+
+    # Verify date_epoch matches git log
+    r = git._run("log", "-1", "--format=%ct", "HEAD")
+    local_epoch = r.stdout.strip()
+    assert str(manifest["commit"]["date_epoch"]) == local_epoch, \
+        f"Epoch mismatch: manifest={manifest['commit']['date_epoch']}, local={local_epoch}"
+
+
+def test_manifest_with_pattern_and_project(sign_env, fix_log_path):
+    """Manifest referencing both: verify each file entry has correct hashes."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        hash_algorithms=["md5", "sha256"],
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": []}},
+            },
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"paper": ["file"], "project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+
+    manifest = fs.parse_manifest(manifest_files[0])
+    assert len(manifest["files"]) == 2, \
+        f"Expected 2 files in manifest. Got: {manifest['files']}"
+
+    # Verify each manifest entry hash matches the real file
+    for entry in manifest["files"]:
+        filename = entry.get("key", entry.get("filename", ""))
+        # Find the corresponding persisted file
+        candidates = [f for f in fs.list_files(persist_dir)
+                      if f.name == filename and f.suffix != ".json"]
+        if not candidates:
+            # Try matching by stem (e.g. output.txt)
+            candidates = [f for f in fs.list_files(persist_dir)
+                          if filename in f.name and not f.name.endswith(".json")]
+        assert candidates, f"No persisted file for manifest entry '{filename}'"
+
+        for algo in ("md5", "sha256"):
+            if algo in entry:
+                local_hash = fs.compute_hash(candidates[0], algo)
+                assert entry[algo] == local_hash, \
+                    f"{filename} {algo} mismatch: manifest={entry[algo]}, local={local_hash}"
+
+
+def test_manifest_project_only_no_pattern(sign_env, fix_log_path):
+    """Manifest with only project (no pattern): should have exactly 1 file entry."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    manifest = fs.parse_manifest(manifest_files[0])
+    assert len(manifest["files"]) == 1, \
+        f"Expected exactly 1 file. Got: {manifest['files']}"
+
+
+def test_manifest_signed(sign_env, fix_log_path):
+    """Manifest itself can be signed: .asc should exist for manifest."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "sign": True,
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    files = fs.list_files(persist_dir)
+    names = [f.name for f in files]
+
+    manifest_files = [f for f in files if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+    manifest_sigs = [n for n in names if "manifest" in n and n.endswith(".asc")]
+    assert manifest_sigs, f"Expected manifest .asc. Got: {names}"
+
+
+def test_manifest_commit_info_all_fields(sign_env, fix_log_path):
+    """All commit_info fields: verify values are non-empty and sha matches git."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha", "date_epoch", "subject", "author_name", "author_email"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    manifest = fs.parse_manifest(manifest_files[0])
+    commit = manifest["commit"]
+
+    for field in ("sha", "date_epoch", "subject", "author_name", "author_email"):
+        assert field in commit, f"Missing '{field}' in commit. Got: {list(commit.keys())}"
+        assert commit[field], f"'{field}' should not be empty"
+
+    # sha should match local
+    local_sha = git.rev_parse("HEAD")
+    assert commit["sha"] == local_sha, \
+        f"SHA mismatch: manifest={commit['sha']}, local={local_sha}"
+
+
+def test_manifest_minimal_commit_info(sign_env, fix_log_path):
+    """Manifest with only sha in commit_info: other fields should be absent."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    manifest = fs.parse_manifest(manifest_files[0])
+    commit = manifest["commit"]
+
+    assert "sha" in commit
+    # Only requested field should be present
+    assert "date_epoch" not in commit, \
+        f"date_epoch should not be in commit when not requested. Got: {commit}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: manifest with lightweight vs annotated tags
+# ---------------------------------------------------------------------------
+
+def test_manifest_lightweight_tag(sign_env, fix_log_path):
+    """Lightweight tag (created by ZP): version.sha == commit.sha (same ref)."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha", "tag_sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    manifest = fs.parse_manifest(manifest_files[0])
+
+    commit_sha = manifest["commit"]["sha"]
+    assert "sha" in manifest["version"], \
+        f"version.sha missing from manifest. version={manifest['version']}"
+    version_sha = manifest["version"]["sha"]
+
+    # For a lightweight tag, tag SHA == commit SHA
+    assert version_sha == commit_sha, \
+        f"Lightweight tag: version.sha should equal commit.sha. " \
+        f"version.sha={version_sha}, commit.sha={commit_sha}"
+
+    # Both should match local HEAD
+    local_sha = git.rev_parse("HEAD")
+    assert commit_sha == local_sha
+
+
+def test_manifest_annotated_tag(repo_env, fix_log_path):
+    """Annotated tag: version.sha (tag object) != commit.sha."""
+    repo_dir, git = repo_env
+    gh = GithubClient(repo_dir)
+
+    # Cleanup leftover
+    if gh.has_release(TAG_ANNOTATED):
+        gh.delete_release(TAG_ANNOTATED, cleanup_tag=True)
+    git._run("tag", "-d", TAG_ANNOTATED, check=False)
+    git._run("push", "origin", f":refs/tags/{TAG_ANNOTATED}", check=False)
+
+    # Create annotated tag + push BEFORE ZP runs
+    git.tag_create(TAG_ANNOTATED, annotated=True, msg="Annotated release")
+    git._run("push", "origin", TAG_ANNOTATED)
+    gh.create_release(TAG_ANNOTATED, title=TAG_ANNOTATED, body="annotated test")
+
+    archive_dir = Path(tempfile.mkdtemp())
+    prompts_annotated = {
+        # Release already exists → no enter_tag/title/notes prompts
+        "confirm_resume": "no",
+        "confirm_build": "yes",
+        "confirm_publish": "no",
+    }
+
+    try:
+        config = _base_config(
+            archive_dir,
+            signing={"sign": False},
+            generated_files={
+                "project": {"publishers": {"destination": {"file": []}}},
+                "manifest": {
+                    "content": {"project": ["file"]},
+                    "commit_info": ["sha", "tag_sha"],
+                    "publishers": {"destination": {"file": []}},
+                },
+            },
+        )
+
+        runner = ZpRunner(repo_dir)
+        result = runner.run_test("release", config=config,
+                                 test_config={"prompts": prompts_annotated, "verify_prompts": False},
+                                 log_path=fix_log_path,
+                                 fail_on="ignore")
+
+        errors = find_errors(result.events)
+        assert not errors, f"Unexpected errors: {errors}"
+
+        persist_dir = archive_dir / TAG_ANNOTATED
+        manifest_files = [f for f in fs.list_files(persist_dir)
+                          if "manifest" in f.name and f.suffix == ".json"]
+        manifest = fs.parse_manifest(manifest_files[0])
+
+        commit_sha = manifest["commit"]["sha"]
+        assert "sha" in manifest["version"], \
+            f"version.sha missing from manifest. version={manifest['version']}"
+        version_sha = manifest["version"]["sha"]
+
+        # For an annotated tag, tag object SHA != commit SHA
+        assert version_sha != commit_sha, \
+            f"Annotated tag: version.sha should differ from commit.sha. " \
+            f"version.sha={version_sha}, commit.sha={commit_sha}"
+
+        # commit.sha should match HEAD
+        local_commit = git.rev_parse("HEAD")
+        assert commit_sha == local_commit
+
+        # version.sha should match the tag object (not dereferenced)
+        local_tag_sha = git.rev_parse(TAG_ANNOTATED)
+        assert version_sha == local_tag_sha, \
+            f"version.sha should be tag object SHA. " \
+            f"version.sha={version_sha}, local tag SHA={local_tag_sha}"
+
+    finally:
+        if gh.has_release(TAG_ANNOTATED):
+            gh.delete_release(TAG_ANNOTATED, cleanup_tag=True)
+
+
+# ---------------------------------------------------------------------------
+# Tests: GitHub asset publishing
+# ---------------------------------------------------------------------------
+
+def test_publish_pattern_as_github_asset(sign_env, fix_log_path):
+    """Pattern file published to GitHub: verify asset exists via GithubClient."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    # Verify asset exists on GitHub
+    asset = gh.get_release_asset(TAG, "output.txt")
+    assert asset is not None, \
+        f"output.txt should be a release asset. Assets: {gh.list_release_assets(TAG)}"
+
+    # Download and verify hash
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded = gh.download_asset(TAG, "output.txt", Path(tmp))
+        local_hash = fs.compute_hash(downloaded, "sha256")
+
+    persist_dir = archive_dir / TAG
+    persisted = persist_dir / "output.txt"
+    assert persisted.exists()
+    expected_hash = fs.compute_hash(persisted, "sha256")
+    assert local_hash == expected_hash, \
+        f"Downloaded asset hash mismatch: {local_hash} != {expected_hash}"
+
+
+def test_publish_manifest_as_github_asset(sign_env, fix_log_path):
+    """Manifest published to GitHub: verify asset exists and content is valid JSON."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    # Find the manifest filename from persisted files
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+
+    manifest_name = manifest_files[0].name
+
+    # Verify asset exists on GitHub
+    asset = gh.get_release_asset(TAG, manifest_name)
+    assert asset is not None, \
+        f"{manifest_name} should be a release asset. Assets: {gh.list_release_assets(TAG)}"
+
+    # Download and verify it's valid JSON with correct hash
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded = gh.download_asset(TAG, manifest_name, Path(tmp))
+        content = downloaded.read_text()
+        parsed = json.loads(content)
+        assert "files" in parsed
+        assert "commit" in parsed
+
+        dl_hash = fs.compute_hash(downloaded, "sha256")
+
+    local_hash = fs.compute_hash(manifest_files[0], "sha256")
+    assert dl_hash == local_hash, \
+        f"Downloaded manifest hash mismatch: {dl_hash} != {local_hash}"
+
+
+def test_publish_signed_pattern_and_sig_as_github_assets(sign_env, fix_log_path):
+    """Signed pattern + signature both uploaded to GitHub."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {
+                    "destination": {"file": ["github"], "sig": ["github"]},
+                },
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    # Both file and signature should be assets
+    assets = gh.list_release_assets(TAG)
+    asset_names = [a["name"] for a in assets]
+
+    assert "output.txt" in asset_names, \
+        f"output.txt should be an asset. Got: {asset_names}"
+    assert "output.txt.asc" in asset_names, \
+        f"output.txt.asc should be an asset. Got: {asset_names}"
+
+    # Download both and verify hashes
+    persist_dir = archive_dir / TAG
+    persisted = {f.name: f for f in fs.list_files(persist_dir)}
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("output.txt", "output.txt.asc"):
+            assert name in persisted, \
+                f"{name} not found in persist dir. Got: {list(persisted.keys())}"
+            downloaded = gh.download_asset(TAG, name, Path(tmp))
+            dl_hash = fs.compute_hash(downloaded, "sha256")
+            local_hash = fs.compute_hash(persisted[name], "sha256")
+            assert dl_hash == local_hash, \
+                f"{name} hash mismatch: downloaded={dl_hash}, local={local_hash}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: identity_key manifest format
+# ---------------------------------------------------------------------------
+
+def test_manifest_identity_key_hash(sign_env, fix_log_path):
+    """identity_key=hash: manifest entries use 'identity_hash' field instead of 'key'."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        identity_key="hash",
+        identity_hash_algo="sha256",
+        hash_algorithms=["sha256"],
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+    manifest = fs.parse_manifest(manifest_files[0])
+
+    assert "identity_hash_algo" in manifest, \
+        f"manifest should have 'identity_hash_algo'. Got keys: {list(manifest.keys())}"
+    assert manifest["identity_hash_algo"] == "sha256"
+
+    assert len(manifest["files"]) == 1
+    entry = manifest["files"][0]
+    assert "identity_hash" in entry, \
+        f"identity_key=hash: entry should have 'identity_hash', not 'key'. Got: {entry}"
+    assert "key" not in entry, \
+        f"identity_key=hash: entry should NOT have 'key'. Got: {entry}"
+    assert entry["identity_hash"].startswith("sha256:"), \
+        f"identity_hash should be 'sha256:...' format. Got: {entry['identity_hash']}"
+
+
+def test_manifest_identity_key_name_default(sign_env, fix_log_path):
+    """identity_key=name (default): manifest entries use 'key' field (filename)."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        hash_algorithms=["sha256"],
+        generated_files={
+            "project": {"publishers": {"destination": {"file": []}}},
+            "manifest": {
+                "content": {"project": ["file"]},
+                "commit_info": ["sha"],
+                "publishers": {"destination": {"file": []}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_NO_PUBLISH,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    manifest_files = [f for f in fs.list_files(persist_dir)
+                      if "manifest" in f.name and f.suffix == ".json"]
+    assert manifest_files
+    manifest = fs.parse_manifest(manifest_files[0])
+
+    assert "identity_hash_algo" in manifest, \
+        f"manifest should always have 'identity_hash_algo'. Got keys: {list(manifest.keys())}"
+    assert len(manifest["files"]) == 1
+    entry = manifest["files"][0]
+    assert "key" in entry, \
+        f"identity_key=name: entry should have 'key' (filename). Got: {entry}"
+    assert "identity_hash" not in entry, \
+        f"identity_key=name: entry should NOT have 'identity_hash'. Got: {entry}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: publish_identity_hash
+# ---------------------------------------------------------------------------
+
+def test_publish_identity_hash_github(sign_env, fix_log_path):
+    """publish_identity_hash: [github] → <filename>.identity_hash.txt uploaded as release asset."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _create_pattern_file(repo_dir, git)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        identity_hash_algo="sha256",
+        hash_algorithms=["sha256"],
+        generated_files={
+            "paper": {
+                "pattern": "output.txt",
+                "publishers": {"destination": {"file": ["github"]}},
+                "publish_identity_hash": {"destination": {"file": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    # output.txt.identity_hash.txt should be uploaded to GitHub
+    assets = gh.list_release_assets(TAG)
+    asset_names = [a["name"] for a in assets]
+
+    assert "output.txt" in asset_names, \
+        f"output.txt should be a release asset. Got: {asset_names}"
+    assert "output.txt.identity_hash.txt" in asset_names, \
+        f"output.txt.identity_hash.txt should be a release asset. Got: {asset_names}"
+
+    # Download and verify the identity_hash.txt content
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded = gh.download_asset(TAG, "output.txt.identity_hash.txt", Path(tmp))
+        content = downloaded.read_text(encoding="ascii").strip()
+
+    assert content.startswith("sha256:"), \
+        f"identity_hash.txt should contain 'sha256:...'. Got: {content!r}"
+
+    # Verify hash matches the persisted file
+    persist_dir = archive_dir / TAG
+    persisted = persist_dir / "output.txt"
+    assert persisted.exists()
+    local_hash = fs.compute_hash(persisted, "sha256")
+    assert content == f"sha256:{local_hash}", \
+        f"identity_hash.txt content mismatch: {content!r} != sha256:{local_hash}"
+
+
+# ---------------------------------------------------------------------------
+# Dual-output module (two module_entry_type per input file)
+# ---------------------------------------------------------------------------
+
+DUAL_MODULE_PYPROJECT = '''\
+[project]
+name = "dual-module"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = []
+'''
+
+DUAL_MODULE_SOURCE = '''\
+"""Dual-output ZP module: produces .type_a and .type_b per input file."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+def emit(type_: str, msg: str, name: str = "", **kwargs):
+    event = {"type": type_, "msg": msg, "name": name}
+    if kwargs:
+        event["data"] = kwargs
+    print(json.dumps(event), flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    check_p = sub.add_parser("check")
+    check_p.add_argument("--config")
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--input", required=True)
+    args = parser.parse_args()
+
+    if args.command == "check":
+        emit("detail_ok", "dual_module: check ok", name="dual_module.check.ok")
+        return
+
+    with open(args.input, encoding="utf-8") as f:
+        data = json.load(f)
+
+    output_dir = Path(data["output_dir"])
+    result_files = []
+
+    for file_info in data["files"]:
+        fp = Path(file_info["file_path"])
+        config_key = file_info["config_key"]
+        for type_name in ("type_a", "type_b"):
+            out_path = output_dir / f"{fp.name}.{type_name}"
+            out_path.write_text(f"{type_name}:{fp.name}", encoding="utf-8")
+            result_files.append({
+                "file_path": str(out_path),
+                "config_key": config_key,
+                "module_entry_type": type_name,
+            })
+        emit("detail_ok", f"dual_module: processed {fp.name}", name="dual_module.done")
+
+    print(json.dumps({"type": "result", "files": result_files}), flush=True)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _install_dual_module(repo_dir: Path) -> None:
+    """Write dual_module to <repo_dir>/.zp/modules/dual_module/."""
+    module_dir = repo_dir / ".zp" / "modules" / "dual_module"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    (module_dir / "pyproject.toml").write_text(DUAL_MODULE_PYPROJECT)
+    (module_dir / "dual_module.py").write_text(DUAL_MODULE_SOURCE)
+
+
+_TEST_CONFIG_MODULE = {
+    "prompts": {**_PROMPTS, "confirm_run_module": "yes"},
+    "verify_prompts": False,
+}
+
+
+# ---------------------------------------------------------------------------
+# Tests: publish_identity_hash — sig, module_name.type, module_name
+# ---------------------------------------------------------------------------
+
+def test_publish_identity_hash_sig(sign_env, fix_log_path):
+    """publish_identity_hash: sig: [github] → <sig>.identity_hash.txt content matches local."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+
+    config = _base_config(
+        archive_dir,
+        signing=_signing_on(gpg_uid, sign_mode="file"),
+        identity_hash_algo="sha256",
+        hash_algorithms=["sha256"],
+        generated_files={
+            "project": {
+                "publishers": {"destination": {"file": ["github"], "sig": ["github"]}},
+                "publish_identity_hash": {"destination": {"sig": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    persist_dir = archive_dir / TAG
+    sig_files = [f for f in fs.list_files(persist_dir) if f.name.endswith(".asc")]
+    assert sig_files, f"Expected .asc in persist_dir. Got: {[f.name for f in fs.list_files(persist_dir)]}"
+    sig_file = sig_files[0]
+
+    # Verify identity hash txt was uploaded
+    assets = gh.list_release_assets(TAG)
+    asset_names = [a["name"] for a in assets]
+    expected_name = f"{sig_file.name}.identity_hash.txt"
+    assert expected_name in asset_names, \
+        f"{expected_name} should be a release asset. Got: {asset_names}"
+
+    # Download and verify content matches local hash of the .asc file
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded = gh.download_asset(TAG, expected_name, Path(tmp))
+        content = downloaded.read_text(encoding="ascii").strip()
+
+    local_hash = fs.compute_hash(sig_file, "sha256")
+    assert content == f"sha256:{local_hash}", \
+        f"sig identity_hash.txt mismatch: {content!r} != sha256:{local_hash}"
+
+
+def test_publish_identity_hash_module_type(sign_env, fix_log_path):
+    """publish_identity_hash: dual_module.type_a only → type_a hash uploaded, type_b not."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _install_dual_module(repo_dir)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        identity_hash_algo="sha256",
+        hash_algorithms=["sha256"],
+        modules={"dual_module": {}},
+        generated_files={
+            "project": {
+                "archive_types": ["file", "dual_module"],
+                "publishers": {"destination": {"file": [], "dual_module": ["github"]}},
+                "modules": {"dual_module": {}},
+                "publish_identity_hash": {"destination": {"dual_module.type_a": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_MODULE,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    assets = gh.list_release_assets(TAG)
+    asset_names = [a["name"] for a in assets]
+
+    # Find the two module outputs uploaded to GitHub
+    type_a_names = [n for n in asset_names if n.endswith(".type_a")]
+    type_b_names = [n for n in asset_names if n.endswith(".type_b")]
+    assert type_a_names, f"Expected .type_a asset on GitHub. Got: {asset_names}"
+    assert type_b_names, f"Expected .type_b asset on GitHub. Got: {asset_names}"
+
+    # type_a identity hash should be present
+    type_a_hash_name = f"{type_a_names[0]}.identity_hash.txt"
+    assert type_a_hash_name in asset_names, \
+        f"{type_a_hash_name} should be a release asset. Got: {asset_names}"
+
+    # type_b identity hash should NOT be present
+    type_b_hash_name = f"{type_b_names[0]}.identity_hash.txt"
+    assert type_b_hash_name not in asset_names, \
+        f"{type_b_hash_name} should NOT be a release asset (filtered out). Got: {asset_names}"
+
+    # Download type_a file + its hash, verify hash matches
+    with tempfile.TemporaryDirectory() as tmp:
+        type_a_path = gh.download_asset(TAG, type_a_names[0], Path(tmp))
+        hash_path = gh.download_asset(TAG, type_a_hash_name, Path(tmp))
+        content = hash_path.read_text(encoding="ascii").strip()
+        local_hash = fs.compute_hash(type_a_path, "sha256")
+
+    assert content == f"sha256:{local_hash}", \
+        f"type_a identity_hash.txt mismatch: {content!r} != sha256:{local_hash}"
+
+
+def test_publish_identity_hash_module_all(sign_env, fix_log_path):
+    """publish_identity_hash: dual_module (all types) → both type_a and type_b hashes uploaded."""
+    repo_dir, git, gh, archive_dir, gpg_uid = sign_env
+    _install_dual_module(repo_dir)
+
+    config = _base_config(
+        archive_dir,
+        signing={"sign": False},
+        identity_hash_algo="sha256",
+        hash_algorithms=["sha256"],
+        modules={"dual_module": {}},
+        generated_files={
+            "project": {
+                "archive_types": ["file", "dual_module"],
+                "publishers": {"destination": {"file": [], "dual_module": ["github"]}},
+                "modules": {"dual_module": {}},
+                "publish_identity_hash": {"destination": {"dual_module": ["github"]}},
+            },
+        },
+    )
+
+    runner = ZpRunner(repo_dir)
+    result = runner.run_test("release", config=config,
+                             test_config=_TEST_CONFIG_MODULE,
+                             log_path=fix_log_path,
+                             fail_on="ignore")
+
+    errors = find_errors(result.events)
+    assert not errors, f"Unexpected errors: {errors}"
+
+    assets = gh.list_release_assets(TAG)
+    asset_names = [a["name"] for a in assets]
+
+    # Find the two module outputs uploaded to GitHub
+    type_a_names = [n for n in asset_names if n.endswith(".type_a")]
+    type_b_names = [n for n in asset_names if n.endswith(".type_b")]
+    assert type_a_names, f"Expected .type_a asset on GitHub. Got: {asset_names}"
+    assert type_b_names, f"Expected .type_b asset on GitHub. Got: {asset_names}"
+
+    # Both identity hash txts should be present; verify content matches the downloaded file
+    for type_names, label in ((type_a_names, "type_a"), (type_b_names, "type_b")):
+        hash_name = f"{type_names[0]}.identity_hash.txt"
+        assert hash_name in asset_names, \
+            f"{hash_name} ({label}) should be a release asset. Got: {asset_names}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = gh.download_asset(TAG, type_names[0], Path(tmp))
+            hash_path = gh.download_asset(TAG, hash_name, Path(tmp))
+            content = hash_path.read_text(encoding="ascii").strip()
+            local_hash = fs.compute_hash(file_path, "sha256")
+
+        assert content == f"sha256:{local_hash}", \
+            f"{label} identity_hash.txt mismatch: {content!r} != sha256:{local_hash}"

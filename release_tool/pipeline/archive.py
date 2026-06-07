@@ -1,0 +1,140 @@
+"""Standalone archive pipeline — create a git archive and print checksums."""
+
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+from ..git_operations import (
+    ArchiveResult,
+    archive_zip_project, archive_zip_remote_project,
+    get_remote_url, get_commit_of_tag, GitError,
+)
+from ..archive_operation import compute_file_hash, process_project_archive
+from ..config.transform_common import TREE_ALGORITHMS
+from .. import output
+from ._common import setup_pipeline
+
+
+def run_archive(config, *, test=None) -> None:
+    """Run the archive pipeline with error handling."""
+    try:
+        _run_archive(config, test=test)
+    except KeyboardInterrupt:
+        output.info("\nExited.")
+    except Exception as e:
+        if config.debug:
+            raise
+        output.fatal("Error during archive:", exc=e)
+
+
+# ---------------------------------------------------------------------------
+# Steps
+# ---------------------------------------------------------------------------
+
+def _step_archive(
+    project_root: Optional[Path],
+    tag_name: str,
+    project_name: str,
+    remote_url: Optional[str],
+    no_cache: bool,
+    output_dir: Path,
+) -> ArchiveResult:
+    """Create a ZIP archive from local repo or remote. Returns ArchiveResult."""
+    if remote_url:
+        return archive_zip_remote_project(
+            remote_url, tag_name, project_name, output_dir)
+
+    if no_cache:
+        origin_url = get_remote_url(project_root)
+        output.info("Cloning from {origin_url}", origin_url=origin_url, name="archive.clone_remote")
+        return archive_zip_remote_project(
+            origin_url, tag_name, project_name, output_dir)
+
+    try:
+        return archive_zip_project(
+            project_root, tag_name, project_name, output_dir)
+    except GitError:
+        output.warn(
+            "Hint: use --no-cache to archive from the remote origin "
+            "without touching the local repo"
+        )
+        raise
+
+
+def _step_display(
+    result: ArchiveResult,
+    all_algos: list[str],
+    tree_hashes: dict[str, str],
+) -> None:
+    """Display archive path and checksums."""
+    labels = ["Archive"] + all_algos
+    pad = max(len(l) for l in labels)
+
+    hashes = {}
+    output.info("\n{label}:  {archive_path}", label=f"{'Archive':<{pad}}",
+                archive_path=str(result.file_path), name="archive.path")
+    for algo in all_algos:
+        if algo in tree_hashes:
+            h = tree_hashes[algo]
+        else:
+            h = compute_file_hash(result.file_path, algo)["value"]
+        hashes[algo] = h
+        output.info("{label}:  {hash}", label=f"{algo:<{pad}}", hash=h, name="archive.hash")
+
+    output.data("archive_result", {
+        "path": str(result.file_path),
+        "format": result.format,
+        "hashes": hashes,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+def _run_archive(config, *, test=None) -> None:
+    """Main archive pipeline."""
+    setup_pipeline(config, test=test)
+
+    # Resolve project name template
+    template_context = {"tag_name": config.tag}
+    if config.project_root:
+        template_context["sha_commit"] = get_commit_of_tag(
+            config.project_root, config.tag)
+    config.generate_project_name(template_context)
+    output.data("project_name", config.project_name)
+    output.info_ok("Formatted project name: {project_name}", project_name=config.project_name, name="project.name")
+
+    # Build algo list from config
+    all_algos = list(dict.fromkeys(config.hash_algorithms or []))  # deduplicate, preserve order
+    tree_algos = [a for a in all_algos if a in TREE_ALGORITHMS]
+
+    # Working directory for all generated files
+    with tempfile.TemporaryDirectory() as tmp:
+        output_dir = Path(tmp)
+
+        # archive → zip
+        result = _step_archive(
+            config.project_root, config.tag, config.project_name,
+            config.remote, config.no_cache, output_dir)
+
+        # extract → tree → tar (single extraction via shared function)
+        final_path, final_format, tree_hashes = process_project_archive(
+            result.file_path, result.archive_name,
+            tree_algos=tree_algos, archive_format=config.archive_format,
+            tar_args=config.archive_tar_extra_args,
+            gzip_args=config.archive_gzip_extra_args,
+        )
+        result.file_path = final_path
+        result.format = final_format
+
+        # Move to output_dir if specified
+        if config.output_dir:
+            config.output_dir.mkdir(parents=True, exist_ok=True)
+            dst = config.output_dir / result.file_path.name
+            shutil.move(str(result.file_path), str(dst))
+            result.file_path = dst
+
+        # display
+        _step_display(result, all_algos, tree_hashes)
