@@ -19,41 +19,62 @@ This tool is **not recommended** for highly collaborative projects where multipl
 
 ```mermaid
 graph TD
-    Z["Manual git sync"] -.->|start tool| A
-    A["Compile Doc"] -->|PDF/other generated| B{"Git sync check"}
-    B -->|Local != Remote| C["Pull/Push required\nManual"]
-    B -->|Local = Remote| D{"Release exists?\nGitHub CLI"}
-    C --> D
-    D -->|No| E["Create release + tag"]
-    D -->|Yes| F["Create archive"]
-    E --> F
-    F -->|File and/or optional ZIP| F2{"GPG Sign?"}
-    F2 -->|Yes| F3["Sign files"]
-    F2 -->|No| G{"Check Zenodo"}
-    F3 --> G
-    G --> H{"Files equal?\nmd5 sum"}
-    H -->|Yes| I{"Versions equal?"}
-    H -->|No| J{"Versions equal?"}
-    I -->|Yes| K["Skip publication\nidentical"]
-    I -->|No| L["Skip publication\nWarning"]
-    J -->|Yes| M["Publish\nWarning"]
-    J -->|No| N["Publish\nAll different"]
+    S0["Module check"] --> S1
+    S1{"Git check\nbranch, sync, clean"} -->|Fail| S1F["Abort\nManual fix required"]
+    S1 -->|OK| S2{"Release exists?\nGitHub CLI"}
+    S2 -->|No| S2a["Create release + tag"]
+    S2 -->|Yes| S3
+    S2a --> S3["Commit info\n+ Project name"]
+    S3 --> S4{"Compile?"}
+    S4 -->|Enabled| S5["make deploy\n+ Re-check git"]
+    S4 -->|Disabled| S6
+    S5 --> S6["Resolve generated files\nglob patterns"]
+    S6 --> S7["Archive\ncopy/rename + git archive"]
+    S7 --> S8["Compute hashes\nmd5, sha256, tree..."]
+    S8 --> S9["Generate manifest\nJCS/RFC 8785"]
+    S9 --> S10{"GPG Sign?"}
+    S10 -->|Yes| S11["Sign files\nfile or file_hash mode"]
+    S10 -->|No| S12
+    S11 --> S12{"Modules?"}
+    S12 -->|Yes| S13["Run modules\ntimestamp, etc."]
+    S12 -->|No| S14
+    S13 --> S14{"Check Zenodo\nversion + md5"}
+    S14 --> H{"Files equal?\nmd5 comparison"}
+    H -->|Yes| I{"Versions equal?\ntag name"}
+    H -->|No| J{"Versions equal?\ntag name"}
+    I -->|Yes| K["Skip Zenodo\nidentical"]
+    I -->|No| L["Skip Zenodo\nWarning"]
+    J -->|Yes| M["Publish Zenodo\nWarning"]
+    J -->|No| N["Publish Zenodo\nAll different"]
     K --> O{"Force?"}
     L --> O
-    O -->|Yes| P["Upload to Zenodo"]
-    O -->|No| Q["Skip publication"]
+    O -->|Yes| P["Upload to Zenodo\nInvenioRDM API"]
+    O -->|No| GH
     M --> P
     N --> P
-    P --> R["Publish on Zenodo\nInvenioRDM API"]
+    P --> GH{"GitHub assets\nper-file sha256"}
+    GH -->|"Local = Remote"| GH_SKIP["Skip asset"]
+    GH -->|"Local ≠ Remote"| GH_OVER["Prompt overwrite\n--clobber"]
+    GH -->|"No remote"| GH_UP["Upload asset"]
+    GH_SKIP --> T["Persist\narchive dir"]
+    GH_OVER --> T
+    GH_UP --> T
 
-    style Z fill:#f0f0f0,stroke-dasharray:5
-    style A fill:#e1f5ff
-    style E fill:#fff4e1
-    style R fill:#e8f5e9
-    style Q fill:#f3e5f5
+    style S0 fill:#f0f0f0
+    style S1F fill:#ffe0e0
+    style S2a fill:#fff4e1
+    style S5 fill:#e1f5ff
+    style S7 fill:#e1f5ff
+    style S9 fill:#e1f5ff
+    style S11 fill:#e1f5ff
+    style S13 fill:#e1f5ff
+    style GH_UP fill:#e8f5e9
+    style GH_SKIP fill:#f3e5f5
+    style GH_OVER fill:#fff3cd
+    style P fill:#e8f5e9
+    style T fill:#e8f5e9
     style K fill:#f3e5f5
     style L fill:#fff3cd
-    style C fill:#ffe0e0
     style H fill:#fff9e1
     style I fill:#fff9e1
     style J fill:#fff9e1
